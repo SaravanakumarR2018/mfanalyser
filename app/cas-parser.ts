@@ -14,6 +14,17 @@ export type FundTransaction = {
   label: string;
 };
 
+export type FolioHolding = {
+  key: string;
+  label: string;
+  currentValue: number;
+  invested: number;
+  units: number;
+  nav: number;
+  navDate: string;
+  transactions: FundTransaction[];
+};
+
 export type FundHolding = {
   key: string;
   name: string;
@@ -27,6 +38,7 @@ export type FundHolding = {
   navDate: string;
   folios: number;
   transactions: FundTransaction[];
+  folioHoldings: FolioHolding[];
 };
 
 export type Portfolio = {
@@ -50,6 +62,7 @@ type PendingHolding = {
   sectionId: number;
   name: string;
   isin: string;
+  folioLabel: string;
   nav: number;
   navDate: string;
   currentValue: number;
@@ -80,6 +93,12 @@ const cleanNumber = (value: string) => {
 const moneyToPaise = (value: string) => Math.round(cleanNumber(value) * 100);
 
 const fromPaise = (value: number) => value / 100;
+
+const maskFolio = (value: string) => {
+  const cleaned = value.replace(/[^A-Z0-9/-]/gi, "");
+  const suffix = cleaned.slice(-4);
+  return suffix ? `Folio ••••${suffix}` : "Folio";
+};
 
 const parseCasDate = (value: string) => {
   const match = value.match(/(\d{2})-([A-Za-z]{3})-(\d{4})/);
@@ -245,7 +264,7 @@ export async function parseCasFile(
     const rawHoldings: Array<PendingHolding & { units: number; investedPaise: number }> = [];
     const transactions: Array<FundTransaction & { isin: string; sectionId: number }> = [];
     let sectionId = 0;
-    let current = { sectionId: 0, name: "", isin: "" };
+    let current = { sectionId: 0, name: "", isin: "", folioLabel: "" };
     let pending: PendingHolding | null = null;
     const nameByIsin = new Map<string, string>();
 
@@ -260,8 +279,13 @@ export async function parseCasFile(
         const priorName = isin ? nameByIsin.get(isin) : undefined;
         const name = candidate.length > 12 && !candidate.startsWith("Demat") ? candidate : priorName ?? candidate;
         if (isin && name) nameByIsin.set(isin, name);
-        current = { sectionId, name, isin };
+        current = { sectionId, name, isin, folioLabel: "" };
         pending = null;
+      }
+
+      const folioMatch = line.match(/Folio No\s*:\s*([A-Z0-9/-]+)/i);
+      if (folioMatch && current.sectionId) {
+        current = { ...current, folioLabel: maskFolio(folioMatch[1]) };
       }
 
       const navMatch = line.match(/NAV on\s+(\d{2}-[A-Za-z]{3}-\d{4}):\s*INR\s*([\d,]+\.\d+)/i);
@@ -328,9 +352,24 @@ export async function parseCasFile(
     }
 
     const grouped = new Map<string, FundHolding>();
+    const fundKeyBySection = new Map<number, string>();
+    const folioBySection = new Map<number, FolioHolding>();
     for (const holding of rawHoldings) {
       const key = holding.isin || holding.name.toLowerCase();
       const existing = grouped.get(key);
+      const ordinal = (existing?.folioHoldings.length ?? 0) + 1;
+      const folio: FolioHolding = {
+        key: `${key}-${holding.sectionId}`,
+        label: holding.folioLabel || `Folio ${ordinal}`,
+        currentValue: holding.currentValue,
+        invested: fromPaise(holding.investedPaise),
+        units: holding.units,
+        nav: holding.nav,
+        navDate: holding.navDate,
+        transactions: [],
+      };
+      fundKeyBySection.set(holding.sectionId, key);
+      folioBySection.set(holding.sectionId, folio);
       if (existing) {
         existing.currentValue = fromPaise(
           Math.round(existing.currentValue * 100) + Math.round(holding.currentValue * 100),
@@ -340,6 +379,7 @@ export async function parseCasFile(
         );
         existing.units += holding.units;
         existing.folios += 1;
+        existing.folioHoldings.push(folio);
       } else {
         grouped.set(key, {
           key,
@@ -354,19 +394,23 @@ export async function parseCasFile(
           navDate: holding.navDate,
           folios: 1,
           transactions: [],
+          folioHoldings: [folio],
         });
       }
     }
 
     for (const transaction of transactions) {
-      grouped.get(transaction.isin)?.transactions.push({
+      const normalized: FundTransaction = {
         date: transaction.date,
         amount: transaction.amount,
         price: transaction.price,
         units: transaction.units,
         balance: transaction.balance,
         label: transaction.label,
-      });
+      };
+      const key = fundKeyBySection.get(transaction.sectionId) ?? transaction.isin;
+      grouped.get(key)?.transactions.push(normalized);
+      folioBySection.get(transaction.sectionId)?.transactions.push(normalized);
     }
 
     const timeline: TimelinePoint[] = [];
@@ -432,20 +476,37 @@ const demoFunds: FundHolding[] = [
   ["Beacon Value Fund Direct Growth", "INF000A00004", "Beacon", "Value", 438200, 350000, 174.439],
   ["Foundry Gold ETF Fund of Fund", "INF000A00005", "Foundry", "Gold", 322400, 300000, 42.984],
   ["Cedar Mid Cap Direct Growth", "INF000A00006", "Cedar", "Mid cap", 287100, 240000, 109.391],
-].map(([name, isin, fundHouse, category, currentValue, invested, nav], index) => ({
-  key: isin as string,
-  name: name as string,
-  isin: isin as string,
-  fundHouse: fundHouse as string,
-  category: category as string,
-  currentValue: currentValue as number,
-  invested: invested as number,
-  nav: nav as number,
-  units: (currentValue as number) / (nav as number),
-  navDate: "2026-07-31",
-  folios: index === 0 ? 2 : 1,
-  transactions: [],
-}));
+].map(([name, isin, fundHouse, category, currentValue, invested, nav], index) => {
+  const folioCount = index === 0 ? 2 : 1;
+  const folioHoldings: FolioHolding[] = Array.from({ length: folioCount }, (_, folioIndex) => {
+    const share = folioCount === 1 ? 1 : folioIndex === 0 ? 0.62 : 0.38;
+    return {
+      key: `${isin}-${folioIndex + 1}`,
+      label: `Folio ••••${String(4821 + index * 37 + folioIndex * 11).slice(-4)}`,
+      currentValue: (currentValue as number) * share,
+      invested: (invested as number) * share,
+      units: ((currentValue as number) / (nav as number)) * share,
+      nav: nav as number,
+      navDate: "2026-07-31",
+      transactions: [],
+    };
+  });
+  return {
+    key: isin as string,
+    name: name as string,
+    isin: isin as string,
+    fundHouse: fundHouse as string,
+    category: category as string,
+    currentValue: currentValue as number,
+    invested: invested as number,
+    nav: nav as number,
+    units: (currentValue as number) / (nav as number),
+    navDate: "2026-07-31",
+    folios: folioCount,
+    transactions: [],
+    folioHoldings,
+  };
+});
 
 const makeDemoTimeline = () => {
   const points: TimelinePoint[] = [];

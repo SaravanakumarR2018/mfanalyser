@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import PortfolioChart from "./PortfolioChart";
 import {
   demoPortfolio,
   parseCasFile,
+  type FolioHolding,
   type FundHolding,
+  type FundTransaction,
   type Portfolio,
   type TimelinePoint,
 } from "./cas-parser";
@@ -79,7 +81,6 @@ function UploadPanel({ busy, progress, error, passwordMode, password, setPasswor
             <label>
               <span>PDF password</span>
               <input
-                autoFocus
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
@@ -239,11 +240,28 @@ function Landing({ onPortfolio }: { onPortfolio: (portfolio: Portfolio) => void 
   );
 }
 
-function buildFundTimeline(fund: FundHolding): TimelinePoint[] {
+type JourneyHolding = {
+  currentValue: number;
+  invested: number;
+  units: number;
+  nav: number;
+  navDate: string;
+  transactions: FundTransaction[];
+};
+
+type MomentumSignal = {
+  label: "1Y" | "1M";
+  value: number;
+  strong: boolean;
+  yoy: number | null;
+  mom: number | null;
+};
+
+function buildHoldingTimeline(holding: JourneyHolding): TimelinePoint[] {
   const points: TimelinePoint[] = [];
   let units = 0;
   let netInvested = 0;
-  const transactions = [...fund.transactions].sort((a, b) => a.date.localeCompare(b.date));
+  const transactions = [...holding.transactions].sort((a, b) => a.date.localeCompare(b.date));
 
   for (const transaction of transactions) {
     units += transaction.units;
@@ -258,54 +276,159 @@ function buildFundTimeline(fund: FundHolding): TimelinePoint[] {
   }
 
   const exactPoint: TimelinePoint = {
-    date: fund.navDate,
-    invested: fund.invested,
-    value: fund.currentValue,
+    date: holding.navDate,
+    invested: holding.invested,
+    value: holding.currentValue,
     exact: true,
   };
-  if (points.at(-1)?.date === fund.navDate) points[points.length - 1] = exactPoint;
+  if (points.at(-1)?.date === holding.navDate) points[points.length - 1] = exactPoint;
   else points.push(exactPoint);
 
   if (points.length === 1) {
-    const start = new Date(`${fund.navDate}T00:00:00Z`);
+    const start = new Date(`${holding.navDate}T00:00:00Z`);
     start.setUTCFullYear(start.getUTCFullYear() - 1);
     points.unshift({ date: start.toISOString().slice(0, 10), invested: 0, value: 0 });
   }
   return points;
 }
 
-function FundDrawer({ fund, onClose }: { fund: FundHolding; onClose: () => void }) {
-  const gain = fund.currentValue - fund.invested;
-  const returnValue = fund.invested ? (gain / fund.invested) * 100 : 0;
-  const timeline = useMemo(() => buildFundTimeline(fund), [fund]);
+function getMomentum(holding: JourneyHolding): MomentumSignal | null {
+  if (!holding.nav || !holding.navDate) return null;
+  const currentDate = new Date(`${holding.navDate}T00:00:00Z`).getTime();
+  const prices = holding.transactions
+    .filter((transaction) => transaction.price > 0 && transaction.date < holding.navDate)
+    .map((transaction) => ({ date: new Date(`${transaction.date}T00:00:00Z`).getTime(), price: transaction.price }));
+
+  const observedReturn = (months: number, toleranceDays: number) => {
+    const target = new Date(currentDate);
+    target.setUTCMonth(target.getUTCMonth() - months);
+    const nearest = prices.reduce<{ date: number; price: number } | null>((best, point) => {
+      if (!best) return point;
+      return Math.abs(point.date - target.getTime()) < Math.abs(best.date - target.getTime()) ? point : best;
+    }, null);
+    if (!nearest || Math.abs(nearest.date - target.getTime()) > toleranceDays * 86_400_000) return null;
+    return ((holding.nav / nearest.price) - 1) * 100;
+  };
+
+  const yoy = observedReturn(12, 75);
+  const mom = observedReturn(1, 24);
+  if (yoy === null && mom === null) return null;
+  const yoyStrong = yoy !== null && yoy >= 12;
+  const momStrong = mom !== null && mom >= 2;
+  if (momStrong && (!yoyStrong || (mom ?? 0) / 2 > (yoy ?? 0) / 12)) {
+    return { label: "1M", value: mom as number, strong: true, yoy, mom };
+  }
+  if (yoy !== null) return { label: "1Y", value: yoy, strong: yoyStrong, yoy, mom };
+  return { label: "1M", value: mom as number, strong: momStrong, yoy, mom };
+}
+
+function getDownside(points: TimelinePoint[]) {
+  let episodes = 0;
+  let observations = 0;
+  let inDip = false;
+  let worst = 0;
+  for (const point of points) {
+    const drawdown = point.invested > 0 ? ((point.value - point.invested) / point.invested) * 100 : 0;
+    const below = point.invested > 0 && drawdown < -0.25;
+    if (below) {
+      observations += 1;
+      worst = Math.min(worst, drawdown);
+      if (!inDip) episodes += 1;
+    }
+    inDip = below;
+  }
+  return { episodes, observations, worst };
+}
+
+function MomentumBadge({ holding }: { holding: JourneyHolding }) {
+  const momentum = getMomentum(holding);
+  if (!momentum) return <span className="signal-empty">Not enough history</span>;
+  const displayChange = (label: string, value: number) => `${label} ${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
   return (
-    <div className="drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <aside className="fund-drawer" aria-modal="true" role="dialog" aria-labelledby="fund-title">
+    <span className={`momentum-badge ${momentum.strong ? "strong" : momentum.value < 0 ? "weak" : "steady"}`} title={`CAS-observed NAV change. 1Y: ${momentum.yoy === null ? "unavailable" : `${momentum.yoy.toFixed(1)}%`}; 1M: ${momentum.mom === null ? "unavailable" : `${momentum.mom.toFixed(1)}%`}.`}>
+      {momentum.yoy !== null && <strong>{displayChange("YoY", momentum.yoy)}</strong>}
+      {momentum.mom !== null && <strong>{displayChange("MoM", momentum.mom)}</strong>}
+      <small>{momentum.strong ? "Strong" : momentum.value < 0 ? "Cooling" : "Steady"}</small>
+    </span>
+  );
+}
+
+function DownsideBadge({ holding }: { holding: JourneyHolding }) {
+  const downside = getDownside(buildHoldingTimeline(holding));
+  const tone = downside.episodes >= 3 ? "risk" : downside.episodes > 0 ? "watch" : "clear";
+  return (
+    <span className={`downside-badge ${tone}`} title={downside.episodes ? `Value moved below net invested in ${downside.episodes} distinct CAS-observed period${downside.episodes === 1 ? "" : "s"}. Worst observed gap: ${downside.worst.toFixed(1)}%.` : "No CAS-observed period below net invested."}>
+      <i>{tone === "clear" ? "✓" : "↓"}</i>
+      <span><strong>{downside.episodes ? `${downside.episodes} ${downside.episodes === 1 ? "dip" : "dips"}` : "Never"}</strong><small>{tone === "risk" ? "Repeated" : tone === "watch" ? "Below cost" : "Below cost"}</small></span>
+    </span>
+  );
+}
+
+function HoldingDrawer({
+  title,
+  eyebrow,
+  subtitle,
+  holding,
+  onClose,
+  transactionTitle,
+  valueLabel,
+}: {
+  title: string;
+  eyebrow: string;
+  subtitle: string;
+  holding: JourneyHolding;
+  onClose: () => void;
+  transactionTitle: string;
+  valueLabel: string;
+}) {
+  const titleId = useId();
+  const gain = holding.currentValue - holding.invested;
+  const returnValue = holding.invested ? (gain / holding.invested) * 100 : 0;
+  const timeline = useMemo(() => buildHoldingTimeline(holding), [holding]);
+  const momentum = getMomentum(holding);
+  const downside = getDownside(timeline);
+  return (
+    <div className="drawer-backdrop">
+      <button className="drawer-scrim" type="button" onClick={onClose} aria-label="Close holding details" />
+      <aside className="fund-drawer" aria-modal="true" role="dialog" aria-labelledby={titleId}>
         <button className="drawer-close" onClick={onClose} aria-label="Close fund details">×</button>
-        <p className="eyebrow">{fund.category} · {fund.folios} {fund.folios === 1 ? "folio" : "folios"}</p>
-        <h2 id="fund-title">{fund.name}</h2>
-        <p className="drawer-isin">{fund.isin}</p>
-        <div className="drawer-value"><span>Current value</span><strong>{formatMoney(fund.currentValue)}</strong><em className={gain >= 0 ? "positive" : "negative"}>{gain >= 0 ? "+" : ""}{formatMoney(gain)} · {returnValue.toFixed(1)}%</em></div>
+        <p className="eyebrow">{eyebrow}</p>
+        <h2 id={titleId}>{title}</h2>
+        <p className="drawer-isin">{subtitle}</p>
+        <div className="drawer-value"><span>Current value</span><strong>{formatMoney(holding.currentValue)}</strong><em className={gain >= 0 ? "positive" : "negative"}>{gain >= 0 ? "+" : ""}{formatMoney(gain)} · {returnValue.toFixed(1)}%</em></div>
         <div className="drawer-grid">
-          <p><span>Invested</span><strong>{formatMoney(fund.invested)}</strong></p>
-          <p><span>Units</span><strong>{fund.units.toLocaleString("en-IN", { maximumFractionDigits: 3 })}</strong></p>
-          <p><span>Latest NAV</span><strong>{formatMoney(fund.nav, 4)}</strong></p>
-          <p><span>NAV date</span><strong>{formatDate(fund.navDate)}</strong></p>
+          <p><span>Invested</span><strong>{formatMoney(holding.invested)}</strong></p>
+          <p><span>Units</span><strong>{holding.units.toLocaleString("en-IN", { maximumFractionDigits: 3 })}</strong></p>
+          <p><span>Latest NAV</span><strong>{formatMoney(holding.nav, 4)}</strong></p>
+          <p><span>NAV date</span><strong>{formatDate(holding.navDate)}</strong></p>
+        </div>
+        <div className="drawer-signals">
+          <article>
+            <span>Observed momentum</span>
+            <MomentumBadge holding={holding} />
+            <small>{momentum?.strong ? "Strong relative NAV movement" : "Based on transaction-day NAV history"}</small>
+          </article>
+          <article className={downside.episodes >= 3 ? "signal-risk" : downside.episodes ? "signal-watch" : "signal-clear"}>
+            <span>Below invested value</span>
+            <strong>{downside.episodes ? `${downside.episodes} distinct ${downside.episodes === 1 ? "period" : "periods"}` : "Not observed"}</strong>
+            <small>{downside.episodes ? `Worst observed gap ${downside.worst.toFixed(1)}%` : "Value stayed above net invested"}</small>
+          </article>
         </div>
         <PortfolioChart
           points={timeline}
           eyebrow="Fund journey"
           title="Invested vs value"
-          valueLabel="Fund value"
+          valueLabel={valueLabel}
           compact
-          note={fund.transactions.length
-            ? "the final invested amount and value are exact from this fund’s CAS rows. Earlier points use its recorded transaction units and NAVs."
+          showBelowCost
+          note={holding.transactions.length
+            ? "the final invested amount and value are exact from the CAS. Earlier points use this holding’s recorded transaction units and NAVs; highlighted dips are periods below net invested."
             : "the CAS provides the exact current invested amount and value, but did not include usable transaction rows for an earlier history."}
         />
-        <div className="transaction-head"><h3>Statement transactions</h3><span>{fund.transactions.length}</span></div>
-        {fund.transactions.length ? (
+        <div className="transaction-head"><h3>{transactionTitle}</h3><span>{holding.transactions.length}</span></div>
+        {holding.transactions.length ? (
           <div className="transaction-list">
-            {fund.transactions.slice().reverse().slice(0, 12).map((transaction, index) => (
+            {holding.transactions.slice().reverse().slice(0, 12).map((transaction, index) => (
               <div key={`${transaction.date}-${index}`}>
                 <span className={`transaction-icon ${transaction.amount < 0 ? "out" : ""}`}>{transaction.amount < 0 ? "↓" : "↑"}</span>
                 <p><strong>{transaction.label}</strong><small>{formatDate(transaction.date)} · {transaction.units.toLocaleString("en-IN", { maximumFractionDigits: 3 })} units</small></p>
@@ -319,10 +442,40 @@ function FundDrawer({ fund, onClose }: { fund: FundHolding; onClose: () => void 
   );
 }
 
+function FundDrawer({ fund, onClose }: { fund: FundHolding; onClose: () => void }) {
+  return (
+    <HoldingDrawer
+      title={fund.name}
+      eyebrow={`${fund.category} · ${fund.folios} ${fund.folios === 1 ? "folio" : "folios"}`}
+      subtitle={fund.isin}
+      holding={fund}
+      onClose={onClose}
+      transactionTitle="Statement transactions"
+      valueLabel="Fund value"
+    />
+  );
+}
+
+function FolioDrawer({ fund, folio, onClose }: { fund: FundHolding; folio: FolioHolding; onClose: () => void }) {
+  return (
+    <HoldingDrawer
+      title={folio.label}
+      eyebrow={`${fund.category} · ${fund.name}`}
+      subtitle="Masked folio number · visible only in this browser tab"
+      holding={folio}
+      onClose={onClose}
+      transactionTitle="Folio transactions"
+      valueLabel="Folio value"
+    />
+  );
+}
+
 function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () => void }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"value" | "return" | "name">("value");
   const [selected, setSelected] = useState<FundHolding | null>(null);
+  const [selectedFolio, setSelectedFolio] = useState<{ fund: FundHolding; folio: FolioHolding } | null>(null);
+  const [expandedFund, setExpandedFund] = useState<string | null>(null);
   const gain = portfolio.currentValue - portfolio.invested;
   const absoluteReturn = portfolio.invested ? (gain / portfolio.invested) * 100 : 0;
   const activeFolios = portfolio.funds.reduce((total, fund) => total + fund.folios, 0);
@@ -334,11 +487,10 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
   }, [portfolio]);
 
   const conic = useMemo(() => {
-    let start = 0;
-    return allocations.map(([category, value], index) => {
-      const share = (value / portfolio.currentValue) * 100;
+    const shares = allocations.map(([, value]) => (value / portfolio.currentValue) * 100);
+    return shares.map((share, index) => {
+      const start = shares.slice(0, index).reduce((total, prior) => total + prior, 0);
       const segment = `${palette[index % palette.length]} ${start}% ${start + share}%`;
-      start += share;
       return segment;
     }).join(", ");
   }, [allocations, portfolio.currentValue]);
@@ -401,20 +553,64 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
               </select>
             </div>
           </div>
+          <div className="signal-guide">
+            <p><i className="guide-momentum">↗</i><span><strong>YoY / MoM momentum</strong>Uses the nearest transaction-day NAV in the CAS. “Strong” means at least +12% YoY or +2% MoM.</span></p>
+            <p><i className="guide-dip">↓</i><span><strong>Below-cost periods</strong>Counts distinct observed periods where estimated value fell below net invested by more than 0.25%.</span></p>
+          </div>
           <div className="fund-table" role="table" aria-label="Mutual fund holdings">
-            <div className="fund-row table-header" role="row"><span>Fund</span><span>Invested</span><span>Current value</span><span>Gain / loss</span><span>Return</span><span /></div>
+            <div className="fund-row table-header" role="row"><span>Fund</span><span>Invested</span><span>Current value</span><span>Gain / loss</span><span>Return</span><span>Momentum</span><span>Below cost</span><span /></div>
             {filteredFunds.map((fund, index) => {
               const fundGain = fund.currentValue - fund.invested;
               const fundReturn = fund.invested ? (fundGain / fund.invested) * 100 : 0;
+              const expanded = expandedFund === fund.key;
               return (
-                <button className="fund-row" role="row" key={fund.key} onClick={() => setSelected(fund)}>
-                  <span className="fund-name"><i style={{ background: palette[index % palette.length] }}>{fund.fundHouse.slice(0, 2).toUpperCase()}</i><span><strong>{fund.name}</strong><small>{fund.category} · {fund.folios} {fund.folios === 1 ? "folio" : "folios"}</small></span></span>
-                  <span data-label="Invested">{formatMoney(fund.invested)}</span>
-                  <span data-label="Current value"><strong>{formatMoney(fund.currentValue)}</strong></span>
-                  <span data-label="Gain / loss" className={fundGain >= 0 ? "positive" : "negative"}>{fundGain >= 0 ? "+" : ""}{formatMoney(fundGain)}</span>
-                  <span data-label="Return"><em className={fundReturn >= 0 ? "return-pill positive" : "return-pill negative"}>{fundReturn >= 0 ? "↗" : "↘"} {fundReturn.toFixed(1)}%</em></span>
-                  <span className="row-arrow">›</span>
-                </button>
+                <div className={`fund-group ${expanded ? "expanded" : ""}`} key={fund.key}>
+                  <div
+                    className="fund-row"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelected(fund)}
+                    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelected(fund); }}
+                  >
+                    <span className="fund-name"><i style={{ background: palette[index % palette.length] }}>{fund.fundHouse.slice(0, 2).toUpperCase()}</i><span><strong>{fund.name}</strong><small>{fund.category} · {fund.folios} {fund.folios === 1 ? "folio" : "folios"}</small></span></span>
+                    <span data-label="Invested">{formatMoney(fund.invested)}</span>
+                    <span data-label="Current value"><strong>{formatMoney(fund.currentValue)}</strong></span>
+                    <span data-label="Gain / loss" className={fundGain >= 0 ? "positive" : "negative"}>{fundGain >= 0 ? "+" : ""}{formatMoney(fundGain)}</span>
+                    <span data-label="Return"><em className={fundReturn >= 0 ? "return-pill positive" : "return-pill negative"}>{fundReturn >= 0 ? "↗" : "↘"} {fundReturn.toFixed(1)}%</em></span>
+                    <span data-label="Momentum"><MomentumBadge holding={fund} /></span>
+                    <span data-label="Below cost"><DownsideBadge holding={fund} /></span>
+                    <button
+                      className={`row-expand ${expanded ? "open" : ""}`}
+                      aria-label={`${expanded ? "Collapse" : "Expand"} folios for ${fund.name}`}
+                      aria-expanded={expanded}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setExpandedFund(expanded ? null : fund.key);
+                      }}
+                    >⌄</button>
+                  </div>
+                  {expanded && (
+                    <div className="folio-panel" role="group" aria-label={`Folios for ${fund.name}`}>
+                      <div className="folio-panel-head"><span>{fund.folioHoldings.length} {fund.folioHoldings.length === 1 ? "folio" : "folios"}</span><p>Select a folio to open its own invested-vs-value graph.</p></div>
+                      {fund.folioHoldings.map((folio) => {
+                        const folioGain = folio.currentValue - folio.invested;
+                        const folioReturn = folio.invested ? (folioGain / folio.invested) * 100 : 0;
+                        return (
+                          <button className="folio-row" key={folio.key} onClick={() => setSelectedFolio({ fund, folio })}>
+                            <span className="folio-name"><i>F</i><span><strong>{folio.label}</strong><small>{folio.currentValue > 0 ? `${folio.transactions.length} transactions` : "Closed / zero balance"}</small></span></span>
+                            <span data-label="Invested">{formatMoney(folio.invested)}</span>
+                            <span data-label="Current value"><strong>{formatMoney(folio.currentValue)}</strong></span>
+                            <span data-label="Gain / loss" className={folioGain >= 0 ? "positive" : "negative"}>{folioGain >= 0 ? "+" : ""}{formatMoney(folioGain)}</span>
+                            <span data-label="Return"><em className={folioReturn >= 0 ? "return-pill positive" : "return-pill negative"}>{folioReturn >= 0 ? "↗" : "↘"} {folioReturn.toFixed(1)}%</em></span>
+                            <span data-label="Momentum"><MomentumBadge holding={folio} /></span>
+                            <span data-label="Below cost"><DownsideBadge holding={folio} /></span>
+                            <span className="row-arrow">›</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               );
             })}
             {!filteredFunds.length && <div className="no-results">No funds match “{query}”.</div>}
@@ -442,6 +638,7 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
         <footer className="dashboard-footer"><Brand /><p>Your statement was processed locally and is not stored by FolioVista.</p><span>For tracking only · Not investment advice</span></footer>
       </div>
       {selected && <FundDrawer fund={selected} onClose={() => setSelected(null)} />}
+      {selectedFolio && <FolioDrawer fund={selectedFolio.fund} folio={selectedFolio.folio} onClose={() => setSelectedFolio(null)} />}
     </main>
   );
 }

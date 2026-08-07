@@ -10,6 +10,7 @@ type PortfolioChartProps = {
   valueLabel?: string;
   note?: string;
   compact?: boolean;
+  showBelowCost?: boolean;
 };
 
 const compactMoney = (value: number) => {
@@ -37,6 +38,7 @@ export default function PortfolioChart({
   valueLabel = "Portfolio value",
   note = "the current endpoint is exact from your statement. Earlier values use transaction-day NAVs recorded in the CAS and carry the last observed NAV between transactions.",
   compact = false,
+  showBelowCost = false,
 }: PortfolioChartProps) {
   const headingId = useId();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -45,10 +47,6 @@ export default function PortfolioChart({
   const [range, setRange] = useState<[number, number]>([0, Math.max(1, points.length - 1)]);
   const [hovered, setHovered] = useState<number | null>(null);
   const [animate, setAnimate] = useState(0);
-
-  useEffect(() => {
-    setRange([0, Math.max(1, points.length - 1)]);
-  }, [points]);
 
   useEffect(() => {
     let frame = 0;
@@ -173,6 +171,36 @@ export default function PortfolioChart({
     drawLine("invested", "#95A099", true);
     drawLine("value", "#1D9D61");
 
+    if (showBelowCost) {
+      context.save();
+      context.strokeStyle = "#D65E4B";
+      context.lineWidth = 3.4;
+      context.lineJoin = "round";
+      context.lineCap = "round";
+      for (let index = 1; index < visible.length; index += 1) {
+        const previous = visible[index - 1];
+        const current = visible[index];
+        const previousGap = previous.value - previous.invested;
+        const currentGap = current.value - current.invested;
+        if (previousGap >= 0 && currentGap >= 0) continue;
+
+        let startRatio = 0;
+        let endRatio = 1;
+        const crossingRatio = previousGap === currentGap ? 0 : -previousGap / (currentGap - previousGap);
+        if (previousGap >= 0) startRatio = Math.max(0, Math.min(1, crossingRatio));
+        if (currentGap >= 0) endRatio = Math.max(0, Math.min(1, crossingRatio));
+        const startX = xFor(index - 1) + (xFor(index) - xFor(index - 1)) * startRatio;
+        const endX = xFor(index - 1) + (xFor(index) - xFor(index - 1)) * endRatio;
+        const startValue = previous.value + (current.value - previous.value) * startRatio;
+        const endValue = previous.value + (current.value - previous.value) * endRatio;
+        context.beginPath();
+        context.moveTo(startX, yFor(startValue));
+        context.lineTo(endX, yFor(endValue));
+        context.stroke();
+      }
+      context.restore();
+    }
+
     const labelCount = width < 560 ? 3 : 5;
     context.fillStyle = "#728078";
     context.textAlign = "center";
@@ -198,7 +226,7 @@ export default function PortfolioChart({
       context.fill();
       context.stroke();
     }
-  }, [animate, compact, hovered, visible]);
+  }, [animate, compact, hovered, showBelowCost, visible]);
 
   useEffect(() => {
     draw();
@@ -227,6 +255,20 @@ export default function PortfolioChart({
   };
 
   const hoverPoint = hovered !== null ? visible[hovered] : null;
+  const tooltipStyle = useMemo(() => {
+    if (!hoverPoint || hovered === null) return undefined;
+    const height = compact ? 278 : 360;
+    const max = Math.max(...visible.flatMap((point) => [point.value, point.invested])) * 1.12;
+    const min = Math.min(...visible.flatMap((point) => [point.value, point.invested])) * 0.86;
+    const pointY = 24 + ((max - hoverPoint.value) / Math.max(1, max - min)) * (height - 62);
+    const ratio = hovered / Math.max(1, visible.length - 1);
+    const placeRight = ratio < 0.54;
+    return {
+      left: `${Math.max(4, Math.min(96, ratio * 100 + (placeRight ? 2.5 : -2.5)))}%`,
+      top: `${pointY < height * 0.48 ? pointY + 18 : pointY - 82}px`,
+      transform: placeRight ? "translateX(0)" : "translateX(-100%)",
+    };
+  }, [compact, hoverPoint, hovered, visible]);
 
   return (
     <section className={`chart-card ${compact ? "fund-journey-card" : ""}`} aria-labelledby={headingId}>
@@ -251,11 +293,12 @@ export default function PortfolioChart({
       <div className="chart-legend">
         <span><i className="legend-dot value" />{valueLabel}</span>
         <span><i className="legend-line" />Net invested</span>
+        {showBelowCost && <span><i className="legend-line below" />Below invested</span>}
         <span className="chart-hint">Scroll to zoom · drag to pan</span>
       </div>
       <div
         ref={shellRef}
-        className={`chart-shell ${dragRef.current ? "dragging" : ""}`}
+        className="chart-shell"
         onWheel={(event) => {
           event.preventDefault();
           zoom(event.deltaY > 0 ? "out" : "in");
@@ -282,7 +325,7 @@ export default function PortfolioChart({
           aria-label={`${valueLabel} chart from ${prettyDate(visible[0]?.date ?? points[0]?.date)} to ${prettyDate(visible.at(-1)?.date ?? points.at(-1)?.date)}`}
         />
         {hoverPoint && (
-          <div className="chart-tooltip" style={{ left: `${Math.max(14, Math.min(76, ((hovered ?? 0) / Math.max(1, visible.length - 1)) * 100))}%` }}>
+          <div className="chart-tooltip" style={tooltipStyle}>
             <span>{prettyDate(hoverPoint.date)}{hoverPoint.exact ? " · Statement value" : ""}</span>
             <strong>{fullMoney(hoverPoint.value)}</strong>
             <small>Invested {fullMoney(hoverPoint.invested)}</small>
