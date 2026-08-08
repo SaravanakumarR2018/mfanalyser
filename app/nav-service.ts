@@ -141,6 +141,11 @@ type HistoryLoadProgress = {
   incomplete: number;
 };
 
+export type NavHistoryProgress = {
+  completed: number;
+  total: number;
+};
+
 async function loadDailyHistories(
   holdings: Array<{
     key: string;
@@ -152,6 +157,7 @@ async function loadDailyHistories(
   }>,
   valuationDate: string,
   signal?: AbortSignal,
+  onProgress?: (progress: NavHistoryProgress) => void,
 ) {
   const candidates = holdings.filter((holding) => holding.transactions.some((item) => item.date));
   const targetByScheme = new Map<string, HistoryTarget>();
@@ -180,6 +186,9 @@ async function loadDailyHistories(
   const targets = [...targetByScheme.values()];
   const historyByKey = new Map<string, HistoricalNavPoint[]>();
   const incompleteSchemes = new Set<string>();
+  const requestable = targets.reduce((total, target) => total + target.keys.length, 0);
+  let completed = Math.max(0, candidates.length - requestable);
+  onProgress?.({ completed, total: candidates.length });
   for (let cursor = 0; cursor < targets.length; cursor += HISTORY_CONCURRENCY) {
     const batch = targets.slice(cursor, cursor + HISTORY_CONCURRENCY);
     await Promise.all(batch.map(async (target) => {
@@ -203,6 +212,9 @@ async function loadDailyHistories(
       } catch (error) {
         if (signal?.aborted) throw error;
         incompleteSchemes.add(target.schemeCode);
+      } finally {
+        completed += target.keys.length;
+        onProgress?.({ completed: Math.min(completed, candidates.length), total: candidates.length });
       }
     }));
     if (cursor + HISTORY_CONCURRENCY < targets.length) await wait(HISTORY_BATCH_PAUSE_MS);
@@ -350,6 +362,7 @@ const applyDailyHistories = (
 export async function refreshWithDailyHistory(
   portfolio: Portfolio,
   signal?: AbortSignal,
+  onProgress?: (progress: NavHistoryProgress) => void,
 ): Promise<Portfolio> {
   if (portfolio.source === "demo" || !portfolio.navHistoryLoading) return portfolio;
   try {
@@ -357,6 +370,7 @@ export async function refreshWithDailyHistory(
       [...portfolio.funds, ...portfolio.closedFunds],
       portfolio.valuationDate,
       signal,
+      onProgress,
     );
     return applyDailyHistories(portfolio, history, false);
   } catch (error) {

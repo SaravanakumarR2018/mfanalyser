@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { FundTransaction, HistoricalNavPoint } from "./cas-parser";
+import { formatInr } from "./formatters";
 import { buildNavPoints, type NavActivityPoint } from "./nav-activity-service";
 
 type NavActivityChartProps = {
@@ -21,13 +22,7 @@ const compactDate = (date: string) =>
   new Intl.DateTimeFormat("en-IN", { month: "short", year: "2-digit" })
     .format(new Date(`${date}T00:00:00Z`));
 
-const formatMoney = (value: number, digits = 0) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  }).format(value);
+const formatMoney = formatInr;
 
 export default function NavActivityChart({ transactions, navHistory, nav, navDate, liveNav }: NavActivityChartProps) {
   const titleId = useId();

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { buildNavPoints } from "../app/nav-activity-service.ts";
+import { formatInr } from "../app/formatters.ts";
 import { historyRange, mirrorDateToIso } from "../app/nav-history-utils.ts";
 import {
   addDailyPortfolioPoints,
@@ -25,6 +26,12 @@ const transaction = (
   balance,
   holdingKey,
   label: amount < 0 ? "Redemption" : "Purchase",
+});
+
+test("graph tooltip amounts use Indian digit grouping", () => {
+  assert.equal(formatInr(5_000), "₹5,000");
+  assert.equal(formatInr(20_223_264), "₹2,02,23,264");
+  assert.equal(formatInr(1234.5678, 4), "₹1,234.5678");
 });
 
 test("daily normalization retains every real published NAV date", () => {

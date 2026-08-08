@@ -14,7 +14,7 @@ import {
   type Portfolio,
   type TimelinePoint,
 } from "./cas-parser";
-import { refreshWithDailyHistory, refreshWithLatestNav } from "./nav-service";
+import { refreshWithDailyHistory, refreshWithLatestNav, type NavHistoryProgress } from "./nav-service";
 import { buildHoldingTimeline } from "./timeline-service";
 
 const formatMoney = (value: number, decimals = 0) =>
@@ -584,7 +584,44 @@ function ClosedFunds({ funds }: { funds: ClosedFund[] }) {
   );
 }
 
-function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () => void }) {
+type HistoryProgressState = NavHistoryProgress & { complete?: boolean };
+
+function HistoryProgressToast({ progress }: { progress: HistoryProgressState }) {
+  const percentage = progress.total
+    ? Math.min(100, Math.round((progress.completed / progress.total) * 100))
+    : 100;
+  return (
+    <aside
+      className={`history-progress-toast ${progress.complete ? "complete" : ""}`}
+      role="status"
+      aria-live="polite"
+      aria-label={`Daily NAV history ${percentage}% loaded`}
+    >
+      <div className="history-progress-heading">
+        <span className="history-progress-pulse" aria-hidden="true" />
+        <p>
+          <strong>{progress.complete ? "Daily history is ready" : "Current values are ready"}</strong>
+          <small>{progress.complete ? "All available NAV dates loaded" : "Loading published daily NAV history"}</small>
+        </p>
+        <b>{percentage}%</b>
+      </div>
+      <div className="history-progress-track" aria-hidden="true">
+        <i style={{ width: `${percentage}%` }} />
+      </div>
+      <span>{Math.min(progress.completed, progress.total)} of {progress.total} fund histories processed</span>
+    </aside>
+  );
+}
+
+function Dashboard({
+  portfolio,
+  onReset,
+  historyProgress,
+}: {
+  portfolio: Portfolio;
+  onReset: () => void;
+  historyProgress: HistoryProgressState | null;
+}) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"value" | "return" | "name">("value");
   const [selectedFundKey, setSelectedFundKey] = useState<string | null>(null);
@@ -776,6 +813,7 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
 
         <footer className="dashboard-footer"><Brand /><p>Your statement was processed locally and is not stored by FolioVista.</p><span>For tracking only · Not investment advice</span></footer>
       </div>
+      {historyProgress && <HistoryProgressToast progress={historyProgress} />}
       {selected && <FundDrawer fund={selected} onClose={() => setSelectedFundKey(null)} />}
       {selectedFolioFund && selectedFolio && <FolioDrawer fund={selectedFolioFund} folio={selectedFolio} onClose={() => setSelectedFolioKey(null)} />}
     </main>
@@ -784,28 +822,50 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
 
 export default function FolioVista() {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
+  const [historyProgress, setHistoryProgress] = useState<HistoryProgressState | null>(null);
   const importSequence = useRef(0);
   const historyRequest = useRef<AbortController | null>(null);
-  useEffect(() => () => historyRequest.current?.abort(), []);
+  const progressDismissTimer = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+  useEffect(() => () => {
+    historyRequest.current?.abort();
+    if (progressDismissTimer.current) globalThis.clearTimeout(progressDismissTimer.current);
+  }, []);
   const acceptPortfolio = (next: Portfolio) => {
     historyRequest.current?.abort();
+    if (progressDismissTimer.current) globalThis.clearTimeout(progressDismissTimer.current);
     const sequence = importSequence.current + 1;
     importSequence.current = sequence;
     setPortfolio(next);
+    const historyTotal = next.navHistoryCoverage?.total ?? 0;
+    setHistoryProgress(next.navHistoryLoading && historyTotal > 0
+      ? { completed: 0, total: historyTotal }
+      : null);
     if (!next.navHistoryLoading) return;
     const controller = new AbortController();
     historyRequest.current = controller;
-    void refreshWithDailyHistory(next, controller.signal).then((enriched) => {
-      if (importSequence.current === sequence) setPortfolio(enriched);
+    void refreshWithDailyHistory(next, controller.signal, (progress) => {
+      if (importSequence.current === sequence) setHistoryProgress(progress);
+    }).then((enriched) => {
+      if (importSequence.current !== sequence) return;
+      setPortfolio(enriched);
+      setHistoryProgress(historyTotal > 0
+        ? { completed: historyTotal, total: historyTotal, complete: true }
+        : null);
+      progressDismissTimer.current = globalThis.setTimeout(() => {
+        if (importSequence.current === sequence) setHistoryProgress(null);
+      }, 650);
     });
   };
   const resetPortfolio = () => {
     historyRequest.current?.abort();
     historyRequest.current = null;
+    if (progressDismissTimer.current) globalThis.clearTimeout(progressDismissTimer.current);
+    progressDismissTimer.current = null;
     importSequence.current += 1;
     setPortfolio(null);
+    setHistoryProgress(null);
   };
   return portfolio
-    ? <Dashboard portfolio={portfolio} onReset={resetPortfolio} />
+    ? <Dashboard portfolio={portfolio} onReset={resetPortfolio} historyProgress={historyProgress} />
     : <Landing onPortfolio={acceptPortfolio} />;
 }

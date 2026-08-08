@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { TimelinePoint } from "./cas-parser";
+import { formatInr } from "./formatters";
 
 type PortfolioChartProps = {
   points: TimelinePoint[];
@@ -22,12 +23,7 @@ const compactMoney = (value: number) => {
   return `₹${Math.round(value)}`;
 };
 
-const fullMoney = (value: number) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(value);
+const fullMoney = (value: number) => formatInr(value);
 
 const prettyDate = (date: string) =>
   new Intl.DateTimeFormat("en-IN", { month: "short", year: "numeric" }).format(new Date(`${date}T00:00:00Z`));
