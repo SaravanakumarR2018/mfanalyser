@@ -7,7 +7,7 @@ import { buildNavPoints, type NavActivityPoint } from "./nav-activity-service";
 
 type NavActivityChartProps = {
   transactions: FundTransaction[];
-  weeklyNav?: HistoricalNavPoint[];
+  navHistory?: HistoricalNavPoint[];
   nav: number;
   navDate: string;
   liveNav?: boolean;
@@ -29,13 +29,13 @@ const formatMoney = (value: number, digits = 0) =>
     maximumFractionDigits: digits,
   }).format(value);
 
-export default function NavActivityChart({ transactions, weeklyNav, nav, navDate, liveNav }: NavActivityChartProps) {
+export default function NavActivityChart({ transactions, navHistory, nav, navDate, liveNav }: NavActivityChartProps) {
   const titleId = useId();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const allPoints = useMemo(
-    () => buildNavPoints(transactions, weeklyNav, nav, navDate),
-    [nav, navDate, transactions, weeklyNav],
+    () => buildNavPoints(transactions, navHistory, nav, navDate),
+    [nav, navDate, transactions, navHistory],
   );
   const [period, setPeriod] = useState<12 | 36 | "all" | null>("all");
   const [range, setRange] = useState<[number, number]>([0, Math.max(1, allPoints.length - 1)]);
@@ -255,9 +255,9 @@ export default function NavActivityChart({ transactions, weeklyNav, nav, navDate
   };
 
   const hoverPoint = hovered !== null ? points[hovered] : null;
-  const transactionNavSuffix = hoverPoint?.weeklyNav
+  const transactionNavSuffix = hoverPoint?.publishedNav
     && hoverPoint.transactionNav
-    && Math.abs(hoverPoint.weeklyNav - hoverPoint.transactionNav) > 0.000001
+    && Math.abs(hoverPoint.publishedNav - hoverPoint.transactionNav) > 0.000001
     ? ` · Tx NAV ${formatMoney(hoverPoint.transactionNav, 4)}`
     : "";
   return (
@@ -271,7 +271,7 @@ export default function NavActivityChart({ transactions, weeklyNav, nav, navDate
         </div>
       </div>
       <div className="nav-activity-legend">
-        <span><i className="nav-line-key" />Actual weekly NAV</span>
+        <span><i className="nav-line-key" />Actual daily NAV</span>
         <span><i className="investment-key" />CAS investment</span>
       </div>
       {points.length ? (
@@ -289,7 +289,7 @@ export default function NavActivityChart({ transactions, weeklyNav, nav, navDate
             role="img"
             data-total-points={allPoints.length}
             data-visible-points={points.length}
-            data-weekly-points={allPoints.filter((point) => point.weekly).length}
+            data-daily-points={allPoints.filter((point) => point.daily).length}
             data-transaction-points={allPoints.filter((point) => point.transaction).length}
             data-investment-points={allPoints.filter((point) => point.investedAmount > 0).length}
             aria-label={`Observed NAV and investment dates from ${formatDate(points[0].date)} to ${formatDate(points.at(-1)?.date ?? points[0].date)}`}
@@ -298,9 +298,9 @@ export default function NavActivityChart({ transactions, weeklyNav, nav, navDate
             <div className="nav-activity-tooltip" style={tooltipStyle}>
               <span className="tooltip-date">
                 {formatDate(hoverPoint.date)}
-                <span className="tooltip-flags" aria-label={[hoverPoint.investedAmount > 0 && "CAS investment", hoverPoint.weekly && "Weekly NAV observation", hoverPoint.latest && (liveNav ? "Latest AMFI NAV" : "Statement NAV")].filter(Boolean).join(", ")}>
+                <span className="tooltip-flags" aria-label={[hoverPoint.investedAmount > 0 && "CAS investment", hoverPoint.daily && "Daily NAV observation", hoverPoint.latest && (liveNav ? "Latest AMFI NAV" : "Statement NAV")].filter(Boolean).join(", ")}>
                   {hoverPoint.investedAmount > 0 && <i className="tooltip-flag transaction" title="CAS investment">◆</i>}
-                  {hoverPoint.weekly && <i className="tooltip-flag weekly" title="Weekly AMFI NAV">●</i>}
+                  {hoverPoint.daily && <i className="tooltip-flag daily" title="Daily AMFI NAV">●</i>}
                   {hoverPoint.latest && <i className="tooltip-flag live" title={liveNav ? "Latest AMFI NAV" : "Statement NAV"}>{liveNav ? "L" : "S"}</i>}
                 </span>
               </span>
@@ -310,7 +310,7 @@ export default function NavActivityChart({ transactions, weeklyNav, nav, navDate
                   ? hoverPoint.investedAmount > 0
                     ? `Purchased ${formatMoney(hoverPoint.investedAmount)}`
                     : `${hoverPoint.transactionAmount < 0 ? "Redeemed" : "Transaction"} ${formatMoney(Math.abs(hoverPoint.transactionAmount))}`
-                  : "Official weekly NAV"}</span>
+                  : "Official daily NAV"}</span>
                 {hoverPoint.transactionCount > 1 && <span>{hoverPoint.transactionCount} entries</span>}
                 {transactionNavSuffix && <span>{transactionNavSuffix.replace(" · ", "")}</span>}
               </small>
@@ -357,7 +357,7 @@ export default function NavActivityChart({ transactions, weeklyNav, nav, navDate
           </div>
         </div>
       )}
-      <p className="nav-activity-note">The line follows the last actual AMFI NAV published in each calendar week. Green diamonds retain exact CAS purchase dates and invested amounts. Missing weeks are skipped; connecting lines do not create NAV observations.</p>
+      <p className="nav-activity-note">The line follows every actual AMFI NAV publication date. Green diamonds retain exact CAS purchase dates and invested amounts. Missing dates are skipped; connecting lines do not create NAV observations.</p>
     </section>
   );
 }

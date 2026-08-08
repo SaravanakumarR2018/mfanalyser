@@ -8,20 +8,20 @@ export type NavActivityPoint = {
   transactionAmount: number;
   transactionCount: number;
   transaction?: boolean;
-  weekly?: boolean;
+  daily?: boolean;
   latest?: boolean;
-  weeklyNav?: number;
+  publishedNav?: number;
   transactionNav?: number;
 };
 
 export function buildNavPoints(
   transactions: FundTransaction[],
-  weeklyNav: HistoricalNavPoint[] | undefined,
+  navHistory: HistoricalNavPoint[] | undefined,
   nav: number,
   navDate: string,
 ): NavActivityPoint[] {
   const byDate = new Map<string, NavActivityPoint>();
-  for (const observation of weeklyNav ?? []) {
+  for (const observation of navHistory ?? []) {
     if (!observation.date || !Number.isFinite(observation.nav) || observation.nav <= 0) continue;
     byDate.set(observation.date, {
       date: observation.date,
@@ -30,8 +30,8 @@ export function buildNavPoints(
       investmentCount: 0,
       transactionAmount: 0,
       transactionCount: 0,
-      weekly: true,
-      weeklyNav: observation.nav,
+      daily: true,
+      publishedNav: observation.nav,
     });
   }
   for (const transaction of [...transactions].sort((left, right) => left.date.localeCompare(right.date))) {
@@ -40,14 +40,14 @@ export function buildNavPoints(
     const purchase = transaction.amount > 0 && transaction.units > 0 ? transaction.amount : 0;
     byDate.set(transaction.date, {
       date: transaction.date,
-      nav: existing?.weeklyNav ?? transaction.price,
+      nav: existing?.publishedNav ?? transaction.price,
       investedAmount: (existing?.investedAmount ?? 0) + purchase,
       investmentCount: (existing?.investmentCount ?? 0) + (purchase > 0 ? 1 : 0),
       transactionAmount: (existing?.transactionAmount ?? 0) + transaction.amount,
       transactionCount: (existing?.transactionCount ?? 0) + 1,
       transaction: true,
-      weekly: existing?.weekly,
-      weeklyNav: existing?.weeklyNav,
+      daily: existing?.daily,
+      publishedNav: existing?.publishedNav,
       transactionNav: transaction.price,
       latest: existing?.latest,
     });
@@ -63,8 +63,8 @@ export function buildNavPoints(
       transactionAmount: existing?.transactionAmount ?? 0,
       transactionCount: existing?.transactionCount ?? 0,
       transaction: existing?.transaction,
-      weekly: existing?.weekly,
-      weeklyNav: existing?.weeklyNav,
+      daily: existing?.daily,
+      publishedNav: existing?.publishedNav,
       transactionNav: existing?.transactionNav,
       latest: true,
     });

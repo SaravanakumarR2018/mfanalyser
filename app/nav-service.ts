@@ -1,6 +1,6 @@
 import type { HistoricalNavPoint, Portfolio, TimelinePoint } from "./cas-parser";
 import { historyRange, mirrorDateToIso } from "./nav-history-utils";
-import { addWeeklyPortfolioPoints, sampleWeeklyNav } from "./timeline-service";
+import { addDailyPortfolioPoints, normalizePublishedNav } from "./timeline-service";
 
 type NavRecord = {
   schemeCode: string;
@@ -112,7 +112,8 @@ async function fetchSchemeHistory(
           points.push({ date: record.date, nav });
         }
       }
-      return { points: sampleWeeklyNav(points), complete: points.length > 0 };
+      const publishedPoints = normalizePublishedNav(points);
+      return { points: publishedPoints, complete: publishedPoints.length > 0 };
     } catch (error) {
       lastError = error;
       if (parentSignal?.aborted) throw error;
@@ -140,7 +141,7 @@ type HistoryLoadProgress = {
   incomplete: number;
 };
 
-async function loadWeeklyHistories(
+async function loadDailyHistories(
   holdings: Array<{
     key: string;
     schemeCode?: string;
@@ -308,61 +309,61 @@ export async function refreshWithLatestNav(portfolio: Portfolio): Promise<Portfo
       navCoverage: { updated: 0, total: portfolio.funds.length },
       navHistoryCoverage: { updated: 0, total: portfolio.funds.length },
       navHistoryLoading: false,
-      navHistoryError: "Weekly NAV history requires a successful AMFI scheme match.",
+      navHistoryError: "Daily NAV history requires a successful AMFI scheme match.",
       liveUpdateError: error instanceof Error ? error.message : "Live NAVs could not be loaded.",
     };
   }
 }
 
-const applyWeeklyHistories = (
+const applyDailyHistories = (
   portfolio: Portfolio,
   progress: HistoryLoadProgress,
   loading: boolean,
 ) => {
   const funds = portfolio.funds.map((fund) => {
-    const weeklyNav = progress.historyByKey.get(fund.key);
-    if (!weeklyNav) return fund;
+    const navHistory = progress.historyByKey.get(fund.key);
+    if (!navHistory) return fund;
     return {
       ...fund,
-      weeklyNav,
-      folioHoldings: fund.folioHoldings.map((folio) => ({ ...folio, weeklyNav })),
+      navHistory,
+      folioHoldings: fund.folioHoldings.map((folio) => ({ ...folio, navHistory })),
     };
   });
   const closedFunds = portfolio.closedFunds.map((fund) => ({
     ...fund,
-    weeklyNav: progress.historyByKey.get(fund.key),
+    navHistory: progress.historyByKey.get(fund.key),
   }));
   const missing = Math.max(progress.total - progress.updated, progress.incomplete);
   return {
     ...portfolio,
     funds,
     closedFunds,
-    timeline: addWeeklyPortfolioPoints(portfolio.timeline, funds, closedFunds),
+    timeline: addDailyPortfolioPoints(portfolio.timeline, funds, closedFunds),
     navHistoryCoverage: { updated: progress.updated, total: progress.total },
     navHistoryLoading: loading,
     navHistoryError: !loading && missing > 0
-      ? `Official weekly NAV history was incomplete for ${missing} scheme${missing === 1 ? "" : "s"}; no values were estimated for missing weeks.`
+      ? `Official daily NAV history was incomplete for ${missing} scheme${missing === 1 ? "" : "s"}; no values were estimated for missing dates.`
       : undefined,
   };
 };
 
-export async function refreshWithWeeklyHistory(
+export async function refreshWithDailyHistory(
   portfolio: Portfolio,
   signal?: AbortSignal,
 ): Promise<Portfolio> {
   if (portfolio.source === "demo" || !portfolio.navHistoryLoading) return portfolio;
   try {
-    const history = await loadWeeklyHistories(
+    const history = await loadDailyHistories(
       [...portfolio.funds, ...portfolio.closedFunds],
       portfolio.valuationDate,
       signal,
     );
-    return applyWeeklyHistories(portfolio, history, false);
+    return applyDailyHistories(portfolio, history, false);
   } catch (error) {
     return {
       ...portfolio,
       navHistoryLoading: false,
-      navHistoryError: error instanceof Error ? error.message : "Weekly AMFI history could not be loaded.",
+      navHistoryError: error instanceof Error ? error.message : "Daily AMFI history could not be loaded.",
     };
   }
 }

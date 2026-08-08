@@ -40,7 +40,7 @@ export default function PortfolioChart({
   eyebrow = "Portfolio journey",
   title = "Value over time",
   valueLabel = "Portfolio value",
-  note = "weekly points use the last actual AMFI NAV published in each week. CAS transaction dates remain exact, and missing weeks are skipped rather than estimated.",
+  note = "daily points use actual published AMFI NAV observations. CAS transaction dates remain exact, and missing dates are skipped rather than estimated.",
   compact = false,
   showBelowCost = false,
 }: PortfolioChartProps) {
@@ -363,7 +363,7 @@ export default function PortfolioChart({
       <div className="chart-legend">
         <span><i className="legend-dot value" />{valueLabel}</span>
         <span><i className="legend-line" />Net invested</span>
-        <span><i className="legend-line weekly" />Weekly NAV values</span>
+        <span><i className="legend-line daily" />Daily NAV values</span>
         <span><i className="legend-point transaction" />CAS investment</span>
         {showBelowCost && <span><i className="legend-line below" />Below invested</span>}
         <span className="chart-hint">Use period buttons or the range slider to change the timeline</span>
@@ -382,7 +382,7 @@ export default function PortfolioChart({
           role="img"
           data-total-points={points.length}
           data-visible-points={visible.length}
-          data-weekly-points={points.filter((point) => point.weekly).length}
+          data-daily-points={points.filter((point) => point.daily).length}
           data-transaction-points={points.filter((point) => point.transaction).length}
           data-investment-points={points.filter((point) => point.transaction && (point.transactionAmount ?? 0) > 0).length}
           aria-label={`${valueLabel} chart from ${prettyDate(visible[0]?.date ?? points[0]?.date)} to ${prettyDate(visible.at(-1)?.date ?? points.at(-1)?.date)}`}
@@ -391,9 +391,9 @@ export default function PortfolioChart({
           <div className="chart-tooltip" style={tooltipStyle}>
             <span className="tooltip-date">
               {fullDate(hoverPoint.date)}
-              <span className="tooltip-flags" aria-label={[hoverPoint.transaction && (hoverPoint.transactionAmount ?? 0) > 0 && "CAS investment", hoverPoint.weekly && "Weekly NAV observation", hoverPoint.live && "Latest AMFI NAV", hoverPoint.exact && "Statement value"].filter(Boolean).join(", ")}>
+              <span className="tooltip-flags" aria-label={[hoverPoint.transaction && (hoverPoint.transactionAmount ?? 0) > 0 && "CAS investment", hoverPoint.daily && "Daily NAV observation", hoverPoint.live && "Latest AMFI NAV", hoverPoint.exact && "Statement value"].filter(Boolean).join(", ")}>
                 {hoverPoint.transaction && (hoverPoint.transactionAmount ?? 0) > 0 && <i className="tooltip-flag transaction" title="CAS investment">◆</i>}
-                {hoverPoint.weekly && <i className="tooltip-flag weekly" title="Weekly AMFI NAV">●</i>}
+                {hoverPoint.daily && <i className="tooltip-flag daily" title="Daily AMFI NAV">●</i>}
                 {hoverPoint.live && <i className="tooltip-flag live" title="Latest AMFI NAV">L</i>}
                 {hoverPoint.exact && !hoverPoint.live && <i className="tooltip-flag exact" title="Statement value">S</i>}
               </span>
@@ -402,7 +402,7 @@ export default function PortfolioChart({
             <small>Invested {fullMoney(hoverPoint.invested)}{hoverPoint.nav ? ` · NAV ${hoverPoint.nav.toFixed(4)}` : ""}</small>
             <small>{hoverPoint.transaction
               ? `Transaction ${(hoverPoint.transactionAmount ?? 0) >= 0 ? "+" : "−"}${fullMoney(Math.abs(hoverPoint.transactionAmount ?? 0))}${(hoverPoint.transactionCount ?? 0) > 1 ? ` · ${hoverPoint.transactionCount} entries` : ""}`
-              : hoverPoint.weekly ? "Official weekly valuation" : "Observed portfolio value"}</small>
+              : hoverPoint.daily ? "Official daily valuation" : "Observed portfolio value"}</small>
           </div>
         )}
       </div>

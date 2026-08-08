@@ -14,27 +14,20 @@ type TimelineHolding = {
   nav: number;
   navDate: string;
   liveNav?: boolean;
-  weeklyNav?: HistoricalNavPoint[];
+  navHistory?: HistoricalNavPoint[];
   transactions: FundTransaction[];
   folioHoldings?: FolioHolding[];
 };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-export const weekKey = (date: string) => {
-  const value = new Date(`${date}T00:00:00Z`);
-  const mondayOffset = (value.getUTCDay() + 6) % 7;
-  value.setUTCDate(value.getUTCDate() - mondayOffset);
-  return value.toISOString().slice(0, 10);
-};
-
-export function sampleWeeklyNav(points: HistoricalNavPoint[]) {
-  const latestByWeek = new Map<string, HistoricalNavPoint>();
-  for (const point of [...points].sort((left, right) => left.date.localeCompare(right.date))) {
+export function normalizePublishedNav(points: HistoricalNavPoint[]) {
+  const navByDate = new Map<string, HistoricalNavPoint>();
+  for (const point of points) {
     if (!ISO_DATE.test(point.date) || !Number.isFinite(point.nav) || point.nav <= 0) continue;
-    latestByWeek.set(weekKey(point.date), point);
+    navByDate.set(point.date, point);
   }
-  return [...latestByWeek.values()].sort((left, right) => left.date.localeCompare(right.date));
+  return [...navByDate.values()].sort((left, right) => left.date.localeCompare(right.date));
 }
 
 const sortedTransactions = (transactions: FundTransaction[]) =>
@@ -63,18 +56,13 @@ const groupTransactions = (transactions: FundTransaction[]) => {
   return [...grouped.values()];
 };
 
-const unitsAt = (holding: TimelineHolding, date: string) => {
-  if (holding.folioHoldings?.length) {
-    return holding.folioHoldings.reduce(
-      (total, folio) => total + balanceAt(sortedTransactions(folio.transactions), date),
-      0,
-    );
-  }
-  return groupTransactions(holding.transactions).reduce(
-    (total, transactions) => total + balanceAt(transactions, date),
-    0,
-  );
-};
+const balanceGroupsFor = (holding: Pick<TimelineHolding, "transactions" | "folioHoldings">) =>
+  holding.folioHoldings?.length
+    ? holding.folioHoldings.map((folio) => sortedTransactions(folio.transactions))
+    : groupTransactions(holding.transactions);
+
+const unitsForDate = (groups: FundTransaction[][], date: string) =>
+  groups.reduce((total, transactions) => total + balanceAt(transactions, date), 0);
 
 const canReconstructHolding = (holding: TimelineHolding) => {
   if (holding.folioHoldings?.length) {
@@ -117,7 +105,7 @@ const mergePoint = (points: Map<string, TimelinePoint>, incoming: TimelinePoint)
   points.set(incoming.date, {
     ...existing,
     ...incoming,
-    weekly: Boolean(existing.weekly || incoming.weekly),
+    daily: Boolean(existing.daily || incoming.daily),
     transaction: Boolean(existing.transaction || incoming.transaction),
     exact: Boolean(existing.exact || incoming.exact),
     live: Boolean(existing.live || incoming.live),
@@ -129,12 +117,13 @@ const mergePoint = (points: Map<string, TimelinePoint>, incoming: TimelinePoint)
 
 export function buildHoldingTimeline(holding: TimelineHolding): TimelinePoint[] {
   const transactions = sortedTransactions(holding.transactions);
+  const balanceGroups = balanceGroupsFor(holding);
   const transactionDates = [...new Set(transactions.map((transaction) => transaction.date))].sort();
   const points = new Map<string, TimelinePoint>();
 
   for (const date of transactionDates) {
     const summary = transactionSummary(transactions, date);
-    const units = unitsAt(holding, date);
+    const units = unitsForDate(balanceGroups, date);
     if (!summary.nav || units < -0.001) continue;
     mergePoint(points, {
       date,
@@ -147,8 +136,8 @@ export function buildHoldingTimeline(holding: TimelineHolding): TimelinePoint[] 
     });
   }
 
-  for (const observation of canReconstructHolding(holding) ? holding.weeklyNav ?? [] : []) {
-    const units = unitsAt(holding, observation.date);
+  for (const observation of canReconstructHolding(holding) ? holding.navHistory ?? [] : []) {
+    const units = unitsForDate(balanceGroups, observation.date);
     if (units <= 0 && !transactionDates.includes(observation.date)) continue;
     const summary = transactionSummary(transactions, observation.date);
     mergePoint(points, {
@@ -156,7 +145,7 @@ export function buildHoldingTimeline(holding: TimelineHolding): TimelinePoint[] 
       invested: Math.max(0, investedAt(transactions, observation.date)),
       value: Math.max(0, units * observation.nav),
       nav: observation.nav,
-      weekly: true,
+      daily: true,
       transaction: summary.count > 0,
       transactionAmount: summary.count ? summary.amount : undefined,
       transactionCount: summary.count || undefined,
@@ -174,7 +163,7 @@ export function buildHoldingTimeline(holding: TimelineHolding): TimelinePoint[] 
     transaction: endpointSummary.count > 0,
     transactionAmount: endpointSummary.count ? endpointSummary.amount : undefined,
     transactionCount: endpointSummary.count || undefined,
-    weekly: (holding.weeklyNav ?? []).some((point) => point.date === holding.navDate),
+    daily: (holding.navHistory ?? []).some((point) => point.date === holding.navDate),
   });
 
   const timeline = [...points.values()]
@@ -189,28 +178,12 @@ export function buildHoldingTimeline(holding: TimelineHolding): TimelinePoint[] 
 }
 
 type PortfolioSeries = {
-  weeklyNav?: HistoricalNavPoint[];
+  navHistory?: HistoricalNavPoint[];
   transactions: FundTransaction[];
   folioHoldings?: FolioHolding[];
 };
 
-const seriesUnitsAt = (series: PortfolioSeries, date: string) => {
-  if (series.folioHoldings?.length) {
-    return series.folioHoldings.reduce(
-      (total, folio) => total + balanceAt(sortedTransactions(folio.transactions), date),
-      0,
-    );
-  }
-  return groupTransactions(series.transactions).reduce(
-    (total, transactions) => total + balanceAt(transactions, date),
-    0,
-  );
-};
-
-const weeklyObservation = (series: PortfolioSeries, week: string) =>
-  series.weeklyNav?.find((point) => weekKey(point.date) === week);
-
-export function addWeeklyPortfolioPoints(
+export function addDailyPortfolioPoints(
   baseTimeline: TimelinePoint[],
   funds: FundHolding[],
   closedFunds: ClosedFund[],
@@ -220,23 +193,24 @@ export function addWeeklyPortfolioPoints(
   }
   const series: PortfolioSeries[] = [
     ...funds.map((fund) => ({
-      weeklyNav: fund.weeklyNav,
+      navHistory: fund.navHistory,
       transactions: sortedTransactions(fund.transactions),
       folioHoldings: fund.folioHoldings,
     })),
     ...closedFunds.map((fund) => ({
-      weeklyNav: fund.weeklyNav,
+      navHistory: fund.navHistory,
       transactions: sortedTransactions(fund.transactions),
     })),
   ];
   const allTransactions = sortedTransactions(series.flatMap((item) => item.transactions));
-  const weekDates = new Map<string, string>();
+  const dates = new Set<string>();
+  const seriesWithNav = series.map((item) => ({
+    ...item,
+    balanceGroups: balanceGroupsFor(item),
+    navByDate: new Map((item.navHistory ?? []).map((observation) => [observation.date, observation.nav])),
+  }));
   for (const item of series) {
-    for (const observation of item.weeklyNav ?? []) {
-      const week = weekKey(observation.date);
-      const existing = weekDates.get(week);
-      if (!existing || observation.date > existing) weekDates.set(week, observation.date);
-    }
+    for (const observation of item.navHistory ?? []) dates.add(observation.date);
   }
 
   const points = new Map<string, TimelinePoint>();
@@ -250,20 +224,20 @@ export function addWeeklyPortfolioPoints(
     });
   }
 
-  for (const [week, date] of [...weekDates].sort((left, right) => left[1].localeCompare(right[1]))) {
+  for (const date of [...dates].sort()) {
     let value = 0;
     let hasUnits = false;
     let complete = true;
-    for (const item of series) {
-      const observation = weeklyObservation(item, week);
-      const units = seriesUnitsAt(item, date);
+    for (const item of seriesWithNav) {
+      const observedNav = item.navByDate.get(date);
+      const units = unitsForDate(item.balanceGroups, date);
       if (units <= 0) continue;
       hasUnits = true;
-      if (!observation || observation.date !== date) {
+      if (!observedNav) {
         complete = false;
         break;
       }
-      value += units * observation.nav;
+      value += units * observedNav;
     }
     if (!hasUnits || !complete) continue;
     const summary = transactionSummary(allTransactions, date);
@@ -274,7 +248,7 @@ export function addWeeklyPortfolioPoints(
         ? existing.invested
         : Math.max(0, investedAt(allTransactions, date)),
       value: existing?.exact || existing?.live ? existing.value : Math.max(0, value),
-      weekly: true,
+      daily: true,
       transaction: summary.count > 0,
       transactionAmount: summary.count ? summary.amount : undefined,
       transactionCount: summary.count || undefined,

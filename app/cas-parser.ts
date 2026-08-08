@@ -5,7 +5,7 @@ export type TimelinePoint = {
   exact?: boolean;
   live?: boolean;
   transaction?: boolean;
-  weekly?: boolean;
+  daily?: boolean;
   nav?: number;
   transactionAmount?: number;
   transactionCount?: number;
@@ -36,7 +36,7 @@ export type FolioHolding = {
   nav: number;
   navDate: string;
   liveNav?: boolean;
-  weeklyNav?: HistoricalNavPoint[];
+  navHistory?: HistoricalNavPoint[];
   transactions: FundTransaction[];
 };
 
@@ -54,7 +54,7 @@ export type FundHolding = {
   navDate: string;
   liveNav?: boolean;
   schemeCode?: string;
-  weeklyNav?: HistoricalNavPoint[];
+  navHistory?: HistoricalNavPoint[];
   folios: number;
   transactions: FundTransaction[];
   folioHoldings: FolioHolding[];
@@ -71,7 +71,7 @@ export type ClosedFund = {
   totalProceeds: number;
   closedDate: string;
   schemeCode?: string;
-  weeklyNav?: HistoricalNavPoint[];
+  navHistory?: HistoricalNavPoint[];
   folios: number;
   transactions: FundTransaction[];
 };
