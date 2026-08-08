@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { createPortal } from "react-dom";
 import type { TimelinePoint } from "./cas-parser";
 
 type PortfolioChartProps = {
@@ -109,7 +108,7 @@ export default function PortfolioChart({
     if (!context) return;
     context.scale(dpr, dpr);
 
-    const padding = { left: width < 560 ? 10 : 64, right: 18, top: 24, bottom: 38 };
+    const padding = { left: width < 560 ? 10 : 64, right: 18, top: 92, bottom: 38 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
     const max = Math.max(...visible.flatMap((point) => [point.value, point.invested])) * 1.12;
@@ -261,40 +260,16 @@ export default function PortfolioChart({
   };
 
   const hoverPoint = hovered !== null ? visible[hovered] : null;
-  const positionTooltip = (clientX: number, clientY: number) => {
+  const positionTooltip = (clientX: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
     const rect = canvas.getBoundingClientRect();
     const tooltipWidth = compact ? 168 : 184;
-    const tooltipHeight = 72;
-    const gap = 10;
-    const clampLeft = (left: number) => Math.max(8, Math.min(window.innerWidth - tooltipWidth - 8, left));
-
-    if (rect.top >= tooltipHeight + gap + 8) {
-      return {
-        position: "fixed" as const,
-        left: `${clampLeft(clientX - tooltipWidth / 2)}px`,
-        top: `${rect.top - tooltipHeight - gap}px`,
-        width: `${tooltipWidth}px`,
-        transform: "none",
-      };
-    }
-    if (window.innerHeight - rect.bottom >= tooltipHeight + gap + 8) {
-      return {
-        position: "fixed" as const,
-        left: `${clampLeft(clientX - tooltipWidth / 2)}px`,
-        top: `${rect.bottom + gap}px`,
-        width: `${tooltipWidth}px`,
-        transform: "none",
-      };
-    }
-
-    const roomOnRight = window.innerWidth - rect.right;
-    const placeRight = roomOnRight >= tooltipWidth + gap + 8;
+    const left = Math.max(8, Math.min(rect.width - tooltipWidth - 8, clientX - rect.left - tooltipWidth / 2));
     return {
-      position: "fixed" as const,
-      left: `${placeRight ? rect.right + gap : Math.max(8, rect.left - tooltipWidth - gap)}px`,
-      top: `${Math.max(8, Math.min(window.innerHeight - tooltipHeight - 8, clientY - tooltipHeight / 2))}px`,
+      position: "absolute" as const,
+      left: `${left}px`,
+      top: "8px",
       width: `${tooltipWidth}px`,
       transform: "none",
     };
@@ -339,7 +314,7 @@ export default function PortfolioChart({
         }}
         onPointerMove={(event) => {
           setHovered(pointerToIndex(event.clientX));
-          setTooltipStyle(positionTooltip(event.clientX, event.clientY));
+          setTooltipStyle(positionTooltip(event.clientX));
           if (!dragRef.current) return;
           const width = event.currentTarget.clientWidth;
           const shift = Math.round(((dragRef.current.x - event.clientX) / width) * (range[1] - range[0] + 1));
@@ -355,15 +330,14 @@ export default function PortfolioChart({
           role="img"
           aria-label={`${valueLabel} chart from ${prettyDate(visible[0]?.date ?? points[0]?.date)} to ${prettyDate(visible.at(-1)?.date ?? points.at(-1)?.date)}`}
         />
+        {hoverPoint && tooltipStyle && (
+          <div className="chart-tooltip" style={tooltipStyle}>
+            <span>{fullDate(hoverPoint.date)}{hoverPoint.live ? " · Latest AMFI NAV" : hoverPoint.exact ? " · Statement value" : ""}</span>
+            <strong>{fullMoney(hoverPoint.value)}</strong>
+            <small>Invested {fullMoney(hoverPoint.invested)}</small>
+          </div>
+        )}
       </div>
-      {hoverPoint && tooltipStyle && typeof document !== "undefined" && createPortal(
-        <div className="chart-tooltip" style={tooltipStyle}>
-          <span>{fullDate(hoverPoint.date)}{hoverPoint.live ? " · Latest AMFI NAV" : hoverPoint.exact ? " · Statement value" : ""}</span>
-          <strong>{fullMoney(hoverPoint.value)}</strong>
-          <small>Invested {fullMoney(hoverPoint.invested)}</small>
-        </div>,
-        document.body,
-      )}
       <div className="range-track" aria-label="Visible chart range">
         <div className="range-fill" style={{ left: `${(range[0] / Math.max(1, points.length - 1)) * 100}%`, right: `${100 - (range[1] / Math.max(1, points.length - 1)) * 100}%` }} />
         <input
