@@ -587,6 +587,7 @@ function ClosedFunds({ funds }: { funds: ClosedFund[] }) {
 type HistoryProgressState = NavHistoryProgress & { complete?: boolean };
 
 function HistoryProgressToast({ progress }: { progress: HistoryProgressState }) {
+  const detailsId = useId();
   const percentage = progress.total
     ? Math.min(100, Math.round((progress.completed / progress.total) * 100))
     : 100;
@@ -597,18 +598,21 @@ function HistoryProgressToast({ progress }: { progress: HistoryProgressState }) 
       aria-live="polite"
       aria-label={`Daily NAV history ${percentage}% loaded`}
     >
-      <div className="history-progress-heading">
+      <button className="history-progress-summary" type="button" aria-describedby={detailsId}>
         <span className="history-progress-pulse" aria-hidden="true" />
-        <p>
-          <strong>{progress.complete ? "Daily history is ready" : "Current values are ready"}</strong>
-          <small>{progress.complete ? "All available NAV dates loaded" : "Loading published daily NAV history"}</small>
-        </p>
+        <strong>{progress.complete ? "Daily NAVs ready" : "Loading daily NAVs"}</strong>
         <b>{percentage}%</b>
-      </div>
+      </button>
       <div className="history-progress-track" aria-hidden="true">
         <i style={{ width: `${percentage}%` }} />
       </div>
-      <span>{Math.min(progress.completed, progress.total)} of {progress.total} fund histories processed</span>
+      <div className="history-progress-details" id={detailsId}>
+        <p>
+          <strong>{progress.complete ? "Daily history is ready" : "Current portfolio values are ready"}</strong>
+          <small>{progress.complete ? "All available NAV dates loaded" : "Published daily NAV history is loading in the background"}</small>
+        </p>
+        <span>{Math.min(progress.completed, progress.total)} of {progress.total} fund histories processed</span>
+      </div>
     </aside>
   );
 }
