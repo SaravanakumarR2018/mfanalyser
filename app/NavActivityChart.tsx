@@ -37,17 +37,51 @@ export default function NavActivityChart({ transactions, weeklyNav, nav, navDate
     () => buildNavPoints(transactions, weeklyNav, nav, navDate),
     [nav, navDate, transactions, weeklyNav],
   );
-  const [period, setPeriod] = useState<12 | 36 | "all">("all");
+  const [period, setPeriod] = useState<12 | 36 | "all" | null>("all");
+  const [range, setRange] = useState<[number, number]>([0, Math.max(1, allPoints.length - 1)]);
   const [hovered, setHovered] = useState<number | null>(null);
   const [tooltipStyle, setTooltipStyle] = useState<CSSProperties>();
+  const previousPoints = useRef(allPoints);
 
-  const points = useMemo(() => {
-    if (period === "all" || allPoints.length < 2) return allPoints;
+  useEffect(() => {
+    const prior = previousPoints.current;
+    if (prior === allPoints) return;
+    setRange(([start, end]) => {
+      if (allPoints.length < 2) return [0, Math.max(1, allPoints.length - 1)];
+      if (start === 0 && end >= prior.length - 1) return [0, allPoints.length - 1];
+      const startDate = prior[start]?.date;
+      const endDate = prior[end]?.date;
+      const nextStart = startDate
+        ? Math.max(0, allPoints.findIndex((point) => point.date >= startDate))
+        : 0;
+      const nextEndCandidate = endDate
+        ? allPoints.findLastIndex((point) => point.date <= endDate)
+        : allPoints.length - 1;
+      return [nextStart, Math.max(nextStart + 1, nextEndCandidate)];
+    });
+    previousPoints.current = allPoints;
+    setHovered(null);
+    setTooltipStyle(undefined);
+  }, [allPoints]);
+
+  const points = useMemo(
+    () => allPoints.slice(range[0], Math.min(allPoints.length, range[1] + 1)),
+    [allPoints, range],
+  );
+
+  const selectPeriod = (months: 12 | 36 | "all") => {
+    setPeriod(months);
+    if (months === "all" || allPoints.length < 2) {
+      setRange([0, Math.max(1, allPoints.length - 1)]);
+      return;
+    }
     const cutoff = new Date(`${allPoints.at(-1)?.date}T00:00:00Z`);
-    cutoff.setUTCMonth(cutoff.getUTCMonth() - period);
-    const filtered = allPoints.filter((point) => new Date(`${point.date}T00:00:00Z`) >= cutoff);
-    return filtered.length >= 2 ? filtered : allPoints.slice(-2);
-  }, [allPoints, period]);
+    cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
+    const firstInPeriod = allPoints.findIndex(
+      (point) => new Date(`${point.date}T00:00:00Z`) >= cutoff,
+    );
+    setRange([Math.max(0, firstInPeriod), allPoints.length - 1]);
+  };
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -64,7 +98,7 @@ export default function NavActivityChart({ transactions, weeklyNav, nav, navDate
     if (!context) return;
     context.scale(dpr, dpr);
 
-    const padding = { left: width < 510 ? 12 : 55, right: 17, top: 75, bottom: 32 };
+    const padding = { left: width < 510 ? 12 : 55, right: 17, top: 94, bottom: 32 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
     const minNav = Math.min(...points.map((point) => point.nav));
@@ -131,24 +165,15 @@ export default function NavActivityChart({ transactions, weeklyNav, nav, navDate
     points.forEach((point, index) => {
       const x = xFor(index);
       const y = yFor(point.nav);
-      if (point.weekly || point.latest) {
-        context.fillStyle = "#FDFCF7";
-        context.strokeStyle = "#1D9D61";
-        context.lineWidth = point.latest ? 2.2 : 1;
-        context.beginPath();
-        context.arc(x, y, point.latest ? 4.5 : 2.1, 0, Math.PI * 2);
-        context.fill();
-        context.stroke();
-      }
-      if (point.transaction) {
-        context.fillStyle = "#FF715B";
+      if (point.investedAmount > 0) {
+        context.fillStyle = "#087A4B";
         context.strokeStyle = "#FDFCF7";
-        context.lineWidth = 1.2;
+        context.lineWidth = 1.5;
         context.beginPath();
-        context.moveTo(x, y - 5.5);
-        context.lineTo(x + 5.5, y);
-        context.lineTo(x, y + 5.5);
-        context.lineTo(x - 5.5, y);
+        context.moveTo(x, y - 5.8);
+        context.lineTo(x + 5.8, y);
+        context.lineTo(x, y + 5.8);
+        context.lineTo(x - 5.8, y);
         context.closePath();
         context.fill();
         context.stroke();
@@ -175,13 +200,27 @@ export default function NavActivityChart({ transactions, weeklyNav, nav, navDate
       context.moveTo(x, padding.top);
       context.lineTo(x, height - padding.bottom);
       context.stroke();
-      context.fillStyle = "#FDFCF7";
-      context.strokeStyle = points[hovered].transaction ? "#FF715B" : "#1D9D61";
-      context.lineWidth = 2.5;
-      context.beginPath();
-      context.arc(x, y, 5.5, 0, Math.PI * 2);
-      context.fill();
-      context.stroke();
+      if (points[hovered].investedAmount > 0) {
+        context.fillStyle = "#087A4B";
+        context.strokeStyle = "#FDFCF7";
+        context.lineWidth = 1.8;
+        context.beginPath();
+        context.moveTo(x, y - 7);
+        context.lineTo(x + 7, y);
+        context.lineTo(x, y + 7);
+        context.lineTo(x - 7, y);
+        context.closePath();
+        context.fill();
+        context.stroke();
+      } else {
+        context.fillStyle = "#FDFCF7";
+        context.strokeStyle = "#1D9D61";
+        context.lineWidth = 2.5;
+        context.beginPath();
+        context.arc(x, y, 5.5, 0, Math.PI * 2);
+        context.fill();
+        context.stroke();
+      }
     }
   }, [hovered, points]);
 
@@ -210,7 +249,7 @@ export default function NavActivityChart({ transactions, weeklyNav, nav, navDate
   const positionTooltip = (clientX: number): CSSProperties | undefined => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return undefined;
-    const width = 188;
+    const width = Math.min(236, Math.max(176, rect.width - 16));
     const left = Math.max(8, Math.min(rect.width - width - 8, clientX - rect.left - width / 2));
     return { position: "absolute", top: "7px", left: `${left}px`, width: `${width}px` };
   };
@@ -226,14 +265,14 @@ export default function NavActivityChart({ transactions, weeklyNav, nav, navDate
       <div className="nav-activity-head">
         <div><p className="eyebrow">NAV activity</p><h3 id={titleId}>NAV & investments</h3></div>
         <div className="nav-periods" aria-label="NAV chart period">
-          <button className={period === 12 ? "active" : ""} onClick={() => setPeriod(12)}>1Y</button>
-          <button className={period === 36 ? "active" : ""} onClick={() => setPeriod(36)}>3Y</button>
-          <button className={period === "all" ? "active" : ""} onClick={() => setPeriod("all")}>All</button>
+          <button className={period === 12 ? "active" : ""} onClick={() => selectPeriod(12)}>1Y</button>
+          <button className={period === 36 ? "active" : ""} onClick={() => selectPeriod(36)}>3Y</button>
+          <button className={period === "all" ? "active" : ""} onClick={() => selectPeriod("all")}>All</button>
         </div>
       </div>
       <div className="nav-activity-legend">
         <span><i className="nav-line-key" />Actual weekly NAV</span>
-        <span><i className="investment-key" />CAS transaction</span>
+        <span><i className="investment-key" />CAS investment</span>
       </div>
       {points.length ? (
         <div
@@ -252,29 +291,73 @@ export default function NavActivityChart({ transactions, weeklyNav, nav, navDate
             data-visible-points={points.length}
             data-weekly-points={allPoints.filter((point) => point.weekly).length}
             data-transaction-points={allPoints.filter((point) => point.transaction).length}
+            data-investment-points={allPoints.filter((point) => point.investedAmount > 0).length}
             aria-label={`Observed NAV and investment dates from ${formatDate(points[0].date)} to ${formatDate(points.at(-1)?.date ?? points[0].date)}`}
           />
           {hoverPoint && tooltipStyle && (
             <div className="nav-activity-tooltip" style={tooltipStyle}>
               <span className="tooltip-date">
                 {formatDate(hoverPoint.date)}
-                <span className="tooltip-flags" aria-label={[hoverPoint.transaction && "CAS transaction", hoverPoint.weekly && "Weekly NAV observation", hoverPoint.latest && (liveNav ? "Latest AMFI NAV" : "Statement NAV")].filter(Boolean).join(", ")}>
-                  {hoverPoint.transaction && <i className="tooltip-flag transaction" title="CAS transaction">◆</i>}
+                <span className="tooltip-flags" aria-label={[hoverPoint.investedAmount > 0 && "CAS investment", hoverPoint.weekly && "Weekly NAV observation", hoverPoint.latest && (liveNav ? "Latest AMFI NAV" : "Statement NAV")].filter(Boolean).join(", ")}>
+                  {hoverPoint.investedAmount > 0 && <i className="tooltip-flag transaction" title="CAS investment">◆</i>}
                   {hoverPoint.weekly && <i className="tooltip-flag weekly" title="Weekly AMFI NAV">●</i>}
                   {hoverPoint.latest && <i className="tooltip-flag live" title={liveNav ? "Latest AMFI NAV" : "Statement NAV"}>{liveNav ? "L" : "S"}</i>}
                 </span>
               </span>
               <strong>NAV {formatMoney(hoverPoint.nav, 4)}</strong>
-              <small>{hoverPoint.transaction
-                ? hoverPoint.investedAmount > 0
-                  ? `Purchased ${formatMoney(hoverPoint.investedAmount)}${hoverPoint.transactionCount > 1 ? ` · ${hoverPoint.transactionCount} entries` : ""}${transactionNavSuffix}`
-                  : `${hoverPoint.transactionAmount < 0 ? "Redeemed" : "Transaction"} ${formatMoney(Math.abs(hoverPoint.transactionAmount))}${transactionNavSuffix}`
-                : "Official weekly NAV"}</small>
+              <small className="nav-tooltip-detail">
+                <span>{hoverPoint.transaction
+                  ? hoverPoint.investedAmount > 0
+                    ? `Purchased ${formatMoney(hoverPoint.investedAmount)}`
+                    : `${hoverPoint.transactionAmount < 0 ? "Redeemed" : "Transaction"} ${formatMoney(Math.abs(hoverPoint.transactionAmount))}`
+                  : "Official weekly NAV"}</span>
+                {hoverPoint.transactionCount > 1 && <span>{hoverPoint.transactionCount} entries</span>}
+                {transactionNavSuffix && <span>{transactionNavSuffix.replace(" · ", "")}</span>}
+              </small>
             </div>
           )}
         </div>
       ) : <p className="nav-activity-empty">No usable NAV observations were present for this holding.</p>}
-      <p className="nav-activity-note">Weekly dots are the last actual AMFI NAV published in each calendar week. Diamonds retain exact CAS transaction dates and amounts. Missing weeks are skipped; connecting lines do not create NAV observations.</p>
+      {allPoints.length > 1 && (
+        <div className="nav-range-control">
+          <div className="nav-range-dates" aria-live="polite">
+            <span>{formatDate(points[0]?.date ?? allPoints[0].date)}</span>
+            <span>{formatDate(points.at(-1)?.date ?? allPoints.at(-1)?.date ?? allPoints[0].date)}</span>
+          </div>
+          <div className="range-track nav-range-track" aria-label="Visible NAV chart range">
+            <div
+              className="range-fill"
+              style={{
+                left: `${(range[0] / Math.max(1, allPoints.length - 1)) * 100}%`,
+                right: `${100 - (range[1] / Math.max(1, allPoints.length - 1)) * 100}%`,
+              }}
+            />
+            <input
+              aria-label="NAV chart start"
+              type="range"
+              min={0}
+              max={Math.max(1, allPoints.length - 2)}
+              value={range[0]}
+              onChange={(event) => {
+                setPeriod(null);
+                setRange([Math.min(Number(event.target.value), range[1] - 1), range[1]]);
+              }}
+            />
+            <input
+              aria-label="NAV chart end"
+              type="range"
+              min={1}
+              max={Math.max(1, allPoints.length - 1)}
+              value={range[1]}
+              onChange={(event) => {
+                setPeriod(null);
+                setRange([range[0], Math.max(Number(event.target.value), range[0] + 1)]);
+              }}
+            />
+          </div>
+        </div>
+      )}
+      <p className="nav-activity-note">The line follows the last actual AMFI NAV published in each calendar week. Green diamonds retain exact CAS purchase dates and invested amounts. Missing weeks are skipped; connecting lines do not create NAV observations.</p>
     </section>
   );
 }

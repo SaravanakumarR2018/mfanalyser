@@ -240,26 +240,15 @@ export default function PortfolioChart({
     };
 
     visible.forEach((point, index) => {
-      if (!point.weekly && !point.transaction) return;
+      if (!point.transaction || (point.transactionAmount ?? 0) <= 0) return;
       const x = xFor(index);
       const y = yFor(point.value);
-      if (point.weekly) {
-        context.fillStyle = "#F8F6EF";
-        context.strokeStyle = "#1D9D61";
-        context.lineWidth = 1;
-        context.beginPath();
-        context.arc(x, y, 2.2, 0, Math.PI * 2);
-        context.fill();
-        context.stroke();
-      }
-      if (point.transaction) {
-        context.fillStyle = "#FF715B";
-        context.strokeStyle = "#F8F6EF";
-        context.lineWidth = 1.1;
-        drawDiamond(x, y, 4.1);
-        context.fill();
-        context.stroke();
-      }
+      context.fillStyle = "#087A4B";
+      context.strokeStyle = "#F8F6EF";
+      context.lineWidth = 1.4;
+      drawDiamond(x, y, 4.5);
+      context.fill();
+      context.stroke();
     });
 
     const labelCount = width < 560 ? 3 : 5;
@@ -282,13 +271,22 @@ export default function PortfolioChart({
       context.moveTo(x, padding.top);
       context.lineTo(x, height - padding.bottom);
       context.stroke();
-      context.fillStyle = "#F8F6EF";
-      context.strokeStyle = "#1D9D61";
-      context.lineWidth = 3;
-      context.beginPath();
-      context.arc(x, y, 5.5, 0, Math.PI * 2);
-      context.fill();
-      context.stroke();
+      if (visible[hovered].transaction && (visible[hovered].transactionAmount ?? 0) > 0) {
+        context.fillStyle = "#087A4B";
+        context.strokeStyle = "#F8F6EF";
+        context.lineWidth = 1.8;
+        drawDiamond(x, y, 7);
+        context.fill();
+        context.stroke();
+      } else {
+        context.fillStyle = "#F8F6EF";
+        context.strokeStyle = "#1D9D61";
+        context.lineWidth = 3;
+        context.beginPath();
+        context.arc(x, y, 5.5, 0, Math.PI * 2);
+        context.fill();
+        context.stroke();
+      }
     }
   }, [animate, compact, hovered, showBelowCost, visible]);
 
@@ -365,8 +363,8 @@ export default function PortfolioChart({
       <div className="chart-legend">
         <span><i className="legend-dot value" />{valueLabel}</span>
         <span><i className="legend-line" />Net invested</span>
-        <span><i className="legend-point weekly" />Weekly NAV</span>
-        <span><i className="legend-point transaction" />CAS transaction</span>
+        <span><i className="legend-line weekly" />Weekly NAV values</span>
+        <span><i className="legend-point transaction" />CAS investment</span>
         {showBelowCost && <span><i className="legend-line below" />Below invested</span>}
         <span className="chart-hint">Use period buttons or the range slider to change the timeline</span>
       </div>
@@ -386,14 +384,15 @@ export default function PortfolioChart({
           data-visible-points={visible.length}
           data-weekly-points={points.filter((point) => point.weekly).length}
           data-transaction-points={points.filter((point) => point.transaction).length}
+          data-investment-points={points.filter((point) => point.transaction && (point.transactionAmount ?? 0) > 0).length}
           aria-label={`${valueLabel} chart from ${prettyDate(visible[0]?.date ?? points[0]?.date)} to ${prettyDate(visible.at(-1)?.date ?? points.at(-1)?.date)}`}
         />
         {hoverPoint && tooltipStyle && (
           <div className="chart-tooltip" style={tooltipStyle}>
             <span className="tooltip-date">
               {fullDate(hoverPoint.date)}
-              <span className="tooltip-flags" aria-label={[hoverPoint.transaction && "CAS transaction", hoverPoint.weekly && "Weekly NAV observation", hoverPoint.live && "Latest AMFI NAV", hoverPoint.exact && "Statement value"].filter(Boolean).join(", ")}>
-                {hoverPoint.transaction && <i className="tooltip-flag transaction" title="CAS transaction">◆</i>}
+              <span className="tooltip-flags" aria-label={[hoverPoint.transaction && (hoverPoint.transactionAmount ?? 0) > 0 && "CAS investment", hoverPoint.weekly && "Weekly NAV observation", hoverPoint.live && "Latest AMFI NAV", hoverPoint.exact && "Statement value"].filter(Boolean).join(", ")}>
+                {hoverPoint.transaction && (hoverPoint.transactionAmount ?? 0) > 0 && <i className="tooltip-flag transaction" title="CAS investment">◆</i>}
                 {hoverPoint.weekly && <i className="tooltip-flag weekly" title="Weekly AMFI NAV">●</i>}
                 {hoverPoint.live && <i className="tooltip-flag live" title="Latest AMFI NAV">L</i>}
                 {hoverPoint.exact && !hoverPoint.live && <i className="tooltip-flag exact" title="Statement value">S</i>}
