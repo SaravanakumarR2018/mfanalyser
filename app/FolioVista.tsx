@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import PortfolioChart from "./PortfolioChart";
 import {
   demoPortfolio,
@@ -36,6 +36,7 @@ const formatDate = (date: string) =>
   );
 
 const palette = ["#79DDA7", "#FF856F", "#F2C96D", "#86A8D4", "#B49BD8", "#9FB69F", "#D59C76"];
+const CAS_FILE_INPUT_ID = "cas-statement-file";
 
 function Brand() {
   return (
@@ -59,7 +60,6 @@ type UploadPanelProps = {
 };
 
 function UploadPanel({ busy, progress, error, passwordMode, password, setPassword, onFile, onRetry, onDemo }: UploadPanelProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
   return (
@@ -108,10 +108,11 @@ function UploadPanel({ busy, progress, error, passwordMode, password, setPasswor
         ) : (
           <>
             <input
-              ref={inputRef}
+              id={CAS_FILE_INPUT_ID}
+              className="native-file-input"
               type="file"
               accept="application/pdf,.pdf"
-              hidden
+              aria-label="Choose a CAS PDF statement"
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (file) onFile(file);
@@ -122,7 +123,7 @@ function UploadPanel({ busy, progress, error, passwordMode, password, setPasswor
             <p className="eyebrow">Start with your statement</p>
             <h3>Drop your CAS here</h3>
             <p>Detailed CAMS or KFintech consolidated account statement · PDF up to 30 MB</p>
-            <button className="primary-button" onClick={() => inputRef.current?.click()}>Choose statement</button>
+            <label className="primary-button file-picker-label" htmlFor={CAS_FILE_INPUT_ID}>Choose statement</label>
             <button className="text-button" onClick={onDemo}>or explore with demo data <span>→</span></button>
           </>
         )}
@@ -179,9 +180,9 @@ function Landing({ onPortfolio }: { onPortfolio: (portfolio: Portfolio) => void 
         <nav aria-label="Main navigation">
           <a href="#how-it-works">How it works</a>
           <a href="#privacy">Privacy</a>
-          <button className="header-action" onClick={() => document.querySelector<HTMLButtonElement>(".upload-card .primary-button")?.click()}>
+          <label className="header-action" htmlFor={CAS_FILE_INPUT_ID}>
             Analyse statement
-          </button>
+          </label>
         </nav>
       </header>
 
