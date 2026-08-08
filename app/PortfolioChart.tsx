@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { TimelinePoint } from "./cas-parser";
+import { buildChartScale } from "./chart-scale";
 import { formatInr } from "./formatters";
 import { useRangeWindowDrag } from "./useRangeWindowDrag";
 
@@ -16,11 +17,16 @@ type PortfolioChartProps = {
   showBelowCost?: boolean;
 };
 
-const compactMoney = (value: number) => {
+const axisMoney = (value: number, step: number) => {
   const absolute = Math.abs(value);
-  if (absolute >= 10_000_000) return `₹${(value / 10_000_000).toFixed(1)}Cr`;
-  if (absolute >= 100_000) return `₹${(value / 100_000).toFixed(1)}L`;
-  if (absolute >= 1_000) return `₹${(value / 1_000).toFixed(0)}K`;
+  const formatUnit = (divisor: number, suffix: string) => {
+    const unitStep = Math.abs(step / divisor);
+    const decimals = unitStep >= 1 ? 0 : unitStep >= 0.1 ? 1 : unitStep >= 0.01 ? 2 : 3;
+    return `₹${(value / divisor).toFixed(decimals)}${suffix}`;
+  };
+  if (absolute >= 10_000_000) return formatUnit(10_000_000, "Cr");
+  if (absolute >= 100_000) return formatUnit(100_000, "L");
+  if (absolute >= 1_000) return formatUnit(1_000, "K");
   return `₹${Math.round(value)}`;
 };
 
@@ -48,6 +54,7 @@ export default function PortfolioChart({
   const [hovered, setHovered] = useState<number | null>(null);
   const [tooltipStyle, setTooltipStyle] = useState<CSSProperties>();
   const [animate, setAnimate] = useState(0);
+  const [showInvested, setShowInvested] = useState(true);
   const previousPoints = useRef(points);
   const rangeWindowDrag = useRangeWindowDrag({ range, setRange, totalPoints: points.length });
 
@@ -130,8 +137,8 @@ export default function PortfolioChart({
     const padding = { left: width < 560 ? 10 : 64, right: 18, top: 92, bottom: 38 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
-    const max = Math.max(...visible.flatMap((point) => [point.value, point.invested])) * 1.12;
-    const min = Math.min(...visible.flatMap((point) => [point.value, point.invested])) * 0.86;
+    const scale = buildChartScale(visible, showInvested);
+    const { max, min } = scale;
     const span = Math.max(1, max - min);
     const timeFor = (point: TimelinePoint) => new Date(`${point.date}T00:00:00Z`).getTime();
     const firstTime = timeFor(visible[0]);
@@ -142,8 +149,8 @@ export default function PortfolioChart({
     context.clearRect(0, 0, width, height);
     context.font = "11px Arial, sans-serif";
     context.textBaseline = "middle";
-    for (let line = 0; line <= 4; line += 1) {
-      const y = padding.top + (chartHeight / 4) * line;
+    [...scale.ticks].reverse().forEach((tick) => {
+      const y = padding.top + ((max - tick) / span) * chartHeight;
       context.strokeStyle = "rgba(11, 29, 42, 0.09)";
       context.lineWidth = 1;
       context.setLineDash([3, 6]);
@@ -155,9 +162,9 @@ export default function PortfolioChart({
       if (width >= 560) {
         context.fillStyle = "#728078";
         context.textAlign = "right";
-        context.fillText(compactMoney(max - (span / 4) * line), padding.left - 12, y);
+        context.fillText(axisMoney(tick, scale.step), padding.left - 12, y);
       }
-    }
+    });
 
     const areaGradient = context.createLinearGradient(0, padding.top, 0, height - padding.bottom);
     areaGradient.addColorStop(0, "rgba(91, 219, 150, 0.26)");
@@ -195,10 +202,10 @@ export default function PortfolioChart({
       context.stroke();
       context.restore();
     };
-    drawLine("invested", "#95A099", true);
+    if (showInvested) drawLine("invested", "#95A099", true);
     drawLine("value", "#1D9D61");
 
-    if (showBelowCost) {
+    if (showBelowCost && showInvested) {
       context.save();
       context.strokeStyle = "#D65E4B";
       context.lineWidth = 3.4;
@@ -286,7 +293,7 @@ export default function PortfolioChart({
         context.stroke();
       }
     }
-  }, [animate, compact, hovered, showBelowCost, visible]);
+  }, [animate, compact, hovered, showBelowCost, showInvested, visible]);
 
   useEffect(() => {
     draw();
@@ -360,10 +367,21 @@ export default function PortfolioChart({
       </div>
       <div className="chart-legend">
         <span><i className="legend-dot value" />{valueLabel}</span>
-        <span><i className="legend-line" />Net invested</span>
+        <button
+          type="button"
+          className={`chart-series-toggle${showInvested ? " active" : ""}`}
+          aria-pressed={showInvested}
+          aria-label={`${showInvested ? "Hide" : "Show"} net invested line`}
+          title={`${showInvested ? "Hide" : "Show"} net invested line`}
+          onClick={() => setShowInvested((current) => !current)}
+        >
+          <i className="legend-line" />
+          <b>Net invested</b>
+          <em aria-hidden="true"><i /></em>
+        </button>
         <span><i className="legend-line daily" />Daily NAV values</span>
         <span><i className="legend-point transaction" />CAS investment</span>
-        {showBelowCost && <span><i className="legend-line below" />Below invested</span>}
+        {showBelowCost && showInvested && <span><i className="legend-line below" />Below invested</span>}
         <span className="chart-hint">Drag the highlighted range to move the timeline</span>
       </div>
       <div
@@ -383,6 +401,7 @@ export default function PortfolioChart({
           data-daily-points={points.filter((point) => point.daily).length}
           data-transaction-points={points.filter((point) => point.transaction).length}
           data-investment-points={points.filter((point) => point.transaction && (point.transactionAmount ?? 0) > 0).length}
+          data-show-invested={showInvested}
           aria-label={`${valueLabel} chart from ${prettyDate(visible[0]?.date ?? points[0]?.date)} to ${prettyDate(visible.at(-1)?.date ?? points.at(-1)?.date)}`}
         />
         {hoverPoint && tooltipStyle && (
@@ -397,7 +416,9 @@ export default function PortfolioChart({
               </span>
             </span>
             <strong>{fullMoney(hoverPoint.value)}</strong>
-            <small>Invested {fullMoney(hoverPoint.invested)}{hoverPoint.nav ? ` · NAV ${hoverPoint.nav.toFixed(4)}` : ""}</small>
+            {showInvested
+              ? <small>Invested {fullMoney(hoverPoint.invested)}{hoverPoint.nav ? ` · NAV ${hoverPoint.nav.toFixed(4)}` : ""}</small>
+              : hoverPoint.nav && <small>NAV {hoverPoint.nav.toFixed(4)}</small>}
             <small>{hoverPoint.transaction
               ? `Transaction ${(hoverPoint.transactionAmount ?? 0) >= 0 ? "+" : "−"}${fullMoney(Math.abs(hoverPoint.transactionAmount ?? 0))}${(hoverPoint.transactionCount ?? 0) > 1 ? ` · ${hoverPoint.transactionCount} entries` : ""}`
               : hoverPoint.daily ? "Official daily valuation" : "Observed portfolio value"}</small>

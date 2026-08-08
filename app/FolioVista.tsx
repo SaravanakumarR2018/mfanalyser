@@ -703,8 +703,8 @@ function Dashboard({
         </section>
 
         <section className="metric-grid" aria-label="Portfolio summary metrics">
-          <article><p>Amount invested <span title="Purchases minus redemptions from active CAS holdings">i</span></p><strong>{compactMoney(portfolio.invested)}</strong><small>Net transaction cash flow</small></article>
-          <article><p>Wealth created</p><strong className={gain >= 0 ? "positive" : "negative"}>{compactMoney(gain)}</strong><small>{absoluteReturn.toFixed(2)}% including realised gains</small></article>
+          <article><p>Amount invested <span title="Purchases minus redemptions from active CAS holdings">i</span></p><strong>{compactMoney(portfolio.invested)}</strong><span className="metric-exact">Exact · {formatMoney(portfolio.invested, 2)}</span><small>Net transaction cash flow</small></article>
+          <article><p>Wealth created</p><strong className={gain >= 0 ? "positive" : "negative"}>{compactMoney(gain)}</strong><span className="metric-exact">Exact · {formatMoney(gain, 2)}</span><small>{absoluteReturn.toFixed(2)}% including realised gains</small></article>
           <article><p>Realised gains</p><strong className={portfolio.realizedGain >= 0 ? "positive" : "negative"}>{compactMoney(portfolio.realizedGain)}</strong><small>From {portfolio.closedFunds.length} closed {portfolio.closedFunds.length === 1 ? "fund" : "funds"}</small></article>
           <article><p>Active funds</p><strong>{portfolio.funds.length}</strong><small>{activeFolios} statement folios</small></article>
           <article className="accuracy-metric"><p>Accuracy check</p><strong><i>✓</i> Reconciled</strong><small>{portfolio.reconciliationDifference <= 0.01 ? "Within statement rounding" : `₹${portfolio.reconciliationDifference.toFixed(2)} rounding difference`}</small></article>

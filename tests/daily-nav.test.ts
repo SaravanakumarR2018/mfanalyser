@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { buildNavPoints } from "../app/nav-activity-service.ts";
+import { buildChartScale } from "../app/chart-scale.ts";
 import { formatInr } from "../app/formatters.ts";
 import { historyRange, mirrorDateToIso } from "../app/nav-history-utils.ts";
 import { shiftRangeWindow } from "../app/range-window.ts";
@@ -43,6 +44,22 @@ test("dragging a selected chart window preserves its width and clamps at both en
 
   const shifted = shiftRangeWindow([12, 31], 17, 100);
   assert.equal(shifted[1] - shifted[0], 19);
+});
+
+test("hiding net invested tightens the Y-axis around visible portfolio values", () => {
+  const visible = [
+    { value: 28_000_000, invested: 20_000_000 },
+    { value: 28_120_000, invested: 20_000_000 },
+    { value: 28_060_000, invested: 20_000_000 },
+  ];
+  const combined = buildChartScale(visible, true);
+  const valueOnly = buildChartScale(visible, false);
+
+  assert.ok(valueOnly.max - valueOnly.min < combined.max - combined.min);
+  assert.ok(valueOnly.min < 28_000_000);
+  assert.ok(valueOnly.max > 28_120_000);
+  assert.ok(valueOnly.step < 1_000_000);
+  assert.ok(valueOnly.ticks.every((tick, index) => index === 0 || tick > valueOnly.ticks[index - 1]));
 });
 
 test("daily normalization retains every real published NAV date", () => {
