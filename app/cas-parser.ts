@@ -3,6 +3,7 @@ export type TimelinePoint = {
   invested: number;
   value: number;
   exact?: boolean;
+  live?: boolean;
 };
 
 export type FundTransaction = {
@@ -19,9 +20,11 @@ export type FolioHolding = {
   label: string;
   currentValue: number;
   invested: number;
+  costBasis: number;
   units: number;
   nav: number;
   navDate: string;
+  liveNav?: boolean;
   transactions: FundTransaction[];
 };
 
@@ -33,22 +36,45 @@ export type FundHolding = {
   category: string;
   currentValue: number;
   invested: number;
+  costBasis: number;
   units: number;
   nav: number;
   navDate: string;
+  liveNav?: boolean;
   folios: number;
   transactions: FundTransaction[];
   folioHoldings: FolioHolding[];
 };
 
+export type ClosedFund = {
+  key: string;
+  name: string;
+  isin: string;
+  fundHouse: string;
+  category: string;
+  realizedGain: number;
+  totalInvested: number;
+  totalProceeds: number;
+  closedDate: string;
+  folios: number;
+  transactions: FundTransaction[];
+};
+
 export type Portfolio = {
   source: "cas" | "demo";
   statementDate: string;
+  valuationDate: string;
+  valuationSource: "amfi" | "cas" | "demo";
   currentValue: number;
   invested: number;
+  costBasis: number;
+  realizedGain: number;
   funds: FundHolding[];
+  closedFunds: ClosedFund[];
   timeline: TimelinePoint[];
   reconciliationDifference: number;
+  navCoverage: { updated: number; total: number };
+  liveUpdateError?: string;
 };
 
 type PdfTextItem = {
@@ -111,9 +137,10 @@ const parseCasDate = (value: string) => {
 const friendlySchemeName = (raw: string) => {
   let name = raw
     .replace(/^[A-Z0-9]+\s*-\s*/, "")
+    .replace(/\s*Registrar\s*:\s*CAMS\s*/gi, " ")
     .replace(/\s*\(formerly known as[\s\S]*$/i, "")
     .replace(/\s*\(erstwhile[\s\S]*$/i, "")
-    .replace(/\s*\((?:Non[ -]?Demat|Demat)\)\s*$/i, "")
+    .replace(/\s*\((?:Non[\s-]*Demat|Demat)\)\s*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
   name = name.replace(/^[-–]\s*/, "");
@@ -196,7 +223,10 @@ const joinItemsIntoLines = (items: PdfTextItem[]) => {
 
 const extractIsin = (value: string) => {
   const after = value.split(/ISIN\s*:/i)[1] ?? "";
-  const compact = after.replace(/[^A-Z0-9]/g, "");
+  const compact = after
+    .replace(/Registrar\s*:\s*CAMS/gi, "")
+    .replace(/\(Advisor[\s\S]*$/i, "")
+    .replace(/[^A-Z0-9]/g, "");
   const match = compact.match(/INF[A-Z0-9]{9}/);
   return match?.[0] ?? "";
 };
@@ -267,6 +297,7 @@ export async function parseCasFile(
     let current = { sectionId: 0, name: "", isin: "", folioLabel: "" };
     let pending: PendingHolding | null = null;
     const nameByIsin = new Map<string, string>();
+    const sectionInfo = new Map<number, { name: string; isin: string; folioLabel: string }>();
 
     for (let index = 0; index < allLines.length; index += 1) {
       const line = allLines[index];
@@ -275,17 +306,28 @@ export async function parseCasFile(
         const lookAhead = [line, allLines[index + 1] ?? "", allLines[index + 2] ?? ""].join(" ");
         const isin = extractIsin(lookAhead);
         const titlePart = line.split(/\s*-\s*ISIN\s*:/i)[0] ?? "";
-        const candidate = friendlySchemeName(titlePart);
+        const immediateCandidate = friendlySchemeName(titlePart);
+        const titleSource = immediateCandidate.length > 12 && !immediateCandidate.toLowerCase().startsWith("demat")
+          ? titlePart
+          : `${allLines[index - 1] ?? ""} ${titlePart}`;
+        const candidate = friendlySchemeName(titleSource);
         const priorName = isin ? nameByIsin.get(isin) : undefined;
-        const name = candidate.length > 12 && !candidate.startsWith("Demat") ? candidate : priorName ?? candidate;
-        if (isin && name) nameByIsin.set(isin, name);
+        const usableCandidate = candidate.length > 12 && !candidate.toLowerCase().startsWith("demat");
+        const name = usableCandidate ? candidate : priorName ?? candidate;
+        if (isin && usableCandidate) nameByIsin.set(isin, name);
         current = { sectionId, name, isin, folioLabel: "" };
+        sectionInfo.set(sectionId, { name, isin, folioLabel: "" });
         pending = null;
       }
 
       const folioMatch = line.match(/Folio No\s*:\s*([A-Z0-9/-]+)/i);
       if (folioMatch && current.sectionId) {
         current = { ...current, folioLabel: maskFolio(folioMatch[1]) };
+        sectionInfo.set(current.sectionId, {
+          name: current.name,
+          isin: current.isin,
+          folioLabel: current.folioLabel,
+        });
       }
 
       const navMatch = line.match(/NAV on\s+(\d{2}-[A-Za-z]{3}-\d{4}):\s*INR\s*([\d,]+\.\d+)/i);
@@ -354,7 +396,14 @@ export async function parseCasFile(
     const grouped = new Map<string, FundHolding>();
     const fundKeyBySection = new Map<number, string>();
     const folioBySection = new Map<number, FolioHolding>();
-    for (const holding of rawHoldings) {
+    const activeRawHoldings = rawHoldings.filter(
+      (holding) => holding.currentValue > 0 || holding.investedPaise > 0 || holding.units > 0,
+    );
+    const activeKeys = new Set(activeRawHoldings.map((holding) => holding.isin || holding.name.toLowerCase()));
+    const portfolioRawHoldings = rawHoldings.filter(
+      (holding) => activeKeys.has(holding.isin || holding.name.toLowerCase()),
+    );
+    for (const holding of portfolioRawHoldings) {
       const key = holding.isin || holding.name.toLowerCase();
       const existing = grouped.get(key);
       const ordinal = (existing?.folioHoldings.length ?? 0) + 1;
@@ -363,6 +412,7 @@ export async function parseCasFile(
         label: holding.folioLabel || `Folio ${ordinal}`,
         currentValue: holding.currentValue,
         invested: fromPaise(holding.investedPaise),
+        costBasis: fromPaise(holding.investedPaise),
         units: holding.units,
         nav: holding.nav,
         navDate: holding.navDate,
@@ -377,6 +427,9 @@ export async function parseCasFile(
         existing.invested = fromPaise(
           Math.round(existing.invested * 100) + holding.investedPaise,
         );
+        existing.costBasis = fromPaise(
+          Math.round(existing.costBasis * 100) + holding.investedPaise,
+        );
         existing.units += holding.units;
         existing.folios += 1;
         existing.folioHoldings.push(folio);
@@ -389,6 +442,7 @@ export async function parseCasFile(
           category: inferCategory(holding.name),
           currentValue: holding.currentValue,
           invested: fromPaise(holding.investedPaise),
+          costBasis: fromPaise(holding.investedPaise),
           units: holding.units,
           nav: holding.nav,
           navDate: holding.navDate,
@@ -412,6 +466,81 @@ export async function parseCasFile(
       grouped.get(key)?.transactions.push(normalized);
       folioBySection.get(transaction.sectionId)?.transactions.push(normalized);
     }
+
+    for (const fund of grouped.values()) {
+      if (fund.transactions.length) {
+        fund.invested = fund.transactions.reduce((total, transaction) => total + transaction.amount, 0);
+      }
+      for (const folio of fund.folioHoldings) {
+        if (folio.transactions.length) {
+          folio.invested = folio.transactions.reduce((total, transaction) => total + transaction.amount, 0);
+        }
+      }
+    }
+
+    const activeSectionIds = new Set(portfolioRawHoldings.map((holding) => holding.sectionId));
+    const closedGrouped = new Map<string, ClosedFund>();
+    for (const [closedSectionId, info] of sectionInfo) {
+      if (activeSectionIds.has(closedSectionId) || !info.name) continue;
+      const sectionTransactions = transactions
+        .filter((transaction) => transaction.sectionId === closedSectionId && transaction.amount !== 0)
+        .map<FundTransaction>((transaction) => ({
+          date: transaction.date,
+          amount: transaction.amount,
+          price: transaction.price,
+          units: transaction.units,
+          balance: transaction.balance,
+          label: transaction.label,
+        }));
+      if (!sectionTransactions.length || Math.abs(sectionTransactions.at(-1)?.balance ?? 0) > 0.001) continue;
+      const totalInvested = sectionTransactions
+        .filter((transaction) => transaction.amount > 0)
+        .reduce((total, transaction) => total + transaction.amount, 0);
+      const totalProceeds = -sectionTransactions
+        .filter((transaction) => transaction.amount < 0)
+        .reduce((total, transaction) => total + transaction.amount, 0);
+      if (totalInvested <= 0 && totalProceeds <= 0) continue;
+      const resolvedName = info.name.length > 12 && !info.name.toLowerCase().startsWith("demat")
+        ? info.name
+        : nameByIsin.get(info.isin) ?? info.name;
+      const key = info.isin || resolvedName.toLowerCase();
+      const realizedGain = totalProceeds - totalInvested;
+      const closedDate = sectionTransactions
+        .filter((transaction) => transaction.amount < 0)
+        .at(-1)?.date ?? sectionTransactions.at(-1)?.date ?? "";
+      const existing = closedGrouped.get(key);
+      if (existing) {
+        existing.realizedGain += realizedGain;
+        existing.totalInvested += totalInvested;
+        existing.totalProceeds += totalProceeds;
+        existing.closedDate = existing.closedDate > closedDate ? existing.closedDate : closedDate;
+        existing.folios += 1;
+        existing.transactions.push(...sectionTransactions);
+      } else {
+        closedGrouped.set(key, {
+          key,
+          name: resolvedName,
+          isin: info.isin,
+          fundHouse: inferFundHouse(resolvedName),
+          category: inferCategory(resolvedName),
+          realizedGain,
+          totalInvested,
+          totalProceeds,
+          closedDate,
+          folios: 1,
+          transactions: sectionTransactions,
+        });
+      }
+    }
+
+    const closedFunds = [...closedGrouped.values()]
+      .filter((fund) => Math.abs(fund.realizedGain) >= 0.005)
+      .sort((a, b) => b.closedDate.localeCompare(a.closedDate));
+    const activeFunds = [...grouped.values()].filter(
+      (fund) => fund.currentValue > 0 || fund.costBasis > 0 || fund.units > 0,
+    );
+    const activeInvested = activeFunds.reduce((total, fund) => total + fund.invested, 0);
+    const realizedGain = closedFunds.reduce((total, fund) => total + fund.realizedGain, 0);
 
     const timeline: TimelinePoint[] = [];
     const balances = new Map<number, { balance: number; price: number }>();
@@ -437,7 +566,7 @@ export async function parseCasFile(
     const statementDate = rawHoldings.find((holding) => holding.navDate)?.navDate ?? new Date().toISOString().slice(0, 10);
     const exactCurrentPoint = {
       date: statementDate,
-      invested: fromPaise(summary.investedPaise),
+      invested: activeInvested,
       value: fromPaise(summary.valuePaise),
       exact: true,
     };
@@ -448,13 +577,17 @@ export async function parseCasFile(
     return {
       source: "cas",
       statementDate,
+      valuationDate: statementDate,
+      valuationSource: "cas",
       currentValue: fromPaise(summary.valuePaise),
-      invested: fromPaise(summary.investedPaise),
-      funds: [...grouped.values()]
-        .filter((fund) => fund.currentValue > 0 || fund.invested > 0)
-        .sort((a, b) => b.currentValue - a.currentValue),
+      invested: activeInvested,
+      costBasis: fromPaise(summary.investedPaise),
+      realizedGain,
+      funds: activeFunds.sort((a, b) => b.currentValue - a.currentValue),
+      closedFunds,
       timeline,
       reconciliationDifference: fromPaise(valueDifference),
+      navCoverage: { updated: 0, total: activeFunds.length },
     };
   } catch (error) {
     if (error instanceof Error && /password/i.test(error.message)) {
@@ -485,6 +618,7 @@ const demoFunds: FundHolding[] = [
       label: `Folio ••••${String(4821 + index * 37 + folioIndex * 11).slice(-4)}`,
       currentValue: (currentValue as number) * share,
       invested: (invested as number) * share,
+      costBasis: (invested as number) * share,
       units: ((currentValue as number) / (nav as number)) * share,
       nav: nav as number,
       navDate: "2026-07-31",
@@ -499,6 +633,7 @@ const demoFunds: FundHolding[] = [
     category: category as string,
     currentValue: currentValue as number,
     invested: invested as number,
+    costBasis: invested as number,
     nav: nav as number,
     units: (currentValue as number) / (nav as number),
     navDate: "2026-07-31",
@@ -532,9 +667,27 @@ const makeDemoTimeline = () => {
 export const demoPortfolio: Portfolio = {
   source: "demo",
   statementDate: "2026-07-31",
+  valuationDate: "2026-07-31",
+  valuationSource: "demo",
   currentValue: demoFunds.reduce((total, fund) => total + fund.currentValue, 0),
   invested: demoFunds.reduce((total, fund) => total + fund.invested, 0),
+  costBasis: demoFunds.reduce((total, fund) => total + fund.costBasis, 0),
+  realizedGain: 18420,
   funds: demoFunds,
+  closedFunds: [{
+    key: "INF000A00999",
+    name: "Harbour Tax Saver Direct Growth",
+    isin: "INF000A00999",
+    fundHouse: "Harbour",
+    category: "ELSS",
+    realizedGain: 18420,
+    totalInvested: 60000,
+    totalProceeds: 78420,
+    closedDate: "2025-09-18",
+    folios: 1,
+    transactions: [],
+  }],
   timeline: makeDemoTimeline(),
   reconciliationDifference: 0,
+  navCoverage: { updated: demoFunds.length, total: demoFunds.length },
 };

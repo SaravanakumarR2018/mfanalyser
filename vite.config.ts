@@ -44,9 +44,18 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
-    server: isCodexSeatbeltSandbox
-      ? { watch: { useFsEvents: false, usePolling: true } }
-      : undefined,
+    server: {
+      ...(isCodexSeatbeltSandbox
+        ? { watch: { useFsEvents: false, usePolling: true } }
+        : {}),
+      proxy: {
+        "/api/nav": {
+          target: "https://portal.amfiindia.com",
+          changeOrigin: true,
+          rewrite: () => "/spages/NAVAll.txt",
+        },
+      },
+    },
     plugins: [
       vinext(),
       sites(),

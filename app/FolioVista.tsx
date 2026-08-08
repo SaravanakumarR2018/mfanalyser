@@ -5,12 +5,14 @@ import PortfolioChart from "./PortfolioChart";
 import {
   demoPortfolio,
   parseCasFile,
+  type ClosedFund,
   type FolioHolding,
   type FundHolding,
   type FundTransaction,
   type Portfolio,
   type TimelinePoint,
 } from "./cas-parser";
+import { refreshWithLatestNav } from "./nav-service";
 
 const formatMoney = (value: number, decimals = 0) =>
   new Intl.NumberFormat("en-IN", {
@@ -142,7 +144,14 @@ function Landing({ onPortfolio }: { onPortfolio: (portfolio: Portfolio) => void 
     setError("");
     setProgress(3);
     try {
-      const portfolio = await parseCasFile(file, suppliedPassword, setProgress);
+      const statementPortfolio = await parseCasFile(
+        file,
+        suppliedPassword,
+        (nextProgress) => setProgress(Math.min(88, nextProgress)),
+      );
+      setProgress(92);
+      const portfolio = await refreshWithLatestNav(statementPortfolio);
+      setProgress(100);
       setPendingFile(null);
       setPassword("");
       setPasswordMode(false);
@@ -246,6 +255,7 @@ type JourneyHolding = {
   units: number;
   nav: number;
   navDate: string;
+  liveNav?: boolean;
   transactions: FundTransaction[];
 };
 
@@ -279,7 +289,8 @@ function buildHoldingTimeline(holding: JourneyHolding): TimelinePoint[] {
     date: holding.navDate,
     invested: holding.invested,
     value: holding.currentValue,
-    exact: true,
+    exact: !holding.liveNav,
+    live: holding.liveNav,
   };
   if (points.at(-1)?.date === holding.navDate) points[points.length - 1] = exactPoint;
   else points.push(exactPoint);
@@ -397,7 +408,7 @@ function HoldingDrawer({
         <p className="drawer-isin">{subtitle}</p>
         <div className="drawer-value"><span>Current value</span><strong>{formatMoney(holding.currentValue)}</strong><em className={gain >= 0 ? "positive" : "negative"}>{gain >= 0 ? "+" : ""}{formatMoney(gain)} · {returnValue.toFixed(1)}%</em></div>
         <div className="drawer-grid">
-          <p><span>Invested</span><strong>{formatMoney(holding.invested)}</strong></p>
+          <p><span>Net invested</span><strong>{formatMoney(holding.invested)}</strong></p>
           <p><span>Units</span><strong>{holding.units.toLocaleString("en-IN", { maximumFractionDigits: 3 })}</strong></p>
           <p><span>Latest NAV</span><strong>{formatMoney(holding.nav, 4)}</strong></p>
           <p><span>NAV date</span><strong>{formatDate(holding.navDate)}</strong></p>
@@ -422,7 +433,7 @@ function HoldingDrawer({
           compact
           showBelowCost
           note={holding.transactions.length
-            ? "the final invested amount and value are exact from the CAS. Earlier points use this holding’s recorded transaction units and NAVs; highlighted dips are periods below net invested."
+            ? "the invested amount is the net cash flow recorded in the CAS. The endpoint values those CAS units at the latest available NAV; highlighted red sections are periods below net invested."
             : "the CAS provides the exact current invested amount and value, but did not include usable transaction rows for an earlier history."}
         />
         <div className="transaction-head"><h3>{transactionTitle}</h3><span>{holding.transactions.length}</span></div>
@@ -470,13 +481,40 @@ function FolioDrawer({ fund, folio, onClose }: { fund: FundHolding; folio: Folio
   );
 }
 
+function ClosedFunds({ funds }: { funds: ClosedFund[] }) {
+  if (!funds.length) return null;
+  const totalRealized = funds.reduce((total, fund) => total + fund.realizedGain, 0);
+  return (
+    <section className="closed-card" aria-labelledby="closed-title">
+      <div className="closed-head">
+        <div><p className="eyebrow">Completed journeys</p><h2 id="closed-title">Closed funds</h2></div>
+        <div><span>Realised gain</span><strong className={totalRealized >= 0 ? "positive" : "negative"}>{formatMoney(totalRealized)}</strong></div>
+      </div>
+      <p className="closed-explainer">These funds have a zero closing balance in the CAS. Their realised gains are included in all-time performance, but not in current portfolio value or active invested amount.</p>
+      <div className="closed-table">
+        <div className="closed-row closed-table-head"><span>Fund</span><span>Closed</span><span>Historic investment</span><span>Sale proceeds</span><span>Realised gain</span></div>
+        {funds.map((fund) => (
+          <div className="closed-row" key={fund.key}>
+            <span><strong>{fund.name}</strong><small>{fund.folios} {fund.folios === 1 ? "folio" : "folios"} · {fund.category}</small></span>
+            <span data-label="Closed">{fund.closedDate ? formatDate(fund.closedDate) : "—"}</span>
+            <span data-label="Historic investment">{formatMoney(fund.totalInvested)}</span>
+            <span data-label="Sale proceeds">{formatMoney(fund.totalProceeds)}</span>
+            <span data-label="Realised gain" className={fund.realizedGain >= 0 ? "positive" : "negative"}>{fund.realizedGain >= 0 ? "+" : ""}{formatMoney(fund.realizedGain)}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () => void }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"value" | "return" | "name">("value");
   const [selected, setSelected] = useState<FundHolding | null>(null);
   const [selectedFolio, setSelectedFolio] = useState<{ fund: FundHolding; folio: FolioHolding } | null>(null);
   const [expandedFund, setExpandedFund] = useState<string | null>(null);
-  const gain = portfolio.currentValue - portfolio.invested;
+  const unrealizedGain = portfolio.currentValue - portfolio.invested;
+  const gain = unrealizedGain + portfolio.realizedGain;
   const absoluteReturn = portfolio.invested ? (gain / portfolio.invested) * 100 : 0;
   const activeFolios = portfolio.funds.reduce((total, fund) => total + fund.folios, 0);
 
@@ -510,21 +548,26 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
     <main className="dashboard">
       <header className="dashboard-header">
         <Brand />
-        <div className="dash-context"><span>Portfolio overview</span><i />Statement as of {formatDate(portfolio.statementDate)}</div>
+        <div className="dash-context"><span>Portfolio overview</span><i />Valued as of {formatDate(portfolio.valuationDate)}</div>
         <button className="import-button" onClick={onReset}><span>＋</span> Import another CAS</button>
       </header>
       <div className="dashboard-shell">
         <div className="reconcile-bar">
-          <div><span className="check-badge">✓</span><strong>Statement reconciled</strong><i />{portfolio.funds.length} active funds across {activeFolios} folios</div>
-          <p><span className="privacy-pulse" /> Processed locally · Nothing uploaded {portfolio.source === "demo" && <em>Demo data</em>}</p>
+          <div><span className="check-badge">✓</span><strong>{portfolio.valuationSource === "amfi" ? "Latest NAV applied" : "Statement reconciled"}</strong><i />{portfolio.navCoverage.updated}/{portfolio.navCoverage.total} funds updated · {activeFolios} active folios</div>
+          <p><span className="privacy-pulse" /> CAS processed locally · AMFI prices only {portfolio.source === "demo" && <em>Demo data</em>}</p>
+        </div>
+
+        <div className={`valuation-notice ${portfolio.valuationSource === "amfi" ? "live" : "fallback"}`}>
+          <span>{portfolio.valuationSource === "amfi" ? "LIVE" : "CAS"}</span>
+          <p><strong>{portfolio.valuationSource === "amfi" ? `Latest available official NAVs · ${formatDate(portfolio.valuationDate)}` : `Showing statement valuation · ${formatDate(portfolio.statementDate)}`}</strong>{portfolio.valuationSource === "amfi" ? `Values use the unit balances in your CAS dated ${formatDate(portfolio.statementDate)}. Transactions after that CAS cannot be known; upload a newer CAS to include them.` : ` ${portfolio.liveUpdateError ?? "Live NAVs were unavailable."}`}</p>
         </div>
 
         <section className="summary-card">
           <div className="summary-main">
-            <p>TOTAL PORTFOLIO VALUE <span title="Exact value from the CAS portfolio summary">i</span></p>
+            <p>CURRENT PORTFOLIO VALUE <span title="Latest available NAV multiplied by the unit balances in this CAS">i</span></p>
             <h1>{compactMoney(portfolio.currentValue)}</h1>
             <div className="gain-line"><strong className={gain >= 0 ? "positive" : "negative"}>{gain >= 0 ? "↗" : "↘"} {formatMoney(Math.abs(gain))}</strong><span>all-time gain</span><i /> <strong>{absoluteReturn.toFixed(2)}%</strong><span>absolute return</span></div>
-            <small>Exact statement value · {formatDate(portfolio.statementDate)}</small>
+            <small>{portfolio.valuationSource === "amfi" ? "Official AMFI NAV" : "CAS statement value"} · {formatDate(portfolio.valuationDate)} · CAS units as of {formatDate(portfolio.statementDate)}</small>
           </div>
           <div className="summary-allocation">
             <div className="hero-donut" style={{ background: `conic-gradient(${conic})` }}><span><small>{portfolio.funds.length}</small>funds</span></div>
@@ -533,13 +576,19 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
         </section>
 
         <section className="metric-grid" aria-label="Portfolio summary metrics">
-          <article><p>Amount invested <span>i</span></p><strong>{compactMoney(portfolio.invested)}</strong><small>Across active holdings</small></article>
-          <article><p>Wealth created</p><strong className={gain >= 0 ? "positive" : "negative"}>{compactMoney(gain)}</strong><small>{absoluteReturn.toFixed(2)}% on invested capital</small></article>
+          <article><p>Amount invested <span title="Purchases minus redemptions from active CAS holdings">i</span></p><strong>{compactMoney(portfolio.invested)}</strong><small>Net transaction cash flow</small></article>
+          <article><p>Wealth created</p><strong className={gain >= 0 ? "positive" : "negative"}>{compactMoney(gain)}</strong><small>{absoluteReturn.toFixed(2)}% including realised gains</small></article>
+          <article><p>Realised gains</p><strong className={portfolio.realizedGain >= 0 ? "positive" : "negative"}>{compactMoney(portfolio.realizedGain)}</strong><small>From {portfolio.closedFunds.length} closed {portfolio.closedFunds.length === 1 ? "fund" : "funds"}</small></article>
           <article><p>Active funds</p><strong>{portfolio.funds.length}</strong><small>{activeFolios} statement folios</small></article>
           <article className="accuracy-metric"><p>Accuracy check</p><strong><i>✓</i> Reconciled</strong><small>{portfolio.reconciliationDifference <= 0.01 ? "Within statement rounding" : `₹${portfolio.reconciliationDifference.toFixed(2)} rounding difference`}</small></article>
         </section>
 
-        <PortfolioChart points={portfolio.timeline} />
+        <PortfolioChart
+          points={portfolio.timeline}
+          note={portfolio.valuationSource === "amfi"
+            ? `the endpoint uses official AMFI NAVs dated ${formatDate(portfolio.valuationDate)} and the unit balances in the CAS dated ${formatDate(portfolio.statementDate)}. Net invested is calculated from statement purchases and redemptions.`
+            : `the endpoint is the reconciled CAS value dated ${formatDate(portfolio.statementDate)} because live NAVs were unavailable. Net invested is calculated from statement purchases and redemptions.`}
+        />
 
         <section className="holdings-card" aria-labelledby="holdings-title">
           <div className="holdings-head">
@@ -558,7 +607,7 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
             <p><i className="guide-dip">↓</i><span><strong>Below-cost periods</strong>Counts distinct observed periods where estimated value fell below net invested by more than 0.25%.</span></p>
           </div>
           <div className="fund-table" role="table" aria-label="Mutual fund holdings">
-            <div className="fund-row table-header" role="row"><span>Fund</span><span>Invested</span><span>Current value</span><span>Gain / loss</span><span>Return</span><span>Momentum</span><span>Below cost</span><span /></div>
+            <div className="fund-row table-header" role="row"><span>Fund</span><span>Invested amount</span><span>Current value</span><span>Gain / loss</span><span>Return</span><span>Momentum</span><span>Below cost</span><span /></div>
             {filteredFunds.map((fund, index) => {
               const fundGain = fund.currentValue - fund.invested;
               const fundReturn = fund.invested ? (fundGain / fund.invested) * 100 : 0;
@@ -573,7 +622,7 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
                     onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelected(fund); }}
                   >
                     <span className="fund-name"><i style={{ background: palette[index % palette.length] }}>{fund.fundHouse.slice(0, 2).toUpperCase()}</i><span><strong>{fund.name}</strong><small>{fund.category} · {fund.folios} {fund.folios === 1 ? "folio" : "folios"}</small></span></span>
-                    <span data-label="Invested">{formatMoney(fund.invested)}</span>
+                    <span data-label="Invested amount">{formatMoney(fund.invested)}</span>
                     <span data-label="Current value"><strong>{formatMoney(fund.currentValue)}</strong></span>
                     <span data-label="Gain / loss" className={fundGain >= 0 ? "positive" : "negative"}>{fundGain >= 0 ? "+" : ""}{formatMoney(fundGain)}</span>
                     <span data-label="Return"><em className={fundReturn >= 0 ? "return-pill positive" : "return-pill negative"}>{fundReturn >= 0 ? "↗" : "↘"} {fundReturn.toFixed(1)}%</em></span>
@@ -598,7 +647,7 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
                         return (
                           <button className="folio-row" key={folio.key} onClick={() => setSelectedFolio({ fund, folio })}>
                             <span className="folio-name"><i>F</i><span><strong>{folio.label}</strong><small>{folio.currentValue > 0 ? `${folio.transactions.length} transactions` : "Closed / zero balance"}</small></span></span>
-                            <span data-label="Invested">{formatMoney(folio.invested)}</span>
+                            <span data-label="Invested amount">{formatMoney(folio.invested)}</span>
                             <span data-label="Current value"><strong>{formatMoney(folio.currentValue)}</strong></span>
                             <span data-label="Gain / loss" className={folioGain >= 0 ? "positive" : "negative"}>{folioGain >= 0 ? "+" : ""}{formatMoney(folioGain)}</span>
                             <span data-label="Return"><em className={folioReturn >= 0 ? "return-pill positive" : "return-pill negative"}>{folioReturn >= 0 ? "↗" : "↘"} {folioReturn.toFixed(1)}%</em></span>
@@ -616,6 +665,8 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
             {!filteredFunds.length && <div className="no-results">No funds match “{query}”.</div>}
           </div>
         </section>
+
+        <ClosedFunds funds={portfolio.closedFunds} />
 
         <section className="insight-grid">
           <article className="allocation-card">

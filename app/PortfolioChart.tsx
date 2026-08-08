@@ -326,7 +326,7 @@ export default function PortfolioChart({
         />
         {hoverPoint && (
           <div className="chart-tooltip" style={tooltipStyle}>
-            <span>{prettyDate(hoverPoint.date)}{hoverPoint.exact ? " · Statement value" : ""}</span>
+            <span>{prettyDate(hoverPoint.date)}{hoverPoint.live ? " · Latest AMFI NAV" : hoverPoint.exact ? " · Statement value" : ""}</span>
             <strong>{fullMoney(hoverPoint.value)}</strong>
             <small>Invested {fullMoney(hoverPoint.invested)}</small>
           </div>
