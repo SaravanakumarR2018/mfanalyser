@@ -2,6 +2,7 @@
 
 import { useId, useMemo, useRef, useState } from "react";
 import PortfolioChart from "./PortfolioChart";
+import NavActivityChart from "./NavActivityChart";
 import {
   demoPortfolio,
   parseCasFile,
@@ -435,6 +436,12 @@ function HoldingDrawer({
           note={holding.transactions.length
             ? "the invested amount is the net cash flow recorded in the CAS. The endpoint values those CAS units at the latest available NAV; highlighted red sections are periods below net invested."
             : "the CAS provides the exact current invested amount and value, but did not include usable transaction rows for an earlier history."}
+        />
+        <NavActivityChart
+          transactions={holding.transactions}
+          nav={holding.nav}
+          navDate={holding.navDate}
+          liveNav={holding.liveNav}
         />
         <div className="transaction-head"><h3>{transactionTitle}</h3><span>{holding.transactions.length}</span></div>
         {holding.transactions.length ? (

@@ -240,6 +240,13 @@ a { color: inherit; text-decoration: none; }
 .fund-journey-card .chart-shell { min-height: 278px; }
 .fund-journey-card .chart-shell canvas { height: 278px !important; }
 .fund-journey-card .range-track { margin-left: 12px; }
+.nav-activity-card { margin: 13px 0 12px; padding: 19px 17px 15px; background: white; border: 1px solid var(--line); border-radius: 15px; }
+.nav-activity-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; }.nav-activity-head h3 { margin: 0; font-family: var(--serif); font-size: 23px; font-weight: 500; letter-spacing: -.55px; }.nav-activity-head .eyebrow { margin-bottom: 4px; }
+.nav-periods { display: flex; border: 1px solid var(--line); background: #f8f9f5; border-radius: 8px; padding: 3px; }.nav-periods button { border: 0; background: transparent; color: var(--muted); border-radius: 5px; padding: 5px 9px; font-size: 8px; cursor: pointer; }.nav-periods button:hover, .nav-periods button.active { background: var(--sage); color: var(--ink); }
+.nav-activity-legend { display: flex; align-items: center; gap: 17px; min-height: 35px; color: var(--muted); font-size: 8px; }.nav-activity-legend span { display: inline-flex; align-items: center; gap: 6px; }.nav-line-key { width: 14px; border-top: 2px solid var(--green); }.investment-key { width: 7px; height: 7px; background: var(--coral); transform: rotate(45deg); border: 1px solid white; }
+.nav-activity-shell { position: relative; min-height: 250px; cursor: crosshair; touch-action: pan-y; user-select: none; }.nav-activity-shell canvas { display: block; height: 250px !important; }
+.nav-activity-tooltip { height: 61px; box-sizing: border-box; background: var(--ink); color: white; padding: 8px 11px; border-radius: 8px; pointer-events: none; box-shadow: 0 8px 24px rgba(11,29,42,.2); display: flex; flex-direction: column; gap: 2px; z-index: 4; }.nav-activity-tooltip span, .nav-activity-tooltip small { color: #93a7a0; font-size: 7.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }.nav-activity-tooltip strong { font-family: var(--serif); font-size: 14px; font-weight: 500; }
+.nav-activity-note { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--line); color: #849089; font-size: 8px; line-height: 1.5; }.nav-activity-empty { margin: 9px 0 0; min-height: 120px; border-radius: 10px; background: #f5f6f1; color: var(--muted); display: grid; place-items: center; text-align: center; font-size: 9px; padding: 20px; }
 .holdings-card { margin-bottom: 15px; overflow: hidden; }.holdings-head { padding: 23px 26px 17px; }.table-tools { display: flex; gap: 8px; }.search-field { height: 34px; min-width: 210px; background: white; border: 1px solid var(--line); border-radius: 8px; display: flex; align-items: center; padding: 0 10px; gap: 7px; }.search-field span { color: #85918b; font-size: 15px; }.search-field input { min-width: 0; border: 0; outline: 0; background: transparent; font-size: 10px; color: var(--ink); }.table-tools select { height: 34px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--muted); padding: 0 28px 0 10px; font-size: 9px; outline: none; }
 .signal-guide { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 26px 18px; }
 .signal-guide p { margin: 0; min-height: 48px; border: 1px solid var(--line); border-radius: 10px; background: #f7f8f3; padding: 9px 11px; display: flex; align-items: flex-start; gap: 9px; color: #7c8982; font-size: 7.5px; line-height: 1.45; }
@@ -343,6 +350,7 @@ a { color: inherit; text-decoration: none; }
   .fund-drawer { padding: 30px 22px; }
   .drawer-signals { grid-template-columns: 1fr; }
   .fund-journey-card .chart-shell { min-height: 278px; }.fund-journey-card .chart-shell canvas { height: 278px !important; }
+  .nav-activity-card { padding-left: 12px; padding-right: 12px; }.nav-activity-head { align-items: flex-start; flex-direction: column; }.nav-periods { width: 100%; }.nav-periods button { flex: 1; }.nav-activity-legend { flex-wrap: wrap; gap: 8px 15px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
