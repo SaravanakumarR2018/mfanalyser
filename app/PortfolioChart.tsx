@@ -21,15 +21,21 @@ const compactMoney = (value: number) => {
   return `₹${Math.round(value)}`;
 };
 
-const fullMoney = (value: number) =>
+const fullMoney = (value: number, decimals = 0) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
-    maximumFractionDigits: 0,
+    maximumFractionDigits: decimals,
+    minimumFractionDigits: decimals,
   }).format(value);
 
 const prettyDate = (date: string) =>
   new Intl.DateTimeFormat("en-IN", { month: "short", year: "numeric" }).format(new Date(`${date}T00:00:00Z`));
+
+const fullDate = (date: string) =>
+  new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" }).format(new Date(`${date}T00:00:00Z`));
+
+const signedMoney = (value: number) => `${value >= 0 ? "+" : "−"}${fullMoney(Math.abs(value), 2)}`;
 
 export default function PortfolioChart({
   points,
@@ -254,21 +260,21 @@ export default function PortfolioChart({
     return Math.round(ratio * (visible.length - 1));
   };
 
-  const hoverPoint = hovered !== null ? visible[hovered] : null;
-  const tooltipStyle = useMemo(() => {
-    if (!hoverPoint || hovered === null) return undefined;
-    const height = compact ? 278 : 360;
-    const max = Math.max(...visible.flatMap((point) => [point.value, point.invested])) * 1.12;
-    const min = Math.min(...visible.flatMap((point) => [point.value, point.invested])) * 0.86;
-    const pointY = 24 + ((max - hoverPoint.value) / Math.max(1, max - min)) * (height - 62);
-    const ratio = hovered / Math.max(1, visible.length - 1);
-    const placeRight = ratio < 0.54;
-    return {
-      left: `${Math.max(4, Math.min(96, ratio * 100 + (placeRight ? 2.5 : -2.5)))}%`,
-      top: `${pointY < height * 0.48 ? pointY + 18 : pointY - 82}px`,
-      transform: placeRight ? "translateX(0)" : "translateX(-100%)",
-    };
-  }, [compact, hoverPoint, hovered, visible]);
+  const activeVisibleIndex = hovered ?? Math.max(0, visible.length - 1);
+  const activePoint = visible[activeVisibleIndex];
+  const activePointIndex = range[0] + activeVisibleIndex;
+  const previousPoint = activePointIndex > 0 ? points[activePointIndex - 1] : null;
+  const valueChange = previousPoint ? activePoint.value - previousPoint.value : 0;
+  const investedChange = previousPoint ? activePoint.invested - previousPoint.invested : 0;
+  const valuationChange = valueChange - investedChange;
+  const dominantMove = !previousPoint
+    ? "Starting point"
+    : Math.abs(investedChange) > Math.abs(valuationChange)
+      ? investedChange >= 0 ? "Investment-led move" : "Withdrawal-led move"
+      : "Valuation-led move";
+  const topContributors = [...(activePoint.contributors ?? [])]
+    .sort((a, b) => Math.max(Math.abs(b.valueChange), Math.abs(b.investedChange)) - Math.max(Math.abs(a.valueChange), Math.abs(a.investedChange)))
+    .slice(0, compact ? 2 : 3);
 
   return (
     <section className={`chart-card ${compact ? "fund-journey-card" : ""}`} aria-labelledby={headingId}>
@@ -296,6 +302,33 @@ export default function PortfolioChart({
         {showBelowCost && <span><i className="legend-line below" />Below invested</span>}
         <span className="chart-hint">Scroll to zoom · drag to pan</span>
       </div>
+      <div className="chart-readout" aria-live="polite">
+        <div className="readout-values">
+          <span>{fullDate(activePoint.date)}{activePoint.live ? " · Latest AMFI NAV" : activePoint.exact ? " · Statement value" : ""}</span>
+          <strong>{fullMoney(activePoint.value, 2)}</strong>
+          <small>Invested {fullMoney(activePoint.invested, 2)}</small>
+        </div>
+        <div className="readout-movement">
+          <span>{dominantMove}{previousPoint ? ` · since ${fullDate(previousPoint.date)}` : ""}</span>
+          {previousPoint ? (
+            <div>
+              <p><small>Value</small><strong className={valueChange >= 0 ? "positive" : "negative"}>{signedMoney(valueChange)}</strong></p>
+              <p><small>Net flow</small><strong className={investedChange >= 0 ? "positive" : "negative"}>{signedMoney(investedChange)}</strong></p>
+              <p><small>Valuation effect</small><strong className={valuationChange >= 0 ? "positive" : "negative"}>{signedMoney(valuationChange)}</strong></p>
+            </div>
+          ) : <small>This is the first available point in the CAS history.</small>}
+        </div>
+        <div className="readout-contributors">
+          <span>Largest contributors</span>
+          {topContributors.length ? topContributors.map((contributor, index) => (
+            <p key={`${contributor.label}-${contributor.folio ?? ""}-${index}`}>
+              <span><strong>{contributor.label}</strong>{contributor.folio && <small>{contributor.folio}</small>}</span>
+              <em className={contributor.valueChange >= 0 ? "positive" : "negative"}>{signedMoney(contributor.valueChange)} value</em>
+              {Math.abs(contributor.investedChange) >= 0.005 && <small>{contributor.description ? `${signedMoney(contributor.investedChange)} · ${contributor.description}` : `${signedMoney(contributor.investedChange)} ${contributor.investedChange >= 0 ? "invested" : "withdrawn"}`}</small>}
+            </p>
+          )) : <small>{previousPoint ? "No single folio movement is available for this historical point." : "Move across the graph to inspect each dated point."}</small>}
+        </div>
+      </div>
       <div
         ref={shellRef}
         className="chart-shell"
@@ -322,15 +355,8 @@ export default function PortfolioChart({
         <canvas
           ref={canvasRef}
           role="img"
-          aria-label={`${valueLabel} chart from ${prettyDate(visible[0]?.date ?? points[0]?.date)} to ${prettyDate(visible.at(-1)?.date ?? points.at(-1)?.date)}`}
+          aria-label={`${valueLabel} chart from ${fullDate(visible[0]?.date ?? points[0]?.date)} to ${fullDate(visible.at(-1)?.date ?? points.at(-1)?.date)}`}
         />
-        {hoverPoint && (
-          <div className="chart-tooltip" style={tooltipStyle}>
-            <span>{prettyDate(hoverPoint.date)}{hoverPoint.live ? " · Latest AMFI NAV" : hoverPoint.exact ? " · Statement value" : ""}</span>
-            <strong>{fullMoney(hoverPoint.value)}</strong>
-            <small>Invested {fullMoney(hoverPoint.invested)}</small>
-          </div>
-        )}
       </div>
       <div className="range-track" aria-label="Visible chart range">
         <div className="range-fill" style={{ left: `${(range[0] / Math.max(1, points.length - 1)) * 100}%`, right: `${100 - (range[1] / Math.max(1, points.length - 1)) * 100}%` }} />

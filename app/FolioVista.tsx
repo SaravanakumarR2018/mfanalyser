@@ -250,6 +250,8 @@ function Landing({ onPortfolio }: { onPortfolio: (portfolio: Portfolio) => void 
 }
 
 type JourneyHolding = {
+  name?: string;
+  label?: string;
   currentValue: number;
   invested: number;
   units: number;
@@ -257,6 +259,7 @@ type JourneyHolding = {
   navDate: string;
   liveNav?: boolean;
   transactions: FundTransaction[];
+  folioHoldings?: FolioHolding[];
 };
 
 type MomentumSignal = {
@@ -269,31 +272,76 @@ type MomentumSignal = {
 
 function buildHoldingTimeline(holding: JourneyHolding): TimelinePoint[] {
   const points: TimelinePoint[] = [];
-  let units = 0;
   let netInvested = 0;
+  const balances = new Map<string, { balance: number; price: number }>();
   const transactions = [...holding.transactions].sort((a, b) => a.date.localeCompare(b.date));
 
   for (const transaction of transactions) {
-    units += transaction.units;
+    const contributorKey = transaction.folioLabel || holding.label || transaction.fundName || holding.name || "Holding";
+    const previousLot = balances.get(contributorKey);
+    const previousLotValue = previousLot ? previousLot.balance * previousLot.price : 0;
+    balances.set(contributorKey, { balance: transaction.balance, price: transaction.price });
     netInvested += transaction.amount;
-    const point = {
+    const point: TimelinePoint = {
       date: transaction.date,
       invested: Math.max(0, netInvested),
-      value: Math.max(0, units * transaction.price),
+      value: Math.max(0, [...balances.values()].reduce((total, lot) => total + lot.balance * lot.price, 0)),
+      contributors: [{
+        label: transaction.fundName || holding.name || holding.label || "Holding",
+        folio: transaction.folioLabel || (holding.label !== transaction.fundName ? holding.label : undefined),
+        valueChange: transaction.balance * transaction.price - previousLotValue,
+        investedChange: transaction.amount,
+      }],
     };
-    if (points.at(-1)?.date === transaction.date) points[points.length - 1] = point;
-    else points.push(point);
+    const previousPoint = points.at(-1);
+    if (previousPoint?.date === transaction.date) {
+      previousPoint.invested = point.invested;
+      previousPoint.value = point.value;
+      const contributor = point.contributors?.[0];
+      const matchingContributor = contributor && previousPoint.contributors?.find(
+        (item) => item.label === contributor.label && item.folio === contributor.folio,
+      );
+      if (matchingContributor && contributor) {
+        matchingContributor.valueChange += contributor.valueChange;
+        matchingContributor.investedChange += contributor.investedChange;
+      } else if (contributor) {
+        previousPoint.contributors = [...(previousPoint.contributors ?? []), contributor];
+      }
+    } else points.push(point);
   }
 
+  const previousEndpoint = points.at(-1);
+  const endpointInvestedChange = holding.invested - (previousEndpoint?.invested ?? 0);
+  const endpointContributors = holding.folioHoldings?.length
+    ? holding.folioHoldings.map((folio, index) => {
+        const lastTransaction = folio.transactions.slice().sort((a, b) => a.date.localeCompare(b.date)).at(-1);
+        return {
+          label: holding.name || "Fund",
+          folio: folio.label,
+          valueChange: folio.currentValue - (lastTransaction ? lastTransaction.balance * lastTransaction.price : 0),
+          investedChange: index === 0 ? endpointInvestedChange : 0,
+        };
+      })
+    : [{
+        label: holding.name || holding.label || "Holding",
+        folio: holding.label && holding.name ? holding.label : undefined,
+        valueChange: holding.currentValue - (previousEndpoint?.value ?? 0),
+        investedChange: endpointInvestedChange,
+      }];
   const exactPoint: TimelinePoint = {
     date: holding.navDate,
     invested: holding.invested,
     value: holding.currentValue,
     exact: !holding.liveNav,
     live: holding.liveNav,
+    contributors: endpointContributors.filter(
+      (contributor) => Math.abs(contributor.valueChange) >= 0.005 || Math.abs(contributor.investedChange) >= 0.005,
+    ),
   };
-  if (points.at(-1)?.date === holding.navDate) points[points.length - 1] = exactPoint;
-  else points.push(exactPoint);
+  if (previousEndpoint?.date === holding.navDate) {
+    exactPoint.contributors = [...(previousEndpoint.contributors ?? []), ...(exactPoint.contributors ?? [])];
+    points[points.length - 1] = exactPoint;
+  } else points.push(exactPoint);
 
   if (points.length === 1) {
     const start = new Date(`${holding.navDate}T00:00:00Z`);
@@ -507,9 +555,36 @@ function ClosedFunds({ funds }: { funds: ClosedFund[] }) {
   );
 }
 
+type FundSortKey = "name" | "invested" | "value" | "gain" | "return" | "momentum" | "downside";
+type SortDirection = "asc" | "desc";
+
+function SortableHeader({
+  label,
+  sortKey,
+  activeKey,
+  direction,
+  onSort,
+}: {
+  label: string;
+  sortKey: FundSortKey;
+  activeKey: FundSortKey;
+  direction: SortDirection;
+  onSort: (key: FundSortKey) => void;
+}) {
+  const active = activeKey === sortKey;
+  return (
+    <span role="columnheader" aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : "none"}>
+      <button className={`sort-header ${active ? "active" : ""}`} onClick={() => onSort(sortKey)}>
+        {label}<i aria-hidden="true">{active ? (direction === "asc" ? "↑" : "↓") : "↕"}</i>
+      </button>
+    </span>
+  );
+}
+
 function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () => void }) {
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<"value" | "return" | "name">("value");
+  const [sortKey, setSortKey] = useState<FundSortKey>("value");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [selected, setSelected] = useState<FundHolding | null>(null);
   const [selectedFolio, setSelectedFolio] = useState<{ fund: FundHolding; folio: FolioHolding } | null>(null);
   const [expandedFund, setExpandedFund] = useState<string | null>(null);
@@ -533,16 +608,48 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
     }).join(", ");
   }, [allocations, portfolio.currentValue]);
 
+  const fundSignals = useMemo(() => new Map(portfolio.funds.map((fund) => [fund.key, {
+    momentum: getMomentum(fund)?.value ?? Number.NEGATIVE_INFINITY,
+    downside: getDownside(buildHoldingTimeline(fund)).episodes,
+  }])), [portfolio.funds]);
+
   const filteredFunds = useMemo(() => {
     const lower = query.toLowerCase();
     return portfolio.funds
       .filter((fund) => `${fund.name} ${fund.fundHouse} ${fund.category}`.toLowerCase().includes(lower))
       .sort((a, b) => {
-        if (sort === "name") return a.name.localeCompare(b.name);
-        if (sort === "return") return ((b.currentValue - b.invested) / Math.max(1, b.invested)) - ((a.currentValue - a.invested) / Math.max(1, a.invested));
-        return b.currentValue - a.currentValue;
+        const gainA = a.currentValue - a.invested;
+        const gainB = b.currentValue - b.invested;
+        const values: Record<Exclude<FundSortKey, "name">, [number, number]> = {
+          invested: [a.invested, b.invested],
+          value: [a.currentValue, b.currentValue],
+          gain: [gainA, gainB],
+          return: [gainA / Math.max(1, a.invested), gainB / Math.max(1, b.invested)],
+          momentum: [fundSignals.get(a.key)?.momentum ?? Number.NEGATIVE_INFINITY, fundSignals.get(b.key)?.momentum ?? Number.NEGATIVE_INFINITY],
+          downside: [fundSignals.get(a.key)?.downside ?? 0, fundSignals.get(b.key)?.downside ?? 0],
+        };
+        const comparison = sortKey === "name"
+          ? a.name.localeCompare(b.name)
+          : values[sortKey][0] - values[sortKey][1];
+        return (sortDirection === "asc" ? comparison : -comparison) || a.name.localeCompare(b.name);
       });
-  }, [portfolio.funds, query, sort]);
+  }, [fundSignals, portfolio.funds, query, sortDirection, sortKey]);
+
+  const tableTotals = useMemo(() => filteredFunds.reduce((totals, fund) => ({
+    invested: totals.invested + fund.invested,
+    currentValue: totals.currentValue + fund.currentValue,
+  }), { invested: 0, currentValue: 0 }), [filteredFunds]);
+  const tableGain = tableTotals.currentValue - tableTotals.invested;
+  const tableReturn = tableTotals.invested ? (tableGain / tableTotals.invested) * 100 : 0;
+
+  const changeSort = (nextKey: FundSortKey) => {
+    if (nextKey === sortKey) {
+      setSortDirection((current) => current === "asc" ? "desc" : "asc");
+      return;
+    }
+    setSortKey(nextKey);
+    setSortDirection(nextKey === "name" ? "asc" : "desc");
+  };
 
   return (
     <main className="dashboard">
@@ -566,7 +673,9 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
           <div className="summary-main">
             <p>CURRENT PORTFOLIO VALUE <span title="Latest available NAV multiplied by the unit balances in this CAS">i</span></p>
             <h1>{compactMoney(portfolio.currentValue)}</h1>
+            <span className="summary-exact">Exact value {formatMoney(portfolio.currentValue, 2)}</span>
             <div className="gain-line"><strong className={gain >= 0 ? "positive" : "negative"}>{gain >= 0 ? "↗" : "↘"} {formatMoney(Math.abs(gain))}</strong><span>all-time gain</span><i /> <strong>{absoluteReturn.toFixed(2)}%</strong><span>absolute return</span></div>
+            <small className="gain-exact">Exact all-time gain {gain >= 0 ? "+" : "−"}{formatMoney(Math.abs(gain), 2)}</small>
             <small>{portfolio.valuationSource === "amfi" ? "Official AMFI NAV" : "CAS statement value"} · {formatDate(portfolio.valuationDate)} · CAS units as of {formatDate(portfolio.statementDate)}</small>
           </div>
           <div className="summary-allocation">
@@ -576,8 +685,8 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
         </section>
 
         <section className="metric-grid" aria-label="Portfolio summary metrics">
-          <article><p>Amount invested <span title="Purchases minus redemptions from active CAS holdings">i</span></p><strong>{compactMoney(portfolio.invested)}</strong><small>Net transaction cash flow</small></article>
-          <article><p>Wealth created</p><strong className={gain >= 0 ? "positive" : "negative"}>{compactMoney(gain)}</strong><small>{absoluteReturn.toFixed(2)}% including realised gains</small></article>
+          <article><p>Amount invested <span title="Purchases minus redemptions from active CAS holdings">i</span></p><strong>{compactMoney(portfolio.invested)}</strong><small className="metric-exact">{formatMoney(portfolio.invested, 2)}</small><small>Net transaction cash flow</small></article>
+          <article><p>Wealth created</p><strong className={gain >= 0 ? "positive" : "negative"}>{compactMoney(gain)}</strong><small className="metric-exact">{gain >= 0 ? "+" : "−"}{formatMoney(Math.abs(gain), 2)}</small><small>{absoluteReturn.toFixed(2)}% including realised gains</small></article>
           <article><p>Realised gains</p><strong className={portfolio.realizedGain >= 0 ? "positive" : "negative"}>{compactMoney(portfolio.realizedGain)}</strong><small>From {portfolio.closedFunds.length} closed {portfolio.closedFunds.length === 1 ? "fund" : "funds"}</small></article>
           <article><p>Active funds</p><strong>{portfolio.funds.length}</strong><small>{activeFolios} statement folios</small></article>
           <article className="accuracy-metric"><p>Accuracy check</p><strong><i>✓</i> Reconciled</strong><small>{portfolio.reconciliationDifference <= 0.01 ? "Within statement rounding" : `₹${portfolio.reconciliationDifference.toFixed(2)} rounding difference`}</small></article>
@@ -595,10 +704,14 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
             <div><p className="eyebrow">The full picture</p><h2 id="holdings-title">Your funds</h2></div>
             <div className="table-tools">
               <label className="search-field"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search funds" aria-label="Search funds" /></label>
-              <select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort funds">
-                <option value="value">Sort: Value</option>
+              <select value={sortKey} onChange={(event) => changeSort(event.target.value as FundSortKey)} aria-label="Sort funds">
+                <option value="value">Sort: Current value</option>
+                <option value="invested">Sort: Invested</option>
+                <option value="gain">Sort: Gain / loss</option>
                 <option value="return">Sort: Return</option>
-                <option value="name">Sort: Name</option>
+                <option value="momentum">Sort: Momentum</option>
+                <option value="downside">Sort: Below cost</option>
+                <option value="name">Sort: Fund name</option>
               </select>
             </div>
           </div>
@@ -607,7 +720,16 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
             <p><i className="guide-dip">↓</i><span><strong>Below-cost periods</strong>Counts distinct observed periods where estimated value fell below net invested by more than 0.25%.</span></p>
           </div>
           <div className="fund-table" role="table" aria-label="Mutual fund holdings">
-            <div className="fund-row table-header" role="row"><span>Fund</span><span>Invested amount</span><span>Current value</span><span>Gain / loss</span><span>Return</span><span>Momentum</span><span>Below cost</span><span /></div>
+            <div className="fund-row table-header" role="row">
+              <SortableHeader label="Fund" sortKey="name" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+              <SortableHeader label="Invested amount" sortKey="invested" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+              <SortableHeader label="Current value" sortKey="value" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+              <SortableHeader label="Gain / loss" sortKey="gain" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+              <SortableHeader label="Return" sortKey="return" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+              <SortableHeader label="Momentum" sortKey="momentum" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+              <SortableHeader label="Below cost" sortKey="downside" activeKey={sortKey} direction={sortDirection} onSort={changeSort} />
+              <span role="columnheader" />
+            </div>
             {filteredFunds.map((fund, index) => {
               const fundGain = fund.currentValue - fund.invested;
               const fundReturn = fund.invested ? (fundGain / fund.invested) * 100 : 0;
@@ -663,6 +785,18 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
               );
             })}
             {!filteredFunds.length && <div className="no-results">No funds match “{query}”.</div>}
+            {!!filteredFunds.length && (
+              <div className="fund-row fund-total-row" role="row">
+                <span className="fund-name"><i>Σ</i><span><strong>{query ? "Filtered funds total" : "Active funds total"}</strong><small>{filteredFunds.length} {filteredFunds.length === 1 ? "fund" : "funds"} · realised gains shown separately</small></span></span>
+                <span data-label="Invested amount"><strong>{formatMoney(tableTotals.invested, 2)}</strong></span>
+                <span data-label="Current value"><strong>{formatMoney(tableTotals.currentValue, 2)}</strong></span>
+                <span data-label="Gain / loss" className={tableGain >= 0 ? "positive" : "negative"}>{tableGain >= 0 ? "+" : "−"}{formatMoney(Math.abs(tableGain), 2)}</span>
+                <span data-label="Return"><em className={tableReturn >= 0 ? "return-pill positive" : "return-pill negative"}>{tableReturn >= 0 ? "↗" : "↘"} {tableReturn.toFixed(2)}%</em></span>
+                <span data-label="Momentum">—</span>
+                <span data-label="Below cost">—</span>
+                <span />
+              </div>
+            )}
           </div>
         </section>
 

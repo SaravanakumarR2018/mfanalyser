@@ -71,11 +71,20 @@ export async function refreshWithLatestNav(portfolio: Portfolio): Promise<Portfo
     if (!updated) throw new Error("None of the statement schemes matched the latest AMFI data.");
 
     const currentValue = funds.reduce((total, fund) => total + fund.currentValue, 0);
+    const previousFolios = new Map(
+      portfolio.funds.flatMap((fund) => fund.folioHoldings.map((folio) => [folio.key, folio.currentValue] as const)),
+    );
     const livePoint: TimelinePoint = {
       date: valuationDate,
       invested: portfolio.invested,
       value: currentValue,
       live: true,
+      contributors: funds.flatMap((fund) => fund.folioHoldings.map((folio) => ({
+        label: fund.name,
+        folio: folio.label,
+        valueChange: folio.currentValue - (previousFolios.get(folio.key) ?? 0),
+        investedChange: 0,
+      }))).filter((contributor) => Math.abs(contributor.valueChange) >= 0.005),
     };
     const timeline = [...portfolio.timeline];
     if (timeline.at(-1)?.date === valuationDate) timeline[timeline.length - 1] = livePoint;

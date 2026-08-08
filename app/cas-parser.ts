@@ -1,9 +1,18 @@
+export type TimelineContributor = {
+  label: string;
+  folio?: string;
+  valueChange: number;
+  investedChange: number;
+  description?: string;
+};
+
 export type TimelinePoint = {
   date: string;
   invested: number;
   value: number;
   exact?: boolean;
   live?: boolean;
+  contributors?: TimelineContributor[];
 };
 
 export type FundTransaction = {
@@ -13,6 +22,8 @@ export type FundTransaction = {
   units: number;
   balance: number;
   label: string;
+  fundName?: string;
+  folioLabel?: string;
 };
 
 export type FolioHolding = {
@@ -454,6 +465,7 @@ export async function parseCasFile(
     }
 
     for (const transaction of transactions) {
+      const info = sectionInfo.get(transaction.sectionId);
       const normalized: FundTransaction = {
         date: transaction.date,
         amount: transaction.amount,
@@ -461,6 +473,8 @@ export async function parseCasFile(
         units: transaction.units,
         balance: transaction.balance,
         label: transaction.label,
+        fundName: info?.name,
+        folioLabel: info?.folioLabel,
       };
       const key = fundKeyBySection.get(transaction.sectionId) ?? transaction.isin;
       grouped.get(key)?.transactions.push(normalized);
@@ -548,8 +562,18 @@ export async function parseCasFile(
     for (const transaction of transactions
       .filter((item) => item.date)
       .sort((a, b) => a.date.localeCompare(b.date))) {
+      const previousLot = balances.get(transaction.sectionId);
+      const previousLotValue = previousLot ? previousLot.balance * previousLot.price : 0;
       netInvested += transaction.amount;
       balances.set(transaction.sectionId, { balance: transaction.balance, price: transaction.price });
+      const nextLotValue = transaction.balance * transaction.price;
+      const info = sectionInfo.get(transaction.sectionId);
+      const contributor = {
+        label: info?.name || transaction.isin || "Fund",
+        folio: info?.folioLabel || undefined,
+        valueChange: nextLotValue - previousLotValue,
+        investedChange: transaction.amount,
+      };
       const estimatedValue = [...balances.values()].reduce(
         (total, lot) => total + lot.balance * lot.price,
         0,
@@ -558,20 +582,61 @@ export async function parseCasFile(
       if (previous?.date === transaction.date) {
         previous.invested = netInvested;
         previous.value = estimatedValue;
+        const matchingContributor = previous.contributors?.find(
+          (item) => item.label === contributor.label && item.folio === contributor.folio,
+        );
+        if (matchingContributor) {
+          matchingContributor.valueChange += contributor.valueChange;
+          matchingContributor.investedChange += contributor.investedChange;
+        } else {
+          previous.contributors = [...(previous.contributors ?? []), contributor];
+        }
       } else {
-        timeline.push({ date: transaction.date, invested: netInvested, value: estimatedValue });
+        timeline.push({
+          date: transaction.date,
+          invested: netInvested,
+          value: estimatedValue,
+          contributors: [contributor],
+        });
       }
     }
 
     const statementDate = rawHoldings.find((holding) => holding.navDate)?.navDate ?? new Date().toISOString().slice(0, 10);
-    const exactCurrentPoint = {
+    const priorTimelinePoint = timeline.at(-1);
+    const endpointContributors: TimelineContributor[] = portfolioRawHoldings.map((holding) => {
+      const lastObserved = balances.get(holding.sectionId);
+      return {
+        label: holding.name,
+        folio: holding.folioLabel || undefined,
+        valueChange: holding.currentValue - (lastObserved ? lastObserved.balance * lastObserved.price : 0),
+        investedChange: 0,
+      };
+    }).filter((contributor) => Math.abs(contributor.valueChange) >= 0.005);
+    const endpointInvestedDifference = activeInvested - (priorTimelinePoint?.invested ?? activeInvested);
+    if (Math.abs(endpointInvestedDifference) >= 0.005) {
+      endpointContributors.push({
+        label: "Active holdings reconciliation",
+        folio: undefined,
+        valueChange: 0,
+        investedChange: endpointInvestedDifference,
+        description: "Closed-fund adjustment",
+      });
+    }
+    const exactCurrentPoint: TimelinePoint = {
       date: statementDate,
       invested: activeInvested,
       value: fromPaise(summary.valuePaise),
       exact: true,
+      contributors: endpointContributors,
     };
-    if (!timeline.length || timeline.at(-1)?.date !== statementDate) timeline.push(exactCurrentPoint);
-    else timeline[timeline.length - 1] = exactCurrentPoint;
+    if (!timeline.length || priorTimelinePoint?.date !== statementDate) timeline.push(exactCurrentPoint);
+    else {
+      exactCurrentPoint.contributors = [
+        ...(priorTimelinePoint.contributors ?? []),
+        ...endpointContributors,
+      ];
+      timeline[timeline.length - 1] = exactCurrentPoint;
+    }
 
     onProgress?.(100);
     return {
