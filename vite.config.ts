@@ -49,6 +49,10 @@ export default defineConfig(async () => {
         ? { watch: { useFsEvents: false, usePolling: true } }
         : {}),
       proxy: {
+        "/api/nav-history": {
+          target: "https://www.amfiindia.com",
+          changeOrigin: true,
+        },
         "/api/nav": {
           target: "https://portal.amfiindia.com",
           changeOrigin: true,
