@@ -3,7 +3,14 @@ import test from "node:test";
 
 import { buildNavPoints } from "../app/nav-activity-service.ts";
 import { buildChartScale } from "../app/chart-scale.ts";
-import { buildFundStackModel, maxStackReconciliationDifference } from "../app/fund-stack-service.ts";
+import {
+  buildFundStackModel,
+  findStackFundIndex,
+  fundValueShare,
+  maxStackReconciliationDifference,
+  stackBoundsForPoint,
+  type FundStackPoint,
+} from "../app/fund-stack-service.ts";
 import { formatInr } from "../app/formatters.ts";
 import { historyRange, mirrorDateToIso } from "../app/nav-history-utils.ts";
 import { shiftRangeWindow } from "../app/range-window.ts";
@@ -162,6 +169,36 @@ test("closed funds remain in the stack and carry realised gain into contribution
   assert.deepEqual(latest?.funds[1], {
     fundKey: "closed", value: 0, invested: -20, contribution: 20,
   });
+});
+
+test("stack hover hit-testing identifies positive and negative fund layers exactly", () => {
+  const point: FundStackPoint = {
+    date: "2026-01-16",
+    funds: [
+      { fundKey: "first", value: 120, invested: 80, contribution: 40 },
+      { fundKey: "second", value: 70, invested: 90, contribution: -20 },
+      { fundKey: "third", value: 40, invested: 30, contribution: 10 },
+    ],
+    totalValue: 230,
+    totalInvested: 200,
+    totalContribution: 30,
+  };
+
+  assert.deepEqual(stackBoundsForPoint(point, "value"), [
+    { lower: 0, upper: 120 },
+    { lower: 120, upper: 190 },
+    { lower: 190, upper: 230 },
+  ]);
+  assert.deepEqual(stackBoundsForPoint(point, "contribution"), [
+    { lower: 0, upper: 40 },
+    { lower: -20, upper: 0 },
+    { lower: 40, upper: 50 },
+  ]);
+  assert.equal(findStackFundIndex(point, "contribution", 20), 0);
+  assert.equal(findStackFundIndex(point, "contribution", -10), 1);
+  assert.equal(findStackFundIndex(point, "contribution", 45), 2);
+  assert.equal(findStackFundIndex(point, "contribution", 60), -1);
+  assert.equal(fundValueShare(point, 0), 120 / 230 * 100);
 });
 
 test("daily normalization retains every real published NAV date", () => {

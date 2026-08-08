@@ -1,12 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Portfolio } from "./cas-parser";
 import { formatInr } from "./formatters";
 import {
   buildFundStackModel,
+  findStackFundIndexFromBounds,
+  fundValueShare,
   maxStackReconciliationDifference,
+  stackBoundsForPoint,
   stackMetric,
   type FundStackMode,
   type FundStackPoint,
@@ -81,6 +84,16 @@ const chartScale = (points: FundStackPoint[], mode: FundStackMode) => {
   return { min, max, step, ticks };
 };
 
+type StackHover = {
+  pointIndex: number;
+  point: FundStackPoint;
+  mode: FundStackMode;
+  fundIndex: number | null;
+  x: number;
+  y: number;
+  tooltipLeft: number;
+};
+
 export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) {
   const headingId = useId();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -89,8 +102,14 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
   const [mode, setMode] = useState<FundStackMode>("value");
   const [range, setRange] = useState<[number, number]>([0, Math.max(1, model.points.length - 1)]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [hover, setHover] = useState<StackHover | null>(null);
   const priorPoints = useRef(model.points);
-  const rangeWindowDrag = useRangeWindowDrag({ range, setRange, totalPoints: model.points.length });
+  const rangeWindowDrag = useRangeWindowDrag({
+    range,
+    setRange,
+    totalPoints: model.points.length,
+    onMoveStart: () => setHover(null),
+  });
 
   useEffect(() => {
     const prior = priorPoints.current;
@@ -115,8 +134,18 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
     () => model.points.slice(range[0], Math.min(model.points.length, range[1] + 1)),
     [model.points, range],
   );
+  const visibleTimes = useMemo(
+    () => visible.map((point) => new Date(`${point.date}T00:00:00Z`).getTime()),
+    [visible],
+  );
+  const scale = useMemo(() => chartScale(visible, mode), [mode, visible]);
+  const bounds = useMemo(
+    () => visible.map((point) => stackBoundsForPoint(point, mode)),
+    [mode, visible],
+  );
 
   const selectPeriod = (months: number | "all") => {
+    setHover(null);
     if (months === "all" || model.points.length < 2) {
       setRange([0, Math.max(1, model.points.length - 1)]);
       return;
@@ -129,24 +158,76 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
 
   const pointerToIndex = useCallback((clientX: number) => {
     const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect || !visible.length) return 0;
+    if (!rect || !visibleTimes.length) return 0;
     const left = rect.width < 640 ? 12 : 72;
     const right = 20;
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left - left) / Math.max(1, rect.width - left - right)));
-    const first = new Date(`${visible[0].date}T00:00:00Z`).getTime();
-    const last = new Date(`${visible.at(-1)?.date}T00:00:00Z`).getTime();
+    const first = visibleTimes[0];
+    const last = visibleTimes.at(-1) ?? first;
     const target = first + ratio * Math.max(1, last - first);
-    return visible.reduce((nearest, point, index) => {
-      const time = new Date(`${point.date}T00:00:00Z`).getTime();
-      const nearestTime = new Date(`${visible[nearest].date}T00:00:00Z`).getTime();
-      return Math.abs(time - target) < Math.abs(nearestTime - target) ? index : nearest;
-    }, 0);
-  }, [visible]);
+    let low = 0;
+    let high = visibleTimes.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (visibleTimes[middle] < target) low = middle + 1;
+      else high = middle;
+    }
+    if (low <= 0) return 0;
+    if (low >= visibleTimes.length) return visibleTimes.length - 1;
+    return target - visibleTimes[low - 1] <= visibleTimes[low] - target ? low - 1 : low;
+  }, [visibleTimes]);
+
+  const updateHover = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!visible.length) return;
+    const padding = { left: rect.width < 640 ? 12 : 72, right: 20, top: 28, bottom: 40 };
+    const chartHeight = rect.height - padding.top - padding.bottom;
+    const localY = event.clientY - rect.top;
+    if (localY < padding.top || localY > rect.height - padding.bottom) {
+      setHover(null);
+      return;
+    }
+
+    const pointIndex = pointerToIndex(event.clientX);
+    const point = visible[pointIndex];
+    const span = Math.max(1, scale.max - scale.min);
+    const valueAtPointer = scale.max - ((localY - padding.top) / Math.max(1, chartHeight)) * span;
+    const pointBounds = bounds[pointIndex] ?? [];
+    const matchedIndex = findStackFundIndexFromBounds(pointBounds, valueAtPointer);
+    const fundIndex = matchedIndex >= 0 ? matchedIndex : null;
+    const fundBounds = fundIndex === null ? null : pointBounds[fundIndex];
+    const markerValue = fundBounds ? (fundBounds.lower + fundBounds.upper) / 2 : modeTotal(point, mode);
+
+    const firstTime = visibleTimes[0];
+    const lastTime = visibleTimes.at(-1) ?? firstTime;
+    const pointTime = visibleTimes[pointIndex];
+    const chartWidth = rect.width - padding.left - padding.right;
+    const x = visible.length === 1
+      ? padding.left + chartWidth / 2
+      : padding.left + ((pointTime - firstTime) / Math.max(1, lastTime - firstTime)) * chartWidth;
+    const y = padding.top + ((scale.max - markerValue) / span) * chartHeight;
+    const tooltipWidth = Math.min(218, rect.width - 16);
+    const preferredLeft = x < rect.width / 2 ? x + 14 : x - tooltipWidth - 14;
+    const tooltipLeft = Math.max(8, Math.min(rect.width - tooltipWidth - 8, preferredLeft));
+
+    setHover((current) => current
+      && current.pointIndex === pointIndex
+      && current.point === point
+      && current.mode === mode
+      && current.fundIndex === fundIndex
+      && Math.abs(current.x - x) < 0.5
+      && Math.abs(current.y - y) < 0.5
+        ? current
+        : { pointIndex, point, mode, fundIndex, x, y, tooltipLeft });
+  }, [bounds, mode, pointerToIndex, scale, visible, visibleTimes]);
 
   const selectFromKeyboard = (event: KeyboardEvent<HTMLCanvasElement>) => {
     if (!visible.length) return;
     if (event.key === "Enter" || event.key === " ") {
-      setSelectedDate(selectedDate ?? visible.at(-1)?.date ?? null);
+      const visibleSelection = selectedDate && visible.some((point) => point.date === selectedDate)
+        ? selectedDate
+        : null;
+      setSelectedDate(visibleSelection ?? visible.at(-1)?.date ?? null);
       event.preventDefault();
       return;
     }
@@ -175,14 +256,13 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
     const padding = { left: width < 640 ? 12 : 72, right: 20, top: 28, bottom: 40 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
-    const scale = chartScale(visible, mode);
     const span = Math.max(1, scale.max - scale.min);
-    const firstTime = new Date(`${visible[0].date}T00:00:00Z`).getTime();
-    const lastTime = new Date(`${visible.at(-1)?.date}T00:00:00Z`).getTime();
+    const firstTime = visibleTimes[0];
+    const lastTime = visibleTimes.at(-1) ?? firstTime;
     const timeSpan = Math.max(1, lastTime - firstTime);
     const xFor = (index: number) => visible.length === 1
       ? padding.left + chartWidth / 2
-      : padding.left + ((new Date(`${visible[index].date}T00:00:00Z`).getTime() - firstTime) / timeSpan) * chartWidth;
+      : padding.left + ((visibleTimes[index] - firstTime) / timeSpan) * chartWidth;
     const yFor = (value: number) => padding.top + ((scale.max - value) / span) * chartHeight;
 
     context.clearRect(0, 0, width, height);
@@ -204,22 +284,6 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
       }
     }
     context.setLineDash([]);
-
-    const bounds = visible.map((point) => {
-      let positive = 0;
-      let negative = 0;
-      return point.funds.map((fund) => {
-        const amount = stackMetric(fund, mode);
-        if (amount >= 0) {
-          const lower = positive;
-          positive += amount;
-          return { lower, upper: positive };
-        }
-        const upper = negative;
-        negative += amount;
-        return { lower: negative, upper };
-      });
-    });
 
     model.funds.forEach((fund, fundIndex) => {
       context.beginPath();
@@ -259,11 +323,8 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
     context.textAlign = "center";
     for (let label = 0; label < labelCount; label += 1) {
       const target = firstTime + timeSpan * label / Math.max(1, labelCount - 1);
-      const nearest = visible.reduce((best, point, index) => {
-        const time = new Date(`${point.date}T00:00:00Z`).getTime();
-        const bestTime = new Date(`${visible[best].date}T00:00:00Z`).getTime();
-        return Math.abs(time - target) < Math.abs(bestTime - target) ? index : best;
-      }, 0);
+      const nearest = visibleTimes.reduce((best, time, index) =>
+        Math.abs(time - target) < Math.abs(visibleTimes[best] - target) ? index : best, 0);
       context.fillText(compactDate(visible[nearest].date), xFor(nearest), height - 14);
     }
 
@@ -281,11 +342,14 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
       context.arc(x, yFor(modeTotal(visible[selectedIndex], mode)), 4, 0, Math.PI * 2);
       context.fill();
     }
-  }, [mode, model.funds, selectedDate, visible]);
+  }, [bounds, mode, model.funds, scale, selectedDate, visible, visibleTimes]);
 
   useEffect(() => {
     draw();
-    const observer = new ResizeObserver(draw);
+    const observer = new ResizeObserver(() => {
+      setHover(null);
+      draw();
+    });
     if (shellRef.current) observer.observe(shellRef.current);
     return () => observer.disconnect();
   }, [draw]);
@@ -304,6 +368,21 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
     : [];
   const selectedTotal = selectedPoint ? modeTotal(selectedPoint, mode) : 0;
   const reconciliationDifference = maxStackReconciliationDifference(model);
+  const activeHover = hover
+    && hover.mode === mode
+    && visible[hover.pointIndex] === hover.point
+      ? hover
+      : null;
+  const hoveredPoint = activeHover?.point ?? null;
+  const hoveredFundValue = hoveredPoint && activeHover?.fundIndex !== null
+    ? hoveredPoint.funds[activeHover.fundIndex] ?? null
+    : null;
+  const hoveredFund = activeHover?.fundIndex !== null && activeHover?.fundIndex !== undefined
+    ? model.funds[activeHover.fundIndex] ?? null
+    : null;
+  const hoveredShare = hoveredPoint && activeHover?.fundIndex !== null && activeHover?.fundIndex !== undefined
+    ? fundValueShare(hoveredPoint, activeHover.fundIndex)
+    : 0;
 
   const renderRows = (rows: typeof ranked, offset = 0) => {
     const shareBase = mode === "contribution"
@@ -327,7 +406,7 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
         <div><p className="eyebrow">Every fund, one total</p><h2 id={headingId}>Fund contribution over time</h2></div>
         <div className="stack-chart-controls">
           <div className="stack-modes" aria-label="Stacked chart view">
-            {MODES.map((item) => <button type="button" key={item.key} className={mode === item.key ? "active" : ""} aria-pressed={mode === item.key} onClick={() => setMode(item.key)}>{item.label}</button>)}
+            {MODES.map((item) => <button type="button" key={item.key} className={mode === item.key ? "active" : ""} aria-pressed={mode === item.key} onClick={() => { setMode(item.key); setHover(null); }}>{item.label}</button>)}
           </div>
           <div className="periods" aria-label="Stacked chart period">
             <button onClick={() => selectPeriod(12)}>1Y</button><button onClick={() => selectPeriod(24)}>2Y</button><button onClick={() => selectPeriod(36)}>3Y</button><button onClick={() => selectPeriod(60)}>5Y</button><button onClick={() => selectPeriod("all")}>All</button>
@@ -347,13 +426,48 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
             tabIndex={0}
             onClick={(event) => setSelectedDate(visible[pointerToIndex(event.clientX)]?.date ?? null)}
             onKeyDown={selectFromKeyboard}
+            onPointerMove={updateHover}
+            onPointerLeave={() => setHover(null)}
             data-mode={mode}
             data-total-points={model.points.length}
             data-visible-points={visible.length}
             data-fund-count={model.funds.length}
             data-reconciliation-difference={reconciliationDifference}
+            data-hovered-date={hoveredPoint?.date ?? ""}
+            data-hovered-fund={hoveredFund?.key ?? ""}
             aria-label={`${modeTitle(mode)} stacked chart showing ${model.funds.length} funds from ${formatDate(visible[0].date)} to ${formatDate(visible.at(-1)?.date ?? visible[0].date)}. Press Enter to select a date, then use arrow keys.`}
           />
+          {activeHover && hoveredPoint && (
+            <>
+              <span className="stack-hover-guide" style={{ left: `${activeHover.x}px` }} />
+              <i className="stack-hover-marker" style={{ left: `${activeHover.x}px`, top: `${activeHover.y}px`, background: hoveredFund ? fundColor(activeHover.fundIndex ?? 0) : "#0B1D2A" }} />
+              <div
+                className="stack-hover-tooltip"
+                role="status"
+                data-fund-key={hoveredFund?.key ?? "portfolio-total"}
+                data-date={hoveredPoint.date}
+                style={{ left: `${activeHover.tooltipLeft}px` }}
+              >
+                <span className="stack-tooltip-date">{formatDate(hoveredPoint.date)}</span>
+                <strong>{hoveredFund?.name ?? "Portfolio total"}</strong>
+                {hoveredFund && hoveredFundValue ? (
+                  <>
+                    <small>{hoveredFund.category}{hoveredFund.closed ? " · Closed" : ""}</small>
+                    <div><span>Fund value</span><b>{formatInr(hoveredFundValue.value)}</b></div>
+                    <div><span>Net invested</span><b>{formatInr(hoveredFundValue.invested)}</b></div>
+                    <div><span>Contribution</span><b className={hoveredFundValue.contribution < 0 ? "negative" : "positive"}>{formatInr(hoveredFundValue.contribution)}</b></div>
+                    <footer><b>{hoveredShare.toFixed(2)}% of portfolio</b><span>Total {formatInr(hoveredPoint.totalValue)}</span></footer>
+                  </>
+                ) : (
+                  <>
+                    <div><span>Portfolio value</span><b>{formatInr(hoveredPoint.totalValue)}</b></div>
+                    <div><span>Net invested</span><b>{formatInr(hoveredPoint.totalInvested)}</b></div>
+                    <div><span>Contribution</span><b className={hoveredPoint.totalContribution < 0 ? "negative" : "positive"}>{formatInr(hoveredPoint.totalContribution)}</b></div>
+                  </>
+                )}
+              </div>
+            </>
+          )}
         </div>
       ) : <div className="fund-stack-empty">Complete same-day fund values will appear after published NAV history finishes loading.</div>}
       {model.points.length > 1 && (
@@ -375,8 +489,8 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
               onPointerUp={rangeWindowDrag.onPointerUp}
               style={{ left: `${range[0] / Math.max(1, model.points.length - 1) * 100}%`, right: `${100 - range[1] / Math.max(1, model.points.length - 1) * 100}%` }}
             />
-            <input aria-label="Stacked chart start" type="range" min={0} max={Math.max(1, model.points.length - 2)} value={range[0]} onChange={(event) => setRange([Math.min(Number(event.target.value), range[1] - 1), range[1]])} />
-            <input aria-label="Stacked chart end" type="range" min={1} max={Math.max(1, model.points.length - 1)} value={range[1]} onChange={(event) => setRange([range[0], Math.max(Number(event.target.value), range[0] + 1)])} />
+            <input aria-label="Stacked chart start" type="range" min={0} max={Math.max(1, model.points.length - 2)} value={range[0]} onChange={(event) => { setHover(null); setRange([Math.min(Number(event.target.value), range[1] - 1), range[1]]); }} />
+            <input aria-label="Stacked chart end" type="range" min={1} max={Math.max(1, model.points.length - 1)} value={range[1]} onChange={(event) => { setHover(null); setRange([range[0], Math.max(Number(event.target.value), range[0] + 1)]); }} />
           </div>
         </div>
       )}

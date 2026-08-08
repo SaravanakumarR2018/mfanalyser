@@ -61,7 +61,6 @@ type PreparedFund = {
   key: string;
   currentValue: number;
   currentInvested: number;
-  currentUnits: number;
   navHistory?: HistoricalNavPoint[];
   groups: FundTransaction[][];
   transactions: FundTransaction[];
@@ -85,7 +84,6 @@ const prepareFund = (fund: FundHolding): PreparedFund => {
     key: fund.key,
     currentValue: fund.currentValue,
     currentInvested: fund.invested,
-    currentUnits: fund.units,
     navHistory: fund.navHistory,
     groups,
     transactions,
@@ -111,7 +109,6 @@ const prepareClosedFund = (fund: ClosedFund): PreparedFund => {
     key: fund.key,
     currentValue: 0,
     currentInvested,
-    currentUnits: 0,
     navHistory: fund.navHistory,
     groups,
     transactions,
@@ -214,6 +211,40 @@ export function buildFundStackModel(portfolio: Portfolio): FundStackModel {
 }
 
 export const stackMetric = (point: FundStackValue, mode: FundStackMode) => point[mode];
+
+export type FundStackBound = { lower: number; upper: number };
+
+export function stackBoundsForPoint(point: FundStackPoint, mode: FundStackMode): FundStackBound[] {
+  let positive = 0;
+  let negative = 0;
+  return point.funds.map((fund) => {
+    const amount = stackMetric(fund, mode);
+    if (amount >= 0) {
+      const lower = positive;
+      positive += amount;
+      return { lower, upper: positive };
+    }
+    const upper = negative;
+    negative += amount;
+    return { lower: negative, upper };
+  });
+}
+
+export function findStackFundIndex(point: FundStackPoint, mode: FundStackMode, value: number) {
+  return findStackFundIndexFromBounds(stackBoundsForPoint(point, mode), value);
+}
+
+export function findStackFundIndexFromBounds(bounds: FundStackBound[], value: number) {
+  return bounds.findIndex((bound) =>
+    bound.upper - bound.lower > 0.000001
+      && value >= bound.lower
+      && value <= bound.upper);
+}
+
+export function fundValueShare(point: FundStackPoint, fundIndex: number) {
+  if (!point.totalValue || !point.funds[fundIndex]) return 0;
+  return point.funds[fundIndex].value / point.totalValue * 100;
+}
 
 export function maxStackReconciliationDifference(model: FundStackModel) {
   return model.points.reduce((largest, point) => {
