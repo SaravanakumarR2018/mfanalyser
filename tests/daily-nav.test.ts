@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { buildNavPoints } from "../app/nav-activity-service.ts";
 import { buildChartScale } from "../app/chart-scale.ts";
+import { buildFundStackModel, maxStackReconciliationDifference } from "../app/fund-stack-service.ts";
 import { formatInr } from "../app/formatters.ts";
 import { historyRange, mirrorDateToIso } from "../app/nav-history-utils.ts";
 import { shiftRangeWindow } from "../app/range-window.ts";
@@ -11,7 +12,7 @@ import {
   buildHoldingTimeline,
   normalizePublishedNav,
 } from "../app/timeline-service.ts";
-import type { ClosedFund, FolioHolding, FundHolding, FundTransaction } from "../app/cas-parser.ts";
+import type { ClosedFund, FolioHolding, FundHolding, FundTransaction, Portfolio } from "../app/cas-parser.ts";
 
 const transaction = (
   date: string,
@@ -60,6 +61,107 @@ test("hiding net invested tightens the Y-axis around visible portfolio values", 
   assert.ok(valueOnly.max > 28_120_000);
   assert.ok(valueOnly.step < 1_000_000);
   assert.ok(valueOnly.ticks.every((tick, index) => index === 0 || tick > valueOnly.ticks[index - 1]));
+});
+
+test("fund stacks include every active fund and reconcile value, invested, and contribution", () => {
+  const firstTransaction = transaction("2026-01-02", 100, 10, 10, 10, "first");
+  const secondTransaction = transaction("2026-01-09", 100, 20, 5, 20, "second");
+  const makeFund = (
+    key: string,
+    purchase: FundTransaction,
+    units: number,
+    invested: number,
+    currentValue: number,
+    history: Array<{ date: string; nav: number }>,
+  ): FundHolding => ({
+    key, name: key, isin: `INF${key.padEnd(9, "0")}`, fundHouse: key, category: "Test",
+    currentValue, invested, costBasis: invested, units, nav: currentValue / units,
+    navDate: "2026-01-16", folios: 1, transactions: [purchase], folioHoldings: [],
+    navHistory: history,
+  });
+  const first = makeFund("First", firstTransaction, 10, 100, 120, [
+    { date: "2026-01-09", nav: 11 },
+    { date: "2026-01-12", nav: 11.5 },
+  ]);
+  const second = makeFund("Second", secondTransaction, 20, 100, 120, [
+    { date: "2026-01-09", nav: 5 },
+    { date: "2026-01-12", nav: 5.5 },
+  ]);
+  const portfolio: Portfolio = {
+    source: "cas", statementDate: "2026-01-16", valuationDate: "2026-01-16",
+    valuationSource: "amfi", currentValue: 240, invested: 200, costBasis: 200,
+    realizedGain: 0, funds: [first, second], closedFunds: [], timeline: [],
+    reconciliationDifference: 0, navCoverage: { updated: 2, total: 2 },
+  };
+  const model = buildFundStackModel(portfolio);
+
+  assert.deepEqual(model.funds.map((fund) => fund.key), ["First", "Second"]);
+  assert.deepEqual(model.points.map((point) => point.date), ["2026-01-02", "2026-01-09", "2026-01-12", "2026-01-16"]);
+  assert.deepEqual(
+    model.points.map((point) => [point.totalValue, point.totalInvested, point.totalContribution]),
+    [[100, 100, 0], [210, 200, 10], [225, 200, 25], [240, 200, 40]],
+  );
+  assert.equal(maxStackReconciliationDifference(model), 0);
+});
+
+test("fund stack dates are omitted instead of estimating a missing held-fund NAV", () => {
+  const firstTransaction = transaction("2026-01-02", 100, 10, 10, 10, "first");
+  const secondTransaction = transaction("2026-01-02", 100, 10, 10, 10, "second");
+  const makeFund = (key: string, purchase: FundTransaction, history: Array<{ date: string; nav: number }>): FundHolding => ({
+    key, name: key, isin: `INF${key.padEnd(9, "0")}`, fundHouse: key, category: "Test",
+    currentValue: 110, invested: 100, costBasis: 100, units: 10, nav: 11,
+    navDate: "2026-01-16", folios: 1, transactions: [purchase], folioHoldings: [], navHistory: history,
+  });
+  const portfolio: Portfolio = {
+    source: "cas", statementDate: "2026-01-16", valuationDate: "2026-01-16",
+    valuationSource: "amfi", currentValue: 220, invested: 200, costBasis: 200,
+    realizedGain: 0,
+    funds: [
+      makeFund("First", firstTransaction, [{ date: "2026-01-09", nav: 10.5 }]),
+      makeFund("Second", secondTransaction, [{ date: "2026-01-12", nav: 10.7 }]),
+    ],
+    closedFunds: [], timeline: [], reconciliationDifference: 0,
+    navCoverage: { updated: 2, total: 2 },
+  };
+
+  assert.deepEqual(buildFundStackModel(portfolio).points.map((point) => point.date), ["2026-01-02", "2026-01-16"]);
+});
+
+test("closed funds remain in the stack and carry realised gain into contribution", () => {
+  const activePurchase = transaction("2026-01-02", 100, 10, 10, 10, "active");
+  const active: FundHolding = {
+    key: "active", name: "Active", isin: "INFACTIVE000", fundHouse: "A", category: "Test",
+    currentValue: 120, invested: 100, costBasis: 100, units: 10, nav: 12,
+    navDate: "2026-01-16", folios: 1, transactions: [activePurchase], folioHoldings: [],
+    navHistory: [{ date: "2026-01-09", nav: 11 }],
+  };
+  const closedTransactions = [
+    transaction("2026-01-02", 50, 5, 10, 5, "closed"),
+    transaction("2026-01-09", -70, -5, 14, 0, "closed"),
+  ];
+  const closed: ClosedFund = {
+    key: "closed", name: "Closed", isin: "INFCLOSED000", fundHouse: "C", category: "Test",
+    realizedGain: 20, totalInvested: 50, totalProceeds: 70, closedDate: "2026-01-09",
+    folios: 1, transactions: closedTransactions,
+    navHistory: [{ date: "2026-01-09", nav: 14 }],
+  };
+  const portfolio: Portfolio = {
+    source: "cas", statementDate: "2026-01-16", valuationDate: "2026-01-16",
+    valuationSource: "amfi", currentValue: 120, invested: 100, costBasis: 100,
+    realizedGain: 20, funds: [active], closedFunds: [closed], timeline: [],
+    reconciliationDifference: 0, navCoverage: { updated: 1, total: 1 },
+  };
+  const model = buildFundStackModel(portfolio);
+  const latest = model.points.at(-1);
+
+  assert.deepEqual(model.funds.map((fund) => [fund.key, fund.closed]), [["active", false], ["closed", true]]);
+  assert.deepEqual(
+    [latest?.totalValue, latest?.totalInvested, latest?.totalContribution],
+    [120, 80, 40],
+  );
+  assert.deepEqual(latest?.funds[1], {
+    fundKey: "closed", value: 0, invested: -20, contribution: 20,
+  });
 });
 
 test("daily normalization retains every real published NAV date", () => {
