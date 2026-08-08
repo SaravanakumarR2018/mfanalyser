@@ -47,7 +47,6 @@ export default function PortfolioChart({
   const headingId = useId();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ x: number; start: number; end: number } | null>(null);
   const [range, setRange] = useState<[number, number]>([0, Math.max(1, points.length - 1)]);
   const [hovered, setHovered] = useState<number | null>(null);
   const [tooltipStyle, setTooltipStyle] = useState<CSSProperties>();
@@ -285,6 +284,7 @@ export default function PortfolioChart({
         <div className="chart-actions" aria-label="Chart controls">
           <div className="periods" aria-label="Time period">
             <button onClick={() => selectPeriod(12)}>1Y</button>
+            <button onClick={() => selectPeriod(24)}>2Y</button>
             <button onClick={() => selectPeriod(36)}>3Y</button>
             <button onClick={() => selectPeriod(60)}>5Y</button>
             <button onClick={() => selectPeriod("all")}>All</button>
@@ -299,31 +299,16 @@ export default function PortfolioChart({
         <span><i className="legend-dot value" />{valueLabel}</span>
         <span><i className="legend-line" />Net invested</span>
         {showBelowCost && <span><i className="legend-line below" />Below invested</span>}
-        <span className="chart-hint">Scroll to zoom · drag to pan</span>
+        <span className="chart-hint">Use period buttons or the range slider to change the timeline</span>
       </div>
       <div
         ref={shellRef}
         className="chart-shell"
-        onWheel={(event) => {
-          event.preventDefault();
-          zoom(event.deltaY > 0 ? "out" : "in");
-        }}
-        onPointerDown={(event) => {
-          dragRef.current = { x: event.clientX, start: range[0], end: range[1] };
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }}
         onPointerMove={(event) => {
           setHovered(pointerToIndex(event.clientX));
           setTooltipStyle(positionTooltip(event.clientX));
-          if (!dragRef.current) return;
-          const width = event.currentTarget.clientWidth;
-          const shift = Math.round(((dragRef.current.x - event.clientX) / width) * (range[1] - range[0] + 1));
-          const size = dragRef.current.end - dragRef.current.start;
-          const start = Math.max(0, Math.min(points.length - size - 1, dragRef.current.start + shift));
-          setRange([start, start + size]);
         }}
-        onPointerUp={() => { dragRef.current = null; }}
-        onPointerLeave={() => { setHovered(null); setTooltipStyle(undefined); dragRef.current = null; }}
+        onPointerLeave={() => { setHovered(null); setTooltipStyle(undefined); }}
       >
         <canvas
           ref={canvasRef}
