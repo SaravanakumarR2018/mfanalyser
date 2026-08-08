@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import PortfolioChart from "./PortfolioChart";
 import NavActivityChart from "./NavActivityChart";
 import {
@@ -376,6 +376,106 @@ function DownsideBadge({ holding }: { holding: JourneyHolding }) {
   );
 }
 
+const TRANSACTION_BATCH_SIZE = 20;
+
+function CompleteTransactionHistory({
+  title,
+  transactions,
+}: {
+  title: string;
+  transactions: FundTransaction[];
+}) {
+  const orderedTransactions = useMemo(
+    () => [...transactions].sort((left, right) => right.date.localeCompare(left.date)),
+    [transactions],
+  );
+  const [visibleCount, setVisibleCount] = useState(
+    Math.min(TRANSACTION_BATCH_SIZE, orderedTransactions.length),
+  );
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const displayedTransactions = orderedTransactions.slice(0, visibleCount);
+  const hasEarlierTransactions = visibleCount < orderedTransactions.length;
+
+  const loadNextBatch = useCallback(() => {
+    setVisibleCount((current) =>
+      Math.min(current + TRANSACTION_BATCH_SIZE, orderedTransactions.length),
+    );
+  }, [orderedTransactions.length]);
+
+  useEffect(() => {
+    const loadMoreTarget = loadMoreRef.current;
+    if (!loadMoreTarget || !hasEarlierTransactions || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+
+    const drawer = loadMoreTarget.closest(".fund-drawer");
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) loadNextBatch();
+      },
+      {
+        root: drawer,
+        rootMargin: "0px 0px 180px 0px",
+        threshold: 0.01,
+      },
+    );
+
+    observer.observe(loadMoreTarget);
+    return () => observer.disconnect();
+  }, [hasEarlierTransactions, loadNextBatch]);
+
+  return (
+    <>
+      <div className="transaction-head">
+        <h3>{title}</h3>
+        {orderedTransactions.length > 0 && (
+          <span>
+            {visibleCount.toLocaleString("en-IN")} of{" "}
+            {orderedTransactions.length.toLocaleString("en-IN")}
+          </span>
+        )}
+      </div>
+      {orderedTransactions.length ? (
+        <>
+          <div className="transaction-list" aria-label={`Complete ${title.toLowerCase()}`}>
+            {displayedTransactions.map((transaction, index) => (
+              <div key={`${transaction.date}-${transaction.label}-${index}`}>
+                <span className={`transaction-icon ${transaction.amount < 0 ? "out" : ""}`}>
+                  {transaction.amount < 0 ? "↓" : "↑"}
+                </span>
+                <p>
+                  <strong>{transaction.label}</strong>
+                  <small>
+                    {formatDate(transaction.date)} ·{" "}
+                    {transaction.units.toLocaleString("en-IN", { maximumFractionDigits: 3 })} units
+                  </small>
+                </p>
+                <b>{formatMoney(transaction.amount)}</b>
+              </div>
+            ))}
+          </div>
+          {hasEarlierTransactions ? (
+            <div ref={loadMoreRef} className="transaction-load-more" aria-live="polite">
+              <span>Scroll for earlier transactions</span>
+              <button type="button" onClick={loadNextBatch}>
+                Load 20 more
+              </button>
+            </div>
+          ) : (
+            <div className="transaction-history-complete">
+              <span aria-hidden="true">✓</span>
+              Complete history · earliest transaction{" "}
+              {formatDate(orderedTransactions[orderedTransactions.length - 1].date)}
+            </div>
+          )}
+        </>
+      ) : (
+        <p className="empty-transactions">Transaction rows were not available for this holding.</p>
+      )}
+    </>
+  );
+}
+
 function HoldingDrawer({
   title,
   eyebrow,
@@ -443,18 +543,11 @@ function HoldingDrawer({
           navDate={holding.navDate}
           liveNav={holding.liveNav}
         />
-        <div className="transaction-head"><h3>{transactionTitle}</h3><span>{holding.transactions.length}</span></div>
-        {holding.transactions.length ? (
-          <div className="transaction-list">
-            {holding.transactions.slice().reverse().slice(0, 12).map((transaction, index) => (
-              <div key={`${transaction.date}-${index}`}>
-                <span className={`transaction-icon ${transaction.amount < 0 ? "out" : ""}`}>{transaction.amount < 0 ? "↓" : "↑"}</span>
-                <p><strong>{transaction.label}</strong><small>{formatDate(transaction.date)} · {transaction.units.toLocaleString("en-IN", { maximumFractionDigits: 3 })} units</small></p>
-                <b>{formatMoney(transaction.amount)}</b>
-              </div>
-            ))}
-          </div>
-        ) : <p className="empty-transactions">Transaction rows were not available for this holding.</p>}
+        <CompleteTransactionHistory
+          key={`${title}-${subtitle}-${holding.transactions.length}`}
+          title={transactionTitle}
+          transactions={holding.transactions}
+        />
       </aside>
     </div>
   );
