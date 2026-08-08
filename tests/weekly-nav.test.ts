@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { buildNavPoints } from "../app/nav-activity-service.ts";
-import { historyRanges } from "../app/nav-history-utils.ts";
+import { historyRange, mirrorDateToIso } from "../app/nav-history-utils.ts";
 import {
   addWeeklyPortfolioPoints,
   buildHoldingTimeline,
@@ -268,12 +268,9 @@ test("a combined point preserves official weekly NAV provenance separately from 
   assert.equal(points[0].transaction, true);
 });
 
-test("history requests are contiguous, bounded to one year, and never precede AMFI availability", () => {
-  const ranges = historyRanges("2008-04-01", "2012-03-31");
-  assert.equal(ranges[0][0], "2010-01-01");
-  assert.deepEqual(ranges, [
-    ["2010-01-01", "2010-12-31"],
-    ["2011-01-01", "2011-12-31"],
-    ["2012-01-01", "2012-03-31"],
-  ]);
+test("history uses one full-range request and never precedes published availability", () => {
+  assert.deepEqual(historyRange("2008-04-01", "2026-08-07"), ["2010-01-01", "2026-08-07"]);
+  assert.deepEqual(historyRange("2022-04-01", "2026-08-07"), ["2022-04-01", "2026-08-07"]);
+  assert.equal(mirrorDateToIso("07-08-2026"), "2026-08-07");
+  assert.equal(mirrorDateToIso("2026-08-07"), "");
 });

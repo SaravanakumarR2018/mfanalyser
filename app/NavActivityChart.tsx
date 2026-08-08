@@ -245,7 +245,15 @@ export default function NavActivityChart({ transactions, weeklyNav, nav, navDate
           }}
           onPointerLeave={() => { setHovered(null); setTooltipStyle(undefined); }}
         >
-          <canvas ref={canvasRef} role="img" aria-label={`Observed NAV and investment dates from ${formatDate(points[0].date)} to ${formatDate(points.at(-1)?.date ?? points[0].date)}`} />
+          <canvas
+            ref={canvasRef}
+            role="img"
+            data-total-points={allPoints.length}
+            data-visible-points={points.length}
+            data-weekly-points={allPoints.filter((point) => point.weekly).length}
+            data-transaction-points={allPoints.filter((point) => point.transaction).length}
+            aria-label={`Observed NAV and investment dates from ${formatDate(points[0].date)} to ${formatDate(points.at(-1)?.date ?? points[0].date)}`}
+          />
           {hoverPoint && tooltipStyle && (
             <div className="nav-activity-tooltip" style={tooltipStyle}>
               <span className="tooltip-date">

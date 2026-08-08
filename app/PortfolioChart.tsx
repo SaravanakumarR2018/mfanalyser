@@ -51,6 +51,7 @@ export default function PortfolioChart({
   const [hovered, setHovered] = useState<number | null>(null);
   const [tooltipStyle, setTooltipStyle] = useState<CSSProperties>();
   const [animate, setAnimate] = useState(0);
+  const previousPoints = useRef(points);
 
   useEffect(() => {
     let frame = 0;
@@ -62,6 +63,27 @@ export default function PortfolioChart({
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    const prior = previousPoints.current;
+    if (prior === points) return;
+    setRange(([start, end]) => {
+      if (points.length < 2) return [0, Math.max(1, points.length - 1)];
+      if (start === 0 && end >= prior.length - 1) return [0, points.length - 1];
+      const startDate = prior[start]?.date;
+      const endDate = prior[end]?.date;
+      const nextStart = startDate
+        ? Math.max(0, points.findIndex((point) => point.date >= startDate))
+        : 0;
+      const nextEndCandidate = endDate
+        ? points.findLastIndex((point) => point.date <= endDate)
+        : points.length - 1;
+      return [nextStart, Math.max(nextStart + 1, nextEndCandidate)];
+    });
+    previousPoints.current = points;
+    setHovered(null);
+    setTooltipStyle(undefined);
   }, [points]);
 
   const visible = useMemo(
@@ -360,6 +382,10 @@ export default function PortfolioChart({
         <canvas
           ref={canvasRef}
           role="img"
+          data-total-points={points.length}
+          data-visible-points={visible.length}
+          data-weekly-points={points.filter((point) => point.weekly).length}
+          data-transaction-points={points.filter((point) => point.transaction).length}
           aria-label={`${valueLabel} chart from ${prettyDate(visible[0]?.date ?? points[0]?.date)} to ${prettyDate(visible.at(-1)?.date ?? points.at(-1)?.date)}`}
         />
         {hoverPoint && tooltipStyle && (

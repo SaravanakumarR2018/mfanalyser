@@ -501,7 +501,6 @@ function HoldingDrawer({
           </article>
         </div>
         <PortfolioChart
-          key={`${title}-${timeline.length}-${holding.weeklyNav?.length ?? 0}`}
           points={timeline}
           eyebrow="Fund journey"
           title="Invested vs value"
@@ -671,7 +670,6 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
         </section>
 
         <PortfolioChart
-          key={`portfolio-${portfolio.timeline.length}-${portfolio.navHistoryLoading ? "loading" : "ready"}`}
           points={portfolio.timeline}
           note={portfolio.valuationSource === "amfi"
             ? portfolio.navHistoryLoading
@@ -787,18 +785,23 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
 export default function FolioVista() {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const importSequence = useRef(0);
+  const historyRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => historyRequest.current?.abort(), []);
   const acceptPortfolio = (next: Portfolio) => {
+    historyRequest.current?.abort();
     const sequence = importSequence.current + 1;
     importSequence.current = sequence;
     setPortfolio(next);
     if (!next.navHistoryLoading) return;
-    void refreshWithWeeklyHistory(next, (progress) => {
-      if (importSequence.current === sequence) setPortfolio(progress);
-    }).then((enriched) => {
+    const controller = new AbortController();
+    historyRequest.current = controller;
+    void refreshWithWeeklyHistory(next, controller.signal).then((enriched) => {
       if (importSequence.current === sequence) setPortfolio(enriched);
     });
   };
   const resetPortfolio = () => {
+    historyRequest.current?.abort();
+    historyRequest.current = null;
     importSequence.current += 1;
     setPortfolio(null);
   };

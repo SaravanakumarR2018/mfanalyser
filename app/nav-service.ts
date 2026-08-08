@@ -1,5 +1,5 @@
 import type { HistoricalNavPoint, Portfolio, TimelinePoint } from "./cas-parser";
-import { historyRanges, MINIMUM_HISTORY_DATE } from "./nav-history-utils";
+import { historyRange, mirrorDateToIso } from "./nav-history-utils";
 import { addWeeklyPortfolioPoints, sampleWeeklyNav } from "./timeline-service";
 
 type NavRecord = {
@@ -41,16 +41,26 @@ export const parseAmfiNavText = (text: string) => {
 };
 
 type HistoricalNavResponse = {
+  status?: string;
+  meta?: { scheme_code?: string | number };
   data?: {
     nav_groups?: Array<{
       historical_records?: Array<{ date?: string; nav?: number }>;
     }>;
-  };
+  } | Array<{ date?: string; nav?: string | number }>;
 };
 
-const HISTORY_CONCURRENCY = 6;
+const HISTORY_CONCURRENCY = 4;
+const HISTORY_BATCH_PAUSE_MS = 900;
+const wait = (milliseconds: number) => new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
 
-async function fetchHistoryRange(schemeCode: string, from: string, to: string) {
+async function fetchSchemeHistory(
+  schemeCode: string,
+  requestedFrom: string,
+  requestedTo: string,
+  parentSignal?: AbortSignal,
+) {
+  const [from, to] = historyRange(requestedFrom, requestedTo);
   const params = new URLSearchParams({
     query_type: "historical_period",
     from_date: from,
@@ -58,18 +68,42 @@ async function fetchHistoryRange(schemeCode: string, from: string, to: string) {
     sd_id: schemeCode,
   });
   let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (parentSignal?.aborted) throw new DOMException("History load cancelled.", "AbortError");
     const controller = new AbortController();
     const timeout = globalThis.setTimeout(() => controller.abort(), 30_000);
+    const abort = () => controller.abort();
+    parentSignal?.addEventListener("abort", abort, { once: true });
     try {
       const response = await fetch(`/api/nav-history?${params}`, {
-        cache: "force-cache",
+        cache: "no-store",
         signal: controller.signal,
       });
-      if (!response.ok) throw new Error(`AMFI history returned ${response.status}.`);
+      if (!response.ok) {
+        if (response.status === 429 && attempt < 2) {
+          const retryAfter = Number(response.headers.get("retry-after"));
+          await wait(Number.isFinite(retryAfter) && retryAfter > 0
+            ? retryAfter * 1_000
+            : 2_000 * (attempt + 1));
+          continue;
+        }
+        throw new Error(`AMFI history returned ${response.status}.`);
+      }
       const payload = await response.json() as HistoricalNavResponse;
       const points: HistoricalNavPoint[] = [];
-      for (const group of payload.data?.nav_groups ?? []) {
+      const mirrorRecords = Array.isArray(payload.data) ? payload.data : [];
+      if (mirrorRecords.length && String(payload.meta?.scheme_code ?? "") !== schemeCode) {
+        throw new Error("Published history returned a different scheme.");
+      }
+      for (const record of mirrorRecords) {
+        const date = mirrorDateToIso(record.date ?? "");
+        const nav = Number(record.nav);
+        if (date >= from && date <= to && Number.isFinite(nav) && nav > 0) {
+          points.push({ date, nav });
+        }
+      }
+      const navGroups = !Array.isArray(payload.data) ? payload.data?.nav_groups ?? [] : [];
+      for (const group of navGroups) {
         for (const record of group.historical_records ?? []) {
           const nav = Number(record.nav);
           if (!record.date || !/^\d{4}-\d{2}-\d{2}$/.test(record.date) || !Number.isFinite(nav) || nav <= 0) {
@@ -78,35 +112,25 @@ async function fetchHistoryRange(schemeCode: string, from: string, to: string) {
           points.push({ date: record.date, nav });
         }
       }
-      return points;
+      return { points: sampleWeeklyNav(points), complete: points.length > 0 };
     } catch (error) {
       lastError = error;
+      if (parentSignal?.aborted) throw error;
+      if (attempt < 2) await wait(500 * (attempt + 1));
     } finally {
       globalThis.clearTimeout(timeout);
+      parentSignal?.removeEventListener("abort", abort);
     }
   }
   throw lastError instanceof Error ? lastError : new Error("AMFI history could not be loaded.");
-}
-
-async function fetchSchemeHistory(schemeCode: string, from: string, to: string) {
-  const byDate = new Map<string, HistoricalNavPoint>();
-  let complete = from >= MINIMUM_HISTORY_DATE;
-  for (const [rangeStart, rangeEnd] of historyRanges(from, to)) {
-    try {
-      for (const point of await fetchHistoryRange(schemeCode, rangeStart, rangeEnd)) {
-        byDate.set(point.date, point);
-      }
-    } catch {
-      complete = false;
-    }
-  }
-  return { points: sampleWeeklyNav([...byDate.values()]), complete };
 }
 
 type HistoryTarget = {
   schemeCode: string;
   keys: string[];
   firstDate: string;
+  expectedNav?: number;
+  expectedDate?: string;
 };
 
 type HistoryLoadProgress = {
@@ -117,9 +141,16 @@ type HistoryLoadProgress = {
 };
 
 async function loadWeeklyHistories(
-  holdings: Array<{ key: string; schemeCode?: string; transactions: Array<{ date: string }> }>,
+  holdings: Array<{
+    key: string;
+    schemeCode?: string;
+    nav?: number;
+    navDate?: string;
+    liveNav?: boolean;
+    transactions: Array<{ date: string }>;
+  }>,
   valuationDate: string,
-  onProgress?: (progress: HistoryLoadProgress) => void,
+  signal?: AbortSignal,
 ) {
   const candidates = holdings.filter((holding) => holding.transactions.some((item) => item.date));
   const targetByScheme = new Map<string, HistoryTarget>();
@@ -139,6 +170,8 @@ async function loadWeeklyHistories(
         schemeCode: holding.schemeCode,
         keys: [holding.key],
         firstDate,
+        expectedNav: holding.liveNav ? holding.nav : undefined,
+        expectedDate: holding.liveNav ? holding.navDate : undefined,
       });
     }
   }
@@ -146,39 +179,33 @@ async function loadWeeklyHistories(
   const targets = [...targetByScheme.values()];
   const historyByKey = new Map<string, HistoricalNavPoint[]>();
   const incompleteSchemes = new Set<string>();
-  let cursor = 0;
-
-  const report = () => {
-    const updated = candidates.filter((holding) => historyByKey.has(holding.key)).length;
-    const incomplete = candidates.filter(
-      (holding) => !historyByKey.has(holding.key)
-        || Boolean(holding.schemeCode && incompleteSchemes.has(holding.schemeCode)),
-    ).length;
-    onProgress?.({
-      historyByKey: new Map(historyByKey),
-      updated,
-      total: candidates.length,
-      incomplete,
-    });
-  };
-
-  const worker = async () => {
-    while (cursor < targets.length) {
-      const target = targets[cursor];
-      cursor += 1;
-      const history = await fetchSchemeHistory(target.schemeCode, target.firstDate, valuationDate);
-      for (const key of target.keys) {
-        if (history.points.length) historyByKey.set(key, history.points);
+  for (let cursor = 0; cursor < targets.length; cursor += HISTORY_CONCURRENCY) {
+    const batch = targets.slice(cursor, cursor + HISTORY_CONCURRENCY);
+    await Promise.all(batch.map(async (target) => {
+      if (signal?.aborted) throw new DOMException("History load cancelled.", "AbortError");
+      try {
+        const history = await fetchSchemeHistory(target.schemeCode, target.firstDate, valuationDate, signal);
+        const expectedPoint = target.expectedDate
+          ? history.points.find((point) => point.date === target.expectedDate)
+          : undefined;
+        if (
+          expectedPoint
+          && target.expectedNav
+          && Math.abs(expectedPoint.nav - target.expectedNav) > Math.max(0.000001, target.expectedNav * 0.0000001)
+        ) {
+          throw new Error("Historical NAV did not reconcile to the latest official NAV.");
+        }
+        for (const key of target.keys) {
+          if (history.points.length) historyByKey.set(key, history.points);
+        }
+        if (!history.complete || !history.points.length) incompleteSchemes.add(target.schemeCode);
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        incompleteSchemes.add(target.schemeCode);
       }
-      if (!history.complete || !history.points.length) incompleteSchemes.add(target.schemeCode);
-      report();
-    }
-  };
-
-  await Promise.all(
-    Array.from({ length: Math.min(HISTORY_CONCURRENCY, targets.length) }, () => worker()),
-  );
-  report();
+    }));
+    if (cursor + HISTORY_CONCURRENCY < targets.length) await wait(HISTORY_BATCH_PAUSE_MS);
+  }
   const updated = candidates.filter((holding) => historyByKey.has(holding.key)).length;
   const incomplete = candidates.filter(
     (holding) => !historyByKey.has(holding.key)
@@ -321,14 +348,14 @@ const applyWeeklyHistories = (
 
 export async function refreshWithWeeklyHistory(
   portfolio: Portfolio,
-  onProgress?: (portfolio: Portfolio) => void,
+  signal?: AbortSignal,
 ): Promise<Portfolio> {
   if (portfolio.source === "demo" || !portfolio.navHistoryLoading) return portfolio;
   try {
     const history = await loadWeeklyHistories(
       [...portfolio.funds, ...portfolio.closedFunds],
       portfolio.valuationDate,
-      (progress) => onProgress?.(applyWeeklyHistories(portfolio, progress, true)),
+      signal,
     );
     return applyWeeklyHistories(portfolio, history, false);
   } catch (error) {
