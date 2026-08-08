@@ -10,10 +10,12 @@ import {
   type FolioHolding,
   type FundHolding,
   type FundTransaction,
+  type HistoricalNavPoint,
   type Portfolio,
   type TimelinePoint,
 } from "./cas-parser";
-import { refreshWithLatestNav } from "./nav-service";
+import { refreshWithLatestNav, refreshWithWeeklyHistory } from "./nav-service";
+import { buildHoldingTimeline } from "./timeline-service";
 
 const formatMoney = (value: number, decimals = 0) =>
   new Intl.NumberFormat("en-IN", {
@@ -257,6 +259,8 @@ type JourneyHolding = {
   nav: number;
   navDate: string;
   liveNav?: boolean;
+  weeklyNav?: HistoricalNavPoint[];
+  folioHoldings?: FolioHolding[];
   transactions: FundTransaction[];
 };
 
@@ -268,48 +272,18 @@ type MomentumSignal = {
   mom: number | null;
 };
 
-function buildHoldingTimeline(holding: JourneyHolding): TimelinePoint[] {
-  const points: TimelinePoint[] = [];
-  let units = 0;
-  let netInvested = 0;
-  const transactions = [...holding.transactions].sort((a, b) => a.date.localeCompare(b.date));
-
-  for (const transaction of transactions) {
-    units += transaction.units;
-    netInvested += transaction.amount;
-    const point = {
-      date: transaction.date,
-      invested: Math.max(0, netInvested),
-      value: Math.max(0, units * transaction.price),
-    };
-    if (points.at(-1)?.date === transaction.date) points[points.length - 1] = point;
-    else points.push(point);
-  }
-
-  const exactPoint: TimelinePoint = {
-    date: holding.navDate,
-    invested: holding.invested,
-    value: holding.currentValue,
-    exact: !holding.liveNav,
-    live: holding.liveNav,
-  };
-  if (points.at(-1)?.date === holding.navDate) points[points.length - 1] = exactPoint;
-  else points.push(exactPoint);
-
-  if (points.length === 1) {
-    const start = new Date(`${holding.navDate}T00:00:00Z`);
-    start.setUTCFullYear(start.getUTCFullYear() - 1);
-    points.unshift({ date: start.toISOString().slice(0, 10), invested: 0, value: 0 });
-  }
-  return points;
-}
-
 function getMomentum(holding: JourneyHolding): MomentumSignal | null {
   if (!holding.nav || !holding.navDate) return null;
   const currentDate = new Date(`${holding.navDate}T00:00:00Z`).getTime();
-  const prices = holding.transactions
-    .filter((transaction) => transaction.price > 0 && transaction.date < holding.navDate)
-    .map((transaction) => ({ date: new Date(`${transaction.date}T00:00:00Z`).getTime(), price: transaction.price }));
+  const weeklyPrices = holding.weeklyNav?.map((point) => ({
+    date: new Date(`${point.date}T00:00:00Z`).getTime(),
+    price: point.nav,
+  })) ?? [];
+  const prices = weeklyPrices.length
+    ? weeklyPrices
+    : holding.transactions
+      .filter((transaction) => transaction.price > 0 && transaction.date < holding.navDate)
+      .map((transaction) => ({ date: new Date(`${transaction.date}T00:00:00Z`).getTime(), price: transaction.price }));
 
   const observedReturn = (months: number, toleranceDays: number) => {
     const target = new Date(currentDate);
@@ -357,7 +331,7 @@ function MomentumBadge({ holding }: { holding: JourneyHolding }) {
   if (!momentum) return <span className="signal-empty">Not enough history</span>;
   const displayChange = (label: string, value: number) => `${label} ${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
   return (
-    <span className={`momentum-badge ${momentum.strong ? "strong" : momentum.value < 0 ? "weak" : "steady"}`} title={`CAS-observed NAV change. 1Y: ${momentum.yoy === null ? "unavailable" : `${momentum.yoy.toFixed(1)}%`}; 1M: ${momentum.mom === null ? "unavailable" : `${momentum.mom.toFixed(1)}%`}.`}>
+    <span className={`momentum-badge ${momentum.strong ? "strong" : momentum.value < 0 ? "weak" : "steady"}`} title={`${holding.weeklyNav?.length ? "Official weekly AMFI" : "CAS-observed"} NAV change. 1Y: ${momentum.yoy === null ? "unavailable" : `${momentum.yoy.toFixed(1)}%`}; 1M: ${momentum.mom === null ? "unavailable" : `${momentum.mom.toFixed(1)}%`}.`}>
       {momentum.yoy !== null && <strong>{displayChange("YoY", momentum.yoy)}</strong>}
       {momentum.mom !== null && <strong>{displayChange("MoM", momentum.mom)}</strong>}
       <small>{momentum.strong ? "Strong" : momentum.value < 0 ? "Cooling" : "Steady"}</small>
@@ -518,7 +492,7 @@ function HoldingDrawer({
           <article>
             <span>Observed momentum</span>
             <MomentumBadge holding={holding} />
-            <small>{momentum?.strong ? "Strong relative NAV movement" : "Based on transaction-day NAV history"}</small>
+            <small>{momentum?.strong ? "Strong relative NAV movement" : holding.weeklyNav?.length ? "Based on official weekly NAV history" : "Based on transaction-day NAV history"}</small>
           </article>
           <article className={downside.episodes >= 3 ? "signal-risk" : downside.episodes ? "signal-watch" : "signal-clear"}>
             <span>Below invested value</span>
@@ -527,6 +501,7 @@ function HoldingDrawer({
           </article>
         </div>
         <PortfolioChart
+          key={`${title}-${timeline.length}-${holding.weeklyNav?.length ?? 0}`}
           points={timeline}
           eyebrow="Fund journey"
           title="Invested vs value"
@@ -534,11 +509,14 @@ function HoldingDrawer({
           compact
           showBelowCost
           note={holding.transactions.length
-            ? "the invested amount is the net cash flow recorded in the CAS. The endpoint values those CAS units at the latest available NAV; highlighted red sections are periods below net invested."
+            ? holding.weeklyNav?.length
+              ? "weekly points use the last actual AMFI NAV published in each week and the CAS unit balance held on that date. Diamonds retain exact CAS transaction dates; missing weeks are skipped, never estimated."
+              : "the invested amount is the net cash flow recorded in the CAS. Weekly AMFI history is loading or unavailable; transaction dates and the exact endpoint remain visible."
             : "the CAS provides the exact current invested amount and value, but did not include usable transaction rows for an earlier history."}
         />
         <NavActivityChart
           transactions={holding.transactions}
+          weeklyNav={holding.weeklyNav}
           nav={holding.nav}
           navDate={holding.navDate}
           liveNav={holding.liveNav}
@@ -610,9 +588,18 @@ function ClosedFunds({ funds }: { funds: ClosedFund[] }) {
 function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () => void }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"value" | "return" | "name">("value");
-  const [selected, setSelected] = useState<FundHolding | null>(null);
-  const [selectedFolio, setSelectedFolio] = useState<{ fund: FundHolding; folio: FolioHolding } | null>(null);
+  const [selectedFundKey, setSelectedFundKey] = useState<string | null>(null);
+  const [selectedFolioKey, setSelectedFolioKey] = useState<{ fundKey: string; folioKey: string } | null>(null);
   const [expandedFund, setExpandedFund] = useState<string | null>(null);
+  const selected = selectedFundKey
+    ? portfolio.funds.find((fund) => fund.key === selectedFundKey) ?? null
+    : null;
+  const selectedFolioFund = selectedFolioKey
+    ? portfolio.funds.find((fund) => fund.key === selectedFolioKey.fundKey) ?? null
+    : null;
+  const selectedFolio = selectedFolioFund && selectedFolioKey
+    ? selectedFolioFund.folioHoldings.find((folio) => folio.key === selectedFolioKey.folioKey) ?? null
+    : null;
   const unrealizedGain = portfolio.currentValue - portfolio.invested;
   const gain = unrealizedGain + portfolio.realizedGain;
   const absoluteReturn = portfolio.invested ? (gain / portfolio.invested) * 100 : 0;
@@ -653,13 +640,13 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
       </header>
       <div className="dashboard-shell">
         <div className="reconcile-bar">
-          <div><span className="check-badge">✓</span><strong>{portfolio.valuationSource === "amfi" ? "Latest NAV applied" : "Statement reconciled"}</strong><i />{portfolio.navCoverage.updated}/{portfolio.navCoverage.total} funds updated · {activeFolios} active folios</div>
+          <div><span className="check-badge">✓</span><strong>{portfolio.valuationSource === "amfi" ? "Latest NAV applied" : "Statement reconciled"}</strong><i />{portfolio.navCoverage.updated}/{portfolio.navCoverage.total} funds updated · {portfolio.navHistoryLoading ? "weekly history loading" : portfolio.navHistoryCoverage ? `${portfolio.navHistoryCoverage.updated}/${portfolio.navHistoryCoverage.total} weekly histories` : "weekly history unavailable"} · {activeFolios} active folios</div>
           <p><span className="privacy-pulse" /> CAS processed locally · AMFI prices only {portfolio.source === "demo" && <em>Demo data</em>}</p>
         </div>
 
         <div className={`valuation-notice ${portfolio.valuationSource === "amfi" ? "live" : "fallback"}`}>
           <span>{portfolio.valuationSource === "amfi" ? "LIVE" : "CAS"}</span>
-          <p><strong>{portfolio.valuationSource === "amfi" ? `Latest available official NAVs · ${formatDate(portfolio.valuationDate)}` : `Showing statement valuation · ${formatDate(portfolio.statementDate)}`}</strong>{portfolio.valuationSource === "amfi" ? `Values use the unit balances in your CAS dated ${formatDate(portfolio.statementDate)}. Transactions after that CAS cannot be known; upload a newer CAS to include them.` : ` ${portfolio.liveUpdateError ?? "Live NAVs were unavailable."}`}</p>
+          <p><strong>{portfolio.valuationSource === "amfi" ? `Latest available official NAVs · ${formatDate(portfolio.valuationDate)}` : `Showing statement valuation · ${formatDate(portfolio.statementDate)}`}</strong>{portfolio.valuationSource === "amfi" ? ` Values use the unit balances in your CAS dated ${formatDate(portfolio.statementDate)}. ${portfolio.navHistoryLoading ? "Actual weekly NAV history is loading in the background." : portfolio.navHistoryError ?? "Weekly history uses only published AMFI observations."}` : ` ${portfolio.liveUpdateError ?? "Live NAVs were unavailable."}`}</p>
         </div>
 
         <section className="summary-card">
@@ -684,9 +671,12 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
         </section>
 
         <PortfolioChart
+          key={`portfolio-${portfolio.timeline.length}-${portfolio.navHistoryLoading ? "loading" : "ready"}`}
           points={portfolio.timeline}
           note={portfolio.valuationSource === "amfi"
-            ? `the endpoint uses official AMFI NAVs dated ${formatDate(portfolio.valuationDate)} and the unit balances in the CAS dated ${formatDate(portfolio.statementDate)}. Net invested is calculated from statement purchases and redemptions.`
+            ? portfolio.navHistoryLoading
+              ? `exact weekly AMFI NAV observations are loading in the background. CAS transaction dates and the latest endpoint dated ${formatDate(portfolio.valuationDate)} remain exact while loading.`
+              : `weekly points value the CAS units held in each scheme using the last actual AMFI NAV published in that week. Transaction diamonds remain on exact CAS dates; missing weekly observations are skipped rather than estimated.`
             : `the endpoint is the reconciled CAS value dated ${formatDate(portfolio.statementDate)} because live NAVs were unavailable. Net invested is calculated from statement purchases and redemptions.`}
         />
 
@@ -703,7 +693,7 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
             </div>
           </div>
           <div className="signal-guide">
-            <p><i className="guide-momentum">↗</i><span><strong>YoY / MoM momentum</strong>Uses the nearest transaction-day NAV in the CAS. “Strong” means at least +12% YoY or +2% MoM.</span></p>
+            <p><i className="guide-momentum">↗</i><span><strong>YoY / MoM momentum</strong>Uses the nearest official weekly AMFI NAV when available. “Strong” means at least +12% YoY or +2% MoM.</span></p>
             <p><i className="guide-dip">↓</i><span><strong>Below-cost periods</strong>Counts distinct observed periods where estimated value fell below net invested by more than 0.25%.</span></p>
           </div>
           <div className="fund-table" role="table" aria-label="Mutual fund holdings">
@@ -718,8 +708,8 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
                     className="fund-row"
                     role="button"
                     tabIndex={0}
-                    onClick={() => setSelected(fund)}
-                    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelected(fund); }}
+                    onClick={() => setSelectedFundKey(fund.key)}
+                    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedFundKey(fund.key); }}
                   >
                     <span className="fund-name"><i style={{ background: palette[index % palette.length] }}>{fund.fundHouse.slice(0, 2).toUpperCase()}</i><span><strong>{fund.name}</strong><small>{fund.category} · {fund.folios} {fund.folios === 1 ? "folio" : "folios"}</small></span></span>
                     <span data-label="Invested amount">{formatMoney(fund.invested)}</span>
@@ -745,7 +735,7 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
                         const folioGain = folio.currentValue - folio.invested;
                         const folioReturn = folio.invested ? (folioGain / folio.invested) * 100 : 0;
                         return (
-                          <button className="folio-row" key={folio.key} onClick={() => setSelectedFolio({ fund, folio })}>
+                          <button className="folio-row" key={folio.key} onClick={() => setSelectedFolioKey({ fundKey: fund.key, folioKey: folio.key })}>
                             <span className="folio-name"><i>F</i><span><strong>{folio.label}</strong><small>{folio.currentValue > 0 ? `${folio.transactions.length} transactions` : "Closed / zero balance"}</small></span></span>
                             <span data-label="Invested amount">{formatMoney(folio.invested)}</span>
                             <span data-label="Current value"><strong>{formatMoney(folio.currentValue)}</strong></span>
@@ -788,13 +778,31 @@ function Dashboard({ portfolio, onReset }: { portfolio: Portfolio; onReset: () =
 
         <footer className="dashboard-footer"><Brand /><p>Your statement was processed locally and is not stored by FolioVista.</p><span>For tracking only · Not investment advice</span></footer>
       </div>
-      {selected && <FundDrawer fund={selected} onClose={() => setSelected(null)} />}
-      {selectedFolio && <FolioDrawer fund={selectedFolio.fund} folio={selectedFolio.folio} onClose={() => setSelectedFolio(null)} />}
+      {selected && <FundDrawer fund={selected} onClose={() => setSelectedFundKey(null)} />}
+      {selectedFolioFund && selectedFolio && <FolioDrawer fund={selectedFolioFund} folio={selectedFolio} onClose={() => setSelectedFolioKey(null)} />}
     </main>
   );
 }
 
 export default function FolioVista() {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
-  return portfolio ? <Dashboard portfolio={portfolio} onReset={() => setPortfolio(null)} /> : <Landing onPortfolio={setPortfolio} />;
+  const importSequence = useRef(0);
+  const acceptPortfolio = (next: Portfolio) => {
+    const sequence = importSequence.current + 1;
+    importSequence.current = sequence;
+    setPortfolio(next);
+    if (!next.navHistoryLoading) return;
+    void refreshWithWeeklyHistory(next, (progress) => {
+      if (importSequence.current === sequence) setPortfolio(progress);
+    }).then((enriched) => {
+      if (importSequence.current === sequence) setPortfolio(enriched);
+    });
+  };
+  const resetPortfolio = () => {
+    importSequence.current += 1;
+    setPortfolio(null);
+  };
+  return portfolio
+    ? <Dashboard portfolio={portfolio} onReset={resetPortfolio} />
+    : <Landing onPortfolio={acceptPortfolio} />;
 }

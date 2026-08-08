@@ -2,21 +2,15 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { FundTransaction } from "./cas-parser";
+import type { FundTransaction, HistoricalNavPoint } from "./cas-parser";
+import { buildNavPoints, type NavActivityPoint } from "./nav-activity-service";
 
 type NavActivityChartProps = {
   transactions: FundTransaction[];
+  weeklyNav?: HistoricalNavPoint[];
   nav: number;
   navDate: string;
   liveNav?: boolean;
-};
-
-type NavActivityPoint = {
-  date: string;
-  nav: number;
-  investedAmount: number;
-  investmentCount: number;
-  latest?: boolean;
 };
 
 const formatDate = (date: string) =>
@@ -35,45 +29,13 @@ const formatMoney = (value: number, digits = 0) =>
     maximumFractionDigits: digits,
   }).format(value);
 
-function buildNavPoints(
-  transactions: FundTransaction[],
-  nav: number,
-  navDate: string,
-): NavActivityPoint[] {
-  const byDate = new Map<string, NavActivityPoint>();
-  for (const transaction of [...transactions].sort((a, b) => a.date.localeCompare(b.date))) {
-    if (!transaction.date || transaction.price <= 0) continue;
-    const existing = byDate.get(transaction.date);
-    const purchase = transaction.amount > 0 && transaction.units > 0 ? transaction.amount : 0;
-    byDate.set(transaction.date, {
-      date: transaction.date,
-      nav: transaction.price,
-      investedAmount: (existing?.investedAmount ?? 0) + purchase,
-      investmentCount: (existing?.investmentCount ?? 0) + (purchase > 0 ? 1 : 0),
-      latest: existing?.latest,
-    });
-  }
-
-  if (navDate && nav > 0) {
-    const existing = byDate.get(navDate);
-    byDate.set(navDate, {
-      date: navDate,
-      nav,
-      investedAmount: existing?.investedAmount ?? 0,
-      investmentCount: existing?.investmentCount ?? 0,
-      latest: true,
-    });
-  }
-  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
-}
-
-export default function NavActivityChart({ transactions, nav, navDate, liveNav }: NavActivityChartProps) {
+export default function NavActivityChart({ transactions, weeklyNav, nav, navDate, liveNav }: NavActivityChartProps) {
   const titleId = useId();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const allPoints = useMemo(
-    () => buildNavPoints(transactions, nav, navDate),
-    [nav, navDate, transactions],
+    () => buildNavPoints(transactions, weeklyNav, nav, navDate),
+    [nav, navDate, transactions, weeklyNav],
   );
   const [period, setPeriod] = useState<12 | 36 | "all">("all");
   const [hovered, setHovered] = useState<number | null>(null);
@@ -169,14 +131,16 @@ export default function NavActivityChart({ transactions, nav, navDate, liveNav }
     points.forEach((point, index) => {
       const x = xFor(index);
       const y = yFor(point.nav);
-      context.fillStyle = "#FDFCF7";
-      context.strokeStyle = "#1D9D61";
-      context.lineWidth = point.latest ? 2.2 : 1.2;
-      context.beginPath();
-      context.arc(x, y, point.latest ? 4.5 : 2.7, 0, Math.PI * 2);
-      context.fill();
-      context.stroke();
-      if (point.investedAmount > 0) {
+      if (point.weekly || point.latest) {
+        context.fillStyle = "#FDFCF7";
+        context.strokeStyle = "#1D9D61";
+        context.lineWidth = point.latest ? 2.2 : 1;
+        context.beginPath();
+        context.arc(x, y, point.latest ? 4.5 : 2.1, 0, Math.PI * 2);
+        context.fill();
+        context.stroke();
+      }
+      if (point.transaction) {
         context.fillStyle = "#FF715B";
         context.strokeStyle = "#FDFCF7";
         context.lineWidth = 1.2;
@@ -212,7 +176,7 @@ export default function NavActivityChart({ transactions, nav, navDate, liveNav }
       context.lineTo(x, height - padding.bottom);
       context.stroke();
       context.fillStyle = "#FDFCF7";
-      context.strokeStyle = points[hovered].investedAmount > 0 ? "#FF715B" : "#1D9D61";
+      context.strokeStyle = points[hovered].transaction ? "#FF715B" : "#1D9D61";
       context.lineWidth = 2.5;
       context.beginPath();
       context.arc(x, y, 5.5, 0, Math.PI * 2);
@@ -252,6 +216,11 @@ export default function NavActivityChart({ transactions, nav, navDate, liveNav }
   };
 
   const hoverPoint = hovered !== null ? points[hovered] : null;
+  const transactionNavSuffix = hoverPoint?.weeklyNav
+    && hoverPoint.transactionNav
+    && Math.abs(hoverPoint.weeklyNav - hoverPoint.transactionNav) > 0.000001
+    ? ` · Tx NAV ${formatMoney(hoverPoint.transactionNav, 4)}`
+    : "";
   return (
     <section className="nav-activity-card" aria-labelledby={titleId}>
       <div className="nav-activity-head">
@@ -263,8 +232,8 @@ export default function NavActivityChart({ transactions, nav, navDate, liveNav }
         </div>
       </div>
       <div className="nav-activity-legend">
-        <span><i className="nav-line-key" />Observed NAV</span>
-        <span><i className="investment-key" />Investment · hover for amount</span>
+        <span><i className="nav-line-key" />Actual weekly NAV</span>
+        <span><i className="investment-key" />CAS transaction</span>
       </div>
       {points.length ? (
         <div
@@ -279,16 +248,25 @@ export default function NavActivityChart({ transactions, nav, navDate, liveNav }
           <canvas ref={canvasRef} role="img" aria-label={`Observed NAV and investment dates from ${formatDate(points[0].date)} to ${formatDate(points.at(-1)?.date ?? points[0].date)}`} />
           {hoverPoint && tooltipStyle && (
             <div className="nav-activity-tooltip" style={tooltipStyle}>
-              <span>{formatDate(hoverPoint.date)}{hoverPoint.latest ? ` · ${liveNav ? "Latest" : "Statement"}` : ""}</span>
+              <span className="tooltip-date">
+                {formatDate(hoverPoint.date)}
+                <span className="tooltip-flags" aria-label={[hoverPoint.transaction && "CAS transaction", hoverPoint.weekly && "Weekly NAV observation", hoverPoint.latest && (liveNav ? "Latest AMFI NAV" : "Statement NAV")].filter(Boolean).join(", ")}>
+                  {hoverPoint.transaction && <i className="tooltip-flag transaction" title="CAS transaction">◆</i>}
+                  {hoverPoint.weekly && <i className="tooltip-flag weekly" title="Weekly AMFI NAV">●</i>}
+                  {hoverPoint.latest && <i className="tooltip-flag live" title={liveNav ? "Latest AMFI NAV" : "Statement NAV"}>{liveNav ? "L" : "S"}</i>}
+                </span>
+              </span>
               <strong>NAV {formatMoney(hoverPoint.nav, 4)}</strong>
-              <small>{hoverPoint.investedAmount > 0
-                ? `Invested ${formatMoney(hoverPoint.investedAmount)}${hoverPoint.investmentCount > 1 ? ` · ${hoverPoint.investmentCount} entries` : ""}`
-                : "NAV observation · no purchase"}</small>
+              <small>{hoverPoint.transaction
+                ? hoverPoint.investedAmount > 0
+                  ? `Purchased ${formatMoney(hoverPoint.investedAmount)}${hoverPoint.transactionCount > 1 ? ` · ${hoverPoint.transactionCount} entries` : ""}${transactionNavSuffix}`
+                  : `${hoverPoint.transactionAmount < 0 ? "Redeemed" : "Transaction"} ${formatMoney(Math.abs(hoverPoint.transactionAmount))}${transactionNavSuffix}`
+                : "Official weekly NAV"}</small>
             </div>
           )}
         </div>
       ) : <p className="nav-activity-empty">No usable NAV observations were present for this holding.</p>}
-      <p className="nav-activity-note">Only transaction NAVs recorded in the CAS and the latest available NAV are plotted. Connecting lines show continuity between observations; they do not estimate intervening daily NAVs.</p>
+      <p className="nav-activity-note">Weekly dots are the last actual AMFI NAV published in each calendar week. Diamonds retain exact CAS transaction dates and amounts. Missing weeks are skipped; connecting lines do not create NAV observations.</p>
     </section>
   );
 }

@@ -40,7 +40,7 @@ export default function PortfolioChart({
   eyebrow = "Portfolio journey",
   title = "Value over time",
   valueLabel = "Portfolio value",
-  note = "the current endpoint is exact from your statement. Earlier values use transaction-day NAVs recorded in the CAS and carry the last observed NAV between transactions.",
+  note = "weekly points use the last actual AMFI NAV published in each week. CAS transaction dates remain exact, and missing weeks are skipped rather than estimated.",
   compact = false,
   showBelowCost = false,
 }: PortfolioChartProps) {
@@ -113,7 +113,10 @@ export default function PortfolioChart({
     const max = Math.max(...visible.flatMap((point) => [point.value, point.invested])) * 1.12;
     const min = Math.min(...visible.flatMap((point) => [point.value, point.invested])) * 0.86;
     const span = Math.max(1, max - min);
-    const xFor = (index: number) => padding.left + (index / Math.max(1, visible.length - 1)) * chartWidth;
+    const timeFor = (point: TimelinePoint) => new Date(`${point.date}T00:00:00Z`).getTime();
+    const firstTime = timeFor(visible[0]);
+    const timeSpan = Math.max(1, timeFor(visible.at(-1) as TimelinePoint) - firstTime);
+    const xFor = (index: number) => padding.left + ((timeFor(visible[index]) - firstTime) / timeSpan) * chartWidth;
     const yFor = (value: number) => padding.top + ((max - value) / span) * chartHeight;
 
     context.clearRect(0, 0, width, height);
@@ -205,11 +208,46 @@ export default function PortfolioChart({
       context.restore();
     }
 
+    const drawDiamond = (x: number, y: number, size: number) => {
+      context.beginPath();
+      context.moveTo(x, y - size);
+      context.lineTo(x + size, y);
+      context.lineTo(x, y + size);
+      context.lineTo(x - size, y);
+      context.closePath();
+    };
+
+    visible.forEach((point, index) => {
+      if (!point.weekly && !point.transaction) return;
+      const x = xFor(index);
+      const y = yFor(point.value);
+      if (point.weekly) {
+        context.fillStyle = "#F8F6EF";
+        context.strokeStyle = "#1D9D61";
+        context.lineWidth = 1;
+        context.beginPath();
+        context.arc(x, y, 2.2, 0, Math.PI * 2);
+        context.fill();
+        context.stroke();
+      }
+      if (point.transaction) {
+        context.fillStyle = "#FF715B";
+        context.strokeStyle = "#F8F6EF";
+        context.lineWidth = 1.1;
+        drawDiamond(x, y, 4.1);
+        context.fill();
+        context.stroke();
+      }
+    });
+
     const labelCount = width < 560 ? 3 : 5;
     context.fillStyle = "#728078";
     context.textAlign = "center";
     for (let index = 0; index < labelCount; index += 1) {
-      const pointIndex = Math.round((index / (labelCount - 1)) * (visible.length - 1));
+      const targetTime = firstTime + (timeSpan * index) / Math.max(1, labelCount - 1);
+      const pointIndex = visible.reduce((nearest, point, pointIndex) =>
+        Math.abs(timeFor(point) - targetTime) < Math.abs(timeFor(visible[nearest]) - targetTime) ? pointIndex : nearest,
+      0);
       context.fillText(prettyDate(visible[pointIndex].date), xFor(pointIndex), height - 15);
     }
 
@@ -255,7 +293,14 @@ export default function PortfolioChart({
     if (!rect) return 0;
     const left = rect.width < 560 ? 10 : 64;
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left - left) / Math.max(1, rect.width - left - 18)));
-    return Math.round(ratio * (visible.length - 1));
+    const first = new Date(`${visible[0]?.date}T00:00:00Z`).getTime();
+    const last = new Date(`${visible.at(-1)?.date}T00:00:00Z`).getTime();
+    const target = first + ratio * Math.max(1, last - first);
+    return visible.reduce((nearest, point, index) => {
+      const distance = Math.abs(new Date(`${point.date}T00:00:00Z`).getTime() - target);
+      const nearestDistance = Math.abs(new Date(`${visible[nearest].date}T00:00:00Z`).getTime() - target);
+      return distance < nearestDistance ? index : nearest;
+    }, 0);
   };
 
   const hoverPoint = hovered !== null ? visible[hovered] : null;
@@ -298,6 +343,8 @@ export default function PortfolioChart({
       <div className="chart-legend">
         <span><i className="legend-dot value" />{valueLabel}</span>
         <span><i className="legend-line" />Net invested</span>
+        <span><i className="legend-point weekly" />Weekly NAV</span>
+        <span><i className="legend-point transaction" />CAS transaction</span>
         {showBelowCost && <span><i className="legend-line below" />Below invested</span>}
         <span className="chart-hint">Use period buttons or the range slider to change the timeline</span>
       </div>
@@ -317,9 +364,20 @@ export default function PortfolioChart({
         />
         {hoverPoint && tooltipStyle && (
           <div className="chart-tooltip" style={tooltipStyle}>
-            <span>{fullDate(hoverPoint.date)}{hoverPoint.live ? " · Latest AMFI NAV" : hoverPoint.exact ? " · Statement value" : ""}</span>
+            <span className="tooltip-date">
+              {fullDate(hoverPoint.date)}
+              <span className="tooltip-flags" aria-label={[hoverPoint.transaction && "CAS transaction", hoverPoint.weekly && "Weekly NAV observation", hoverPoint.live && "Latest AMFI NAV", hoverPoint.exact && "Statement value"].filter(Boolean).join(", ")}>
+                {hoverPoint.transaction && <i className="tooltip-flag transaction" title="CAS transaction">◆</i>}
+                {hoverPoint.weekly && <i className="tooltip-flag weekly" title="Weekly AMFI NAV">●</i>}
+                {hoverPoint.live && <i className="tooltip-flag live" title="Latest AMFI NAV">L</i>}
+                {hoverPoint.exact && !hoverPoint.live && <i className="tooltip-flag exact" title="Statement value">S</i>}
+              </span>
+            </span>
             <strong>{fullMoney(hoverPoint.value)}</strong>
-            <small>Invested {fullMoney(hoverPoint.invested)}</small>
+            <small>Invested {fullMoney(hoverPoint.invested)}{hoverPoint.nav ? ` · NAV ${hoverPoint.nav.toFixed(4)}` : ""}</small>
+            <small>{hoverPoint.transaction
+              ? `Transaction ${(hoverPoint.transactionAmount ?? 0) >= 0 ? "+" : "−"}${fullMoney(Math.abs(hoverPoint.transactionAmount ?? 0))}${(hoverPoint.transactionCount ?? 0) > 1 ? ` · ${hoverPoint.transactionCount} entries` : ""}`
+              : hoverPoint.weekly ? "Official weekly valuation" : "Observed portfolio value"}</small>
           </div>
         )}
       </div>

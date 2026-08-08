@@ -4,6 +4,16 @@ export type TimelinePoint = {
   value: number;
   exact?: boolean;
   live?: boolean;
+  transaction?: boolean;
+  weekly?: boolean;
+  nav?: number;
+  transactionAmount?: number;
+  transactionCount?: number;
+};
+
+export type HistoricalNavPoint = {
+  date: string;
+  nav: number;
 };
 
 export type FundTransaction = {
@@ -13,6 +23,7 @@ export type FundTransaction = {
   units: number;
   balance: number;
   label: string;
+  holdingKey?: string;
 };
 
 export type FolioHolding = {
@@ -25,6 +36,7 @@ export type FolioHolding = {
   nav: number;
   navDate: string;
   liveNav?: boolean;
+  weeklyNav?: HistoricalNavPoint[];
   transactions: FundTransaction[];
 };
 
@@ -41,6 +53,8 @@ export type FundHolding = {
   nav: number;
   navDate: string;
   liveNav?: boolean;
+  schemeCode?: string;
+  weeklyNav?: HistoricalNavPoint[];
   folios: number;
   transactions: FundTransaction[];
   folioHoldings: FolioHolding[];
@@ -56,6 +70,8 @@ export type ClosedFund = {
   totalInvested: number;
   totalProceeds: number;
   closedDate: string;
+  schemeCode?: string;
+  weeklyNav?: HistoricalNavPoint[];
   folios: number;
   transactions: FundTransaction[];
 };
@@ -74,6 +90,9 @@ export type Portfolio = {
   timeline: TimelinePoint[];
   reconciliationDifference: number;
   navCoverage: { updated: number; total: number };
+  navHistoryCoverage?: { updated: number; total: number };
+  navHistoryLoading?: boolean;
+  navHistoryError?: string;
   liveUpdateError?: string;
 };
 
@@ -461,6 +480,7 @@ export async function parseCasFile(
         units: transaction.units,
         balance: transaction.balance,
         label: transaction.label,
+        holdingKey: String(transaction.sectionId),
       };
       const key = fundKeyBySection.get(transaction.sectionId) ?? transaction.isin;
       grouped.get(key)?.transactions.push(normalized);
@@ -491,6 +511,7 @@ export async function parseCasFile(
           units: transaction.units,
           balance: transaction.balance,
           label: transaction.label,
+          holdingKey: String(transaction.sectionId),
         }));
       if (!sectionTransactions.length || Math.abs(sectionTransactions.at(-1)?.balance ?? 0) > 0.001) continue;
       const totalInvested = sectionTransactions
@@ -558,8 +579,18 @@ export async function parseCasFile(
       if (previous?.date === transaction.date) {
         previous.invested = netInvested;
         previous.value = estimatedValue;
+        previous.transaction = true;
+        previous.transactionAmount = (previous.transactionAmount ?? 0) + transaction.amount;
+        previous.transactionCount = (previous.transactionCount ?? 0) + 1;
       } else {
-        timeline.push({ date: transaction.date, invested: netInvested, value: estimatedValue });
+        timeline.push({
+          date: transaction.date,
+          invested: netInvested,
+          value: estimatedValue,
+          transaction: true,
+          transactionAmount: transaction.amount,
+          transactionCount: 1,
+        });
       }
     }
 
@@ -569,6 +600,7 @@ export async function parseCasFile(
       invested: activeInvested,
       value: fromPaise(summary.valuePaise),
       exact: true,
+      transaction: transactions.some((transaction) => transaction.date === statementDate),
     };
     if (!timeline.length || timeline.at(-1)?.date !== statementDate) timeline.push(exactCurrentPoint);
     else timeline[timeline.length - 1] = exactCurrentPoint;
