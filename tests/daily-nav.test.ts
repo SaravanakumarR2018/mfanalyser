@@ -4,6 +4,7 @@ import test from "node:test";
 import { buildNavPoints } from "../app/nav-activity-service.ts";
 import { formatInr } from "../app/formatters.ts";
 import { historyRange, mirrorDateToIso } from "../app/nav-history-utils.ts";
+import { shiftRangeWindow } from "../app/range-window.ts";
 import {
   addDailyPortfolioPoints,
   buildHoldingTimeline,
@@ -32,6 +33,16 @@ test("graph tooltip amounts use Indian digit grouping", () => {
   assert.equal(formatInr(5_000), "₹5,000");
   assert.equal(formatInr(20_223_264), "₹2,02,23,264");
   assert.equal(formatInr(1234.5678, 4), "₹1,234.5678");
+});
+
+test("dragging a selected chart window preserves its width and clamps at both ends", () => {
+  assert.deepEqual(shiftRangeWindow([20, 39], 10, 100), [30, 49]);
+  assert.deepEqual(shiftRangeWindow([20, 39], -50, 100), [0, 19]);
+  assert.deepEqual(shiftRangeWindow([20, 39], 100, 100), [80, 99]);
+  assert.deepEqual(shiftRangeWindow([0, 99], 20, 100), [0, 99]);
+
+  const shifted = shiftRangeWindow([12, 31], 17, 100);
+  assert.equal(shifted[1] - shifted[0], 19);
 });
 
 test("daily normalization retains every real published NAV date", () => {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import type { CSSProperties } from "react";
 import type { TimelinePoint } from "./cas-parser";
 import { formatInr } from "./formatters";
+import { useRangeWindowDrag } from "./useRangeWindowDrag";
 
 type PortfolioChartProps = {
   points: TimelinePoint[];
@@ -48,6 +49,7 @@ export default function PortfolioChart({
   const [tooltipStyle, setTooltipStyle] = useState<CSSProperties>();
   const [animate, setAnimate] = useState(0);
   const previousPoints = useRef(points);
+  const rangeWindowDrag = useRangeWindowDrag({ range, setRange, totalPoints: points.length });
 
   useEffect(() => {
     let frame = 0;
@@ -362,7 +364,7 @@ export default function PortfolioChart({
         <span><i className="legend-line daily" />Daily NAV values</span>
         <span><i className="legend-point transaction" />CAS investment</span>
         {showBelowCost && <span><i className="legend-line below" />Below invested</span>}
-        <span className="chart-hint">Use period buttons or the range slider to change the timeline</span>
+        <span className="chart-hint">Drag the highlighted range to move the timeline</span>
       </div>
       <div
         ref={shellRef}
@@ -403,7 +405,23 @@ export default function PortfolioChart({
         )}
       </div>
       <div className="range-track" aria-label="Visible chart range">
-        <div className="range-fill" style={{ left: `${(range[0] / Math.max(1, points.length - 1)) * 100}%`, right: `${100 - (range[1] / Math.max(1, points.length - 1)) * 100}%` }} />
+        <div
+          className={`range-fill${rangeWindowDrag.movable ? " draggable" : ""}`}
+          role="slider"
+          aria-label="Move visible chart window"
+          aria-valuemin={0}
+          aria-valuemax={Math.max(0, points.length - (range[1] - range[0] + 1))}
+          aria-valuenow={range[0]}
+          aria-valuetext={`${fullDate(points[range[0]]?.date ?? points[0]?.date)} to ${fullDate(points[range[1]]?.date ?? points.at(-1)?.date)}`}
+          tabIndex={rangeWindowDrag.movable ? 0 : -1}
+          title={rangeWindowDrag.movable ? "Drag to move the selected timeframe" : undefined}
+          onKeyDown={rangeWindowDrag.onKeyDown}
+          onPointerCancel={rangeWindowDrag.onPointerCancel}
+          onPointerDown={rangeWindowDrag.onPointerDown}
+          onPointerMove={rangeWindowDrag.onPointerMove}
+          onPointerUp={rangeWindowDrag.onPointerUp}
+          style={{ left: `${(range[0] / Math.max(1, points.length - 1)) * 100}%`, right: `${100 - (range[1] / Math.max(1, points.length - 1)) * 100}%` }}
+        />
         <input
           aria-label="Chart start"
           type="range"

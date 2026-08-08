@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import type { FundTransaction, HistoricalNavPoint } from "./cas-parser";
 import { formatInr } from "./formatters";
 import { buildNavPoints, type NavActivityPoint } from "./nav-activity-service";
+import { useRangeWindowDrag } from "./useRangeWindowDrag";
 
 type NavActivityChartProps = {
   transactions: FundTransaction[];
@@ -37,6 +38,13 @@ export default function NavActivityChart({ transactions, navHistory, nav, navDat
   const [hovered, setHovered] = useState<number | null>(null);
   const [tooltipStyle, setTooltipStyle] = useState<CSSProperties>();
   const previousPoints = useRef(allPoints);
+  const clearSelectedPeriod = useCallback(() => setPeriod(null), []);
+  const rangeWindowDrag = useRangeWindowDrag({
+    range,
+    setRange,
+    totalPoints: allPoints.length,
+    onMoveStart: clearSelectedPeriod,
+  });
 
   useEffect(() => {
     const prior = previousPoints.current;
@@ -321,7 +329,20 @@ export default function NavActivityChart({ transactions, navHistory, nav, navDat
           </div>
           <div className="range-track nav-range-track" aria-label="Visible NAV chart range">
             <div
-              className="range-fill"
+              className={`range-fill${rangeWindowDrag.movable ? " draggable" : ""}`}
+              role="slider"
+              aria-label="Move visible NAV chart window"
+              aria-valuemin={0}
+              aria-valuemax={Math.max(0, allPoints.length - (range[1] - range[0] + 1))}
+              aria-valuenow={range[0]}
+              aria-valuetext={`${formatDate(allPoints[range[0]]?.date ?? allPoints[0].date)} to ${formatDate(allPoints[range[1]]?.date ?? allPoints.at(-1)?.date ?? allPoints[0].date)}`}
+              tabIndex={rangeWindowDrag.movable ? 0 : -1}
+              title={rangeWindowDrag.movable ? "Drag to move the selected timeframe" : undefined}
+              onKeyDown={rangeWindowDrag.onKeyDown}
+              onPointerCancel={rangeWindowDrag.onPointerCancel}
+              onPointerDown={rangeWindowDrag.onPointerDown}
+              onPointerMove={rangeWindowDrag.onPointerMove}
+              onPointerUp={rangeWindowDrag.onPointerUp}
               style={{
                 left: `${(range[0] / Math.max(1, allPoints.length - 1)) * 100}%`,
                 right: `${100 - (range[1] / Math.max(1, allPoints.length - 1)) * 100}%`,
