@@ -33,6 +33,13 @@ export type FundStackModel = {
 
 const STACK_MODE_ORDER: FundStackMode[] = ["value", "invested", "contribution"];
 
+const isoDateTime = (date: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const time = new Date(`${date}T00:00:00Z`).getTime();
+  if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 10) !== date) return null;
+  return time;
+};
+
 export function toggleStackModeSelection(selected: FundStackMode[], mode: FundStackMode) {
   if (selected.includes(mode)) {
     return selected.length === 1 ? selected : selected.filter((item) => item !== mode);
@@ -45,14 +52,14 @@ export function annualizedReturnAt(
   date: string,
   terminalValue: number,
 ): number | null {
-  const terminalTime = new Date(`${date}T00:00:00Z`).getTime();
-  if (!Number.isFinite(terminalTime)) return null;
+  const terminalTime = isoDateTime(date);
+  if (terminalTime === null) return null;
 
   const grouped = new Map<number, number>();
   for (const transaction of transactions) {
     if (transaction.date > date || !Number.isFinite(transaction.amount)) continue;
-    const time = new Date(`${transaction.date}T00:00:00Z`).getTime();
-    if (!Number.isFinite(time)) continue;
+    const time = isoDateTime(transaction.date);
+    if (time === null) continue;
     grouped.set(time, (grouped.get(time) ?? 0) - transaction.amount);
   }
   if (Number.isFinite(terminalValue) && Math.abs(terminalValue) > 0.000001) {
@@ -96,6 +103,50 @@ export function annualizedReturnAt(
     }
   }
   const result = (low + high) / 2 * 100;
+  return Number.isFinite(result) ? result : null;
+}
+
+export function portfolioAnnualizedReturn(portfolio: {
+  valuationDate: string;
+  currentValue: number;
+  timeline: Array<{ date: string; transactionAmount?: number }>;
+  funds: Array<{
+    currentValue: number;
+    units: number;
+    transactions: FundTransaction[];
+    folioHoldings?: Array<{
+      currentValue: number;
+      units: number;
+      transactions: FundTransaction[];
+    }>;
+  }>;
+}) {
+  const activeSeries = portfolio.funds.flatMap((fund) =>
+    fund.folioHoldings?.length ? fund.folioHoldings : [fund]);
+  const incomplete = activeSeries.some((holding) =>
+    (holding.currentValue > 0.005 || holding.units > 0.000001)
+    && !holding.transactions.some((transaction) =>
+      isoDateTime(transaction.date) !== null
+      && Number.isFinite(transaction.amount)
+      && Math.abs(transaction.amount) > 0.000001));
+  if (incomplete) return null;
+
+  const transactions = portfolio.timeline
+    .filter((point) => Number.isFinite(point.transactionAmount))
+    .map<FundTransaction>((point) => ({
+      date: point.date,
+      amount: point.transactionAmount as number,
+      price: 0,
+      units: 0,
+      balance: 0,
+      label: "Portfolio cash flow",
+    }));
+  return annualizedReturnAt(transactions, portfolio.valuationDate, portfolio.currentValue);
+}
+
+export function portfolioAbsoluteReturn(invested: number, wealthCreated: number) {
+  if (!Number.isFinite(invested) || invested <= 0 || !Number.isFinite(wealthCreated)) return null;
+  const result = wealthCreated / invested * 100;
   return Number.isFinite(result) ? result : null;
 }
 

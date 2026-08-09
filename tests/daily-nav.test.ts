@@ -25,6 +25,8 @@ import {
   findStackFundIndex,
   fundValueShare,
   maxStackReconciliationDifference,
+  portfolioAbsoluteReturn,
+  portfolioAnnualizedReturn,
   stackBoundsForPoint,
   toggleStackModeSelection,
   type FundStackPoint,
@@ -116,6 +118,57 @@ test("annualised fund return uses dated investor cash flows and terminal value",
   assert.ok(withRedemption !== null && withRedemption > 20);
   assert.equal(annualizedReturnAt([purchase], "2025-01-01", 100), null);
   assert.equal(annualizedReturnAt([], "2026-01-01", 100), null);
+  assert.equal(annualizedReturnAt([purchase], "2026-02-30", 110), null);
+  assert.equal(annualizedReturnAt([
+    { ...purchase, date: "2025-02-30" },
+  ], "2026-01-01", 110), null);
+});
+
+test("portfolio annualised return includes active and closed-fund cash flows exactly once", () => {
+  const result = portfolioAnnualizedReturn({
+    valuationDate: "2026-01-01",
+    currentValue: 121,
+    timeline: [
+      { date: "2025-01-01", transactionAmount: 200 },
+      { date: "2026-01-01", transactionAmount: -110 },
+    ],
+    funds: [{
+      currentValue: 121,
+      units: 11,
+      transactions: [transaction("2025-01-01", 100, 10, 10, 10, "active")],
+      folioHoldings: [],
+    }],
+  });
+
+  assert.ok(result !== null && Math.abs(result - 15.5) < 0.0001);
+  assert.equal(portfolioAnnualizedReturn({
+    valuationDate: "2026-01-01",
+    currentValue: 121,
+    timeline: [],
+    funds: [{ currentValue: 121, units: 11, transactions: [], folioHoldings: [] }],
+  }), null);
+
+  assert.equal(portfolioAnnualizedReturn({
+    valuationDate: "2026-01-01",
+    currentValue: 200,
+    timeline: [{ date: "2025-01-01", transactionAmount: 100 }],
+    funds: [
+      {
+        currentValue: 100,
+        units: 10,
+        transactions: [transaction("2025-01-01", 100, 10, 10, 10, "complete")],
+        folioHoldings: [],
+      },
+      { currentValue: 100, units: 10, transactions: [], folioHoldings: [] },
+    ],
+  }), null);
+});
+
+test("portfolio absolute return is unavailable without a positive invested amount", () => {
+  assert.equal(portfolioAbsoluteReturn(200, 50), 25);
+  assert.equal(portfolioAbsoluteReturn(0, 50), null);
+  assert.equal(portfolioAbsoluteReturn(-100, 50), null);
+  assert.equal(portfolioAbsoluteReturn(Number.NaN, 50), null);
 });
 
 test("draggable chart lens moves continuously beyond every plot edge with inverse hover mapping", () => {
@@ -507,31 +560,47 @@ test("daily enrichment never overwrites an exact endpoint's active invested amou
   const activeFolio: FolioHolding = {
     key: "active-folio", label: "Active", currentValue: 110, invested: 100, costBasis: 100,
     units: 10, nav: 11, navDate: "2026-01-16", liveNav: true,
-    transactions: [activePurchase], navHistory: [{ date: "2026-01-16", nav: 11 }],
+    transactions: [activePurchase], navHistory: [
+      { date: "2026-01-02", nav: 10 },
+      { date: "2026-01-16", nav: 11 },
+    ],
   };
   const active: FundHolding = {
     key: "active", name: "Active", isin: "INFACTIVE000", fundHouse: "A", category: "Test",
     currentValue: 110, invested: 100, costBasis: 100, units: 10, nav: 11,
     navDate: "2026-01-16", liveNav: true, folios: 1, transactions: [activePurchase],
-    folioHoldings: [activeFolio], navHistory: [{ date: "2026-01-16", nav: 11 }],
+    folioHoldings: [activeFolio], navHistory: [
+      { date: "2026-01-02", nav: 10 },
+      { date: "2026-01-16", nav: 11 },
+    ],
   };
-  const closedTransactions = [
-    transaction("2026-01-02", 100, 10, 10, 10, "closed"),
-    transaction("2026-01-10", -120, -10, 12, 0, "closed"),
-  ];
-  const closed: ClosedFund = {
-    key: "closed", name: "Closed", isin: "INFCLOSED000", fundHouse: "C", category: "Test",
-    realizedGain: 20, totalInvested: 100, totalProceeds: 120, closedDate: "2026-01-10",
-    folios: 1, transactions: closedTransactions, navHistory: [{ date: "2026-01-16", nav: 12 }],
-  };
-
   const result = addDailyPortfolioPoints(
-    [{ date: "2026-01-16", invested: 100, value: 110, live: true }],
+    [
+      {
+        date: "2026-01-02",
+        invested: 200,
+        value: 200,
+        transaction: true,
+        transactionAmount: 200,
+        transactionCount: 2,
+      },
+      { date: "2026-01-16", invested: 100, value: 110, live: true },
+    ],
     [active],
-    [closed],
+    [],
   );
+  const transactionPoint = result.find((point) => point.date === "2026-01-02");
   assert.deepEqual(
-    { invested: result[0].invested, value: result[0].value, live: result[0].live, daily: result[0].daily },
+    {
+      invested: transactionPoint?.invested,
+      transactionAmount: transactionPoint?.transactionAmount,
+      transactionCount: transactionPoint?.transactionCount,
+    },
+    { invested: 200, transactionAmount: 200, transactionCount: 2 },
+  );
+  const endpoint = result.find((point) => point.date === "2026-01-16");
+  assert.deepEqual(
+    { invested: endpoint?.invested, value: endpoint?.value, live: endpoint?.live, daily: endpoint?.daily },
     { invested: 100, value: 110, live: true, daily: true },
   );
 });

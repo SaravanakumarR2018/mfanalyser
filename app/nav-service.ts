@@ -283,16 +283,22 @@ export async function refreshWithLatestNav(portfolio: Portfolio): Promise<Portfo
     const currentValue = funds.reduce((total, fund) => total + fund.currentValue, 0);
     const allTransactions = [...funds, ...closedFunds].flatMap((fund) => fund.transactions);
     const latestTransactions = allTransactions.filter((transaction) => transaction.date === valuationDate);
+    const endpointTimeline = [...portfolio.timeline];
+    const priorEndpoint = endpointTimeline.at(-1)?.date === valuationDate
+      ? endpointTimeline.at(-1)
+      : undefined;
     const livePoint: TimelinePoint = {
       date: valuationDate,
       invested: portfolio.invested,
       value: currentValue,
       live: true,
-      transaction: latestTransactions.length > 0,
-      transactionAmount: latestTransactions.reduce((total, transaction) => total + transaction.amount, 0),
-      transactionCount: latestTransactions.length || undefined,
+      transaction: Boolean(priorEndpoint?.transaction || latestTransactions.length),
+      transactionAmount: priorEndpoint?.transactionAmount
+        ?? (latestTransactions.length
+          ? latestTransactions.reduce((total, transaction) => total + transaction.amount, 0)
+          : undefined),
+      transactionCount: priorEndpoint?.transactionCount ?? (latestTransactions.length || undefined),
     };
-    const endpointTimeline = [...portfolio.timeline];
     if (endpointTimeline.at(-1)?.date === valuationDate) endpointTimeline[endpointTimeline.length - 1] = livePoint;
     else endpointTimeline.push(livePoint);
     const historyTotal = [...funds, ...closedFunds]

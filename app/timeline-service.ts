@@ -219,8 +219,8 @@ export function addDailyPortfolioPoints(
     mergePoint(points, {
       ...base,
       transaction: Boolean(base.transaction || summary.count),
-      transactionAmount: summary.count ? summary.amount : base.transactionAmount,
-      transactionCount: summary.count || base.transactionCount,
+      transactionAmount: base.transactionAmount ?? (summary.count ? summary.amount : undefined),
+      transactionCount: base.transactionCount ?? (summary.count || undefined),
     });
   }
 
@@ -244,14 +244,15 @@ export function addDailyPortfolioPoints(
     const existing = points.get(date);
     mergePoint(points, {
       date,
-      invested: existing?.exact || existing?.live
+      invested: existing
         ? existing.invested
         : Math.max(0, investedAt(allTransactions, date)),
       value: existing?.exact || existing?.live ? existing.value : Math.max(0, value),
       daily: true,
-      transaction: summary.count > 0,
-      transactionAmount: summary.count ? summary.amount : undefined,
-      transactionCount: summary.count || undefined,
+      transaction: Boolean(existing?.transaction || summary.count),
+      transactionAmount: existing?.transactionAmount
+        ?? (summary.count ? summary.amount : undefined),
+      transactionCount: existing?.transactionCount ?? (summary.count || undefined),
     });
   }
 

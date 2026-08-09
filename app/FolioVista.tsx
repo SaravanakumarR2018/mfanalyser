@@ -17,7 +17,11 @@ import {
 } from "./cas-parser";
 import { refreshWithDailyHistory, refreshWithLatestNav, type NavHistoryProgress } from "./nav-service";
 import { buildHoldingTimeline } from "./timeline-service";
-import { annualizedReturnAt } from "./fund-stack-service";
+import {
+  annualizedReturnAt,
+  portfolioAbsoluteReturn,
+  portfolioAnnualizedReturn,
+} from "./fund-stack-service";
 import {
   DEFAULT_FUND_SORT,
   nextFundSort,
@@ -81,6 +85,16 @@ function SortableFundHeader({
         </span>
         <i className={`sort-arrows${direction ? ` ${direction}` : ""}`} aria-hidden="true"><b>↑</b><b>↓</b></i>
       </button>
+    </span>
+  );
+}
+
+function MetricInfo({ label, children }: { label: string; children: string }) {
+  const tooltipId = useId();
+  return (
+    <span className="metric-info">
+      <button type="button" aria-label={label} aria-describedby={tooltipId}>i</button>
+      <span id={tooltipId} role="tooltip">{children}</span>
     </span>
   );
 }
@@ -689,7 +703,9 @@ function Dashboard({
     : null;
   const unrealizedGain = portfolio.currentValue - portfolio.invested;
   const gain = unrealizedGain + portfolio.realizedGain;
-  const absoluteReturn = portfolio.invested ? (gain / portfolio.invested) * 100 : 0;
+  const absoluteReturn = portfolioAbsoluteReturn(portfolio.invested, gain);
+  const absoluteReturnLabel = absoluteReturn === null ? "—" : `${absoluteReturn.toFixed(2)}%`;
+  const annualizedReturn = useMemo(() => portfolioAnnualizedReturn(portfolio), [portfolio]);
   const activeFolios = portfolio.funds.reduce((total, fund) => total + fund.folios, 0);
   const fundColors = useMemo(
     () => new Map(portfolio.funds.map((fund, index) => [fund.key, palette[index % palette.length]])),
@@ -756,7 +772,7 @@ function Dashboard({
           <div className="summary-main">
             <p>CURRENT PORTFOLIO VALUE <span title="Latest available NAV multiplied by the unit balances in this CAS">i</span></p>
             <h1>{compactMoney(portfolio.currentValue)}</h1>
-            <div className="gain-line"><strong className={gain >= 0 ? "positive" : "negative"}>{gain >= 0 ? "↗" : "↘"} {formatMoney(Math.abs(gain))}</strong><span>all-time gain</span><i /> <strong>{absoluteReturn.toFixed(2)}%</strong><span>absolute return</span></div>
+            <div className="gain-line"><strong className={gain >= 0 ? "positive" : "negative"}>{gain >= 0 ? "↗" : "↘"} {formatMoney(Math.abs(gain))}</strong><span>all-time gain</span><i /> <strong>{absoluteReturnLabel}</strong><span>absolute return</span></div>
             <small>{portfolio.valuationSource === "amfi" ? "Official AMFI NAV" : "CAS statement value"} · {formatDate(portfolio.valuationDate)} · CAS units as of {formatDate(portfolio.statementDate)}</small>
           </div>
           <div className="summary-allocation">
@@ -767,7 +783,9 @@ function Dashboard({
 
         <section className="metric-grid" aria-label="Portfolio summary metrics">
           <article><p>Amount invested <span title="Purchases minus redemptions from active CAS holdings">i</span></p><strong>{compactMoney(portfolio.invested)}</strong><span className="metric-exact">Exact · {formatMoney(portfolio.invested, 2)}</span><small>Net transaction cash flow</small></article>
-          <article><p>Wealth created</p><strong className={gain >= 0 ? "positive" : "negative"}>{compactMoney(gain)}</strong><span className="metric-exact">Exact · {formatMoney(gain, 2)}</span><small>{absoluteReturn.toFixed(2)}% including realised gains</small></article>
+          <article><p>Wealth created</p><strong className={gain >= 0 ? "positive" : "negative"}>{compactMoney(gain)}</strong><span className="metric-exact">Exact · {formatMoney(gain, 2)}</span><small>{absoluteReturn === null ? "Absolute return unavailable" : `${absoluteReturnLabel} including realised gains`}</small></article>
+          <article className="return-metric"><p>Absolute return <MetricInfo label="About absolute return">Wealth created divided by amount invested, including realised gains.</MetricInfo></p><strong className={absoluteReturn === null ? "" : absoluteReturn >= 0 ? "positive" : "negative"}>{absoluteReturnLabel}</strong><small>{absoluteReturn === null ? "Requires a positive invested amount" : "Total return including realised gains"}</small></article>
+          <article className="return-metric"><p>Return p.a. <MetricInfo label="About return per annum">Money-weighted XIRR from exact dated CAS cash flows, including closed-fund proceeds, and the current portfolio value.</MetricInfo></p><strong className={annualizedReturn === null ? "" : annualizedReturn >= 0 ? "positive" : "negative"}>{annualizedReturn === null ? "—" : `${annualizedReturn.toFixed(2)}%`}</strong><small>{annualizedReturn === null ? "Not enough dated cash flows" : "Money-weighted XIRR · all funds"}</small></article>
           <article><p>Realised gains</p><strong className={portfolio.realizedGain >= 0 ? "positive" : "negative"}>{compactMoney(portfolio.realizedGain)}</strong><small>From {portfolio.closedFunds.length} closed {portfolio.closedFunds.length === 1 ? "fund" : "funds"}</small></article>
           <article><p>Active funds</p><strong>{portfolio.funds.length}</strong><small>{activeFolios} statement folios</small></article>
           <article className="accuracy-metric"><p>Accuracy check</p><strong><i>✓</i> Reconciled</strong><small>{portfolio.reconciliationDifference <= 0.01 ? "Within statement rounding" : `₹${portfolio.reconciliationDifference.toFixed(2)} rounding difference`}</small></article>

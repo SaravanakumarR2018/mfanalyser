@@ -601,6 +601,12 @@ export async function parseCasFile(
       value: fromPaise(summary.valuePaise),
       exact: true,
       transaction: transactions.some((transaction) => transaction.date === statementDate),
+      transactionAmount: timeline.at(-1)?.date === statementDate
+        ? timeline.at(-1)?.transactionAmount
+        : undefined,
+      transactionCount: timeline.at(-1)?.date === statementDate
+        ? timeline.at(-1)?.transactionCount
+        : undefined,
     };
     if (!timeline.length || timeline.at(-1)?.date !== statementDate) timeline.push(exactCurrentPoint);
     else timeline[timeline.length - 1] = exactCurrentPoint;
