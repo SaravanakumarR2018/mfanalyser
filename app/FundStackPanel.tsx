@@ -16,6 +16,7 @@ import {
 import { formatInr } from "./formatters";
 import {
   annualizedReturnAt,
+  buildPeriodCashFlowSteps,
   findStackFundIndexFromBounds,
   fundValueShare,
   stackBoundsForPoint,
@@ -206,7 +207,9 @@ export default function FundStackPanel({
     const tooltipAnchorX = resolved.insideLens ? cursorX : x;
     const preferredLeft = tooltipAnchorX < rect.width / 2 ? tooltipAnchorX + 14 : tooltipAnchorX - tooltipWidth - 14;
     const tooltipLeft = Math.max(8, Math.min(rect.width - tooltipWidth - 8, preferredLeft));
-    const tooltipHeight = fundIndex === null ? 122 : mode === "periodChange" ? 182 : 158;
+    const tooltipHeight = fundIndex === null
+      ? mode === "periodChange" ? 158 : 122
+      : mode === "periodChange" ? 182 : 158;
     const tooltipTop = resolved.insideLens && resolved.geometry.centerY < rect.height / 2
       ? Math.max(8, rect.height - tooltipHeight - 8)
       : 8;
@@ -259,6 +262,7 @@ export default function FundStackPanel({
     const xFor = (index: number) => visible.length === 1
       ? padding.left + chartWidth / 2
       : padding.left + ((visibleTimes[index] - firstTime) / timeSpan) * chartWidth;
+    const xForTime = (time: number) => padding.left + ((time - firstTime) / timeSpan) * chartWidth;
     const yFor = (value: number) => padding.top + ((scale.max - value) / span) * chartHeight;
 
     context.lineCap = "round";
@@ -319,6 +323,44 @@ export default function FundStackPanel({
     context.setLineDash(mode === "contribution" || mode === "periodChange" ? [5 * detailScale, 4 * detailScale] : []);
     context.stroke();
     context.setLineDash([]);
+
+    if (mode === "periodChange") {
+      const cashFlowSteps = buildPeriodCashFlowSteps(
+        model.funds,
+        visible[0].date,
+        visible.at(-1)?.date ?? visible[0].date,
+      );
+      context.beginPath();
+      let previousCashFlow = 0;
+      context.moveTo(xFor(0), yFor(previousCashFlow));
+      for (const step of cashFlowSteps) {
+        const x = xForTime(new Date(`${step.date}T00:00:00Z`).getTime());
+        context.lineTo(x, yFor(previousCashFlow));
+        context.lineTo(x, yFor(step.total));
+        previousCashFlow = step.total;
+      }
+      context.lineTo(xFor(visible.length - 1), yFor(previousCashFlow));
+      context.strokeStyle = "rgba(190,105,57,.98)";
+      context.lineWidth = 1.9 * detailScale;
+      context.stroke();
+
+      for (const step of cashFlowSteps) {
+        const x = xForTime(new Date(`${step.date}T00:00:00Z`).getTime());
+        const y = yFor(step.total);
+        const radius = 3.2 * detailScale;
+        context.beginPath();
+        context.moveTo(x, y - radius);
+        context.lineTo(x + radius, y);
+        context.lineTo(x, y + radius);
+        context.lineTo(x - radius, y);
+        context.closePath();
+        context.fillStyle = "#BE6939";
+        context.fill();
+        context.strokeStyle = "rgba(255,255,255,.92)";
+        context.lineWidth = 0.8 * detailScale;
+        context.stroke();
+      }
+    }
     context.restore();
 
     const labelCount = width < 500 ? 3 : 5;
@@ -693,13 +735,10 @@ export default function FundStackPanel({
     : null;
   const periodStartDate = visible[0]?.date ?? "";
   const hoveredPeriodChange = hoveredFundValue?.periodChange ?? 0;
-  const hoveredPeriodCashFlow = hoveredPoint && hoveredFund
-    ? hoveredFund.transactions.reduce((total, transaction) =>
-      transaction.date > periodStartDate && transaction.date <= hoveredPoint.date
-        ? total + transaction.amount
-        : total, 0)
-    : 0;
+  const hoveredPeriodCashFlow = hoveredFundValue?.periodCashFlow ?? 0;
   const hoveredMarketMovement = hoveredPeriodChange - hoveredPeriodCashFlow;
+  const hoveredPortfolioCashFlow = hoveredPoint?.totalPeriodCashFlow ?? 0;
+  const hoveredPortfolioMarketMovement = (hoveredPoint?.totalPeriodChange ?? 0) - hoveredPortfolioCashFlow;
   const hoveredPeriodSideTotal = hoveredPoint
     ? hoveredPoint.funds.reduce((total, fund) => {
       const change = fund.periodChange ?? 0;
@@ -715,7 +754,13 @@ export default function FundStackPanel({
 
   return (
     <article className={`fund-stack-panel${lens.enabled ? " lens-active" : ""}${dragging ? " lens-dragging" : ""}`} data-panel-mode={mode} data-period-start-date={mode === "periodChange" ? periodStartDate : ""} data-lens-enabled={lens.enabled} data-lens-x={lens.x.toFixed(4)} data-lens-y={lens.y.toFixed(4)} data-lens-magnification={lens.magnification} data-lens-size={lens.size}>
-      <header><span><i className="stack-total-key" />{stackModeTitle(mode)}</span><strong className={(latestPoint ? modeTotal(latestPoint, mode) : 0) < 0 ? "negative" : ""}>{latestPoint ? formatInr(modeTotal(latestPoint, mode)) : "—"}</strong></header>
+      <header>
+        <span className="stack-panel-legends">
+          <span><i className={`stack-total-key${mode === "periodChange" ? " period-change" : ""}`} />{stackModeTitle(mode)}</span>
+          {mode === "periodChange" && <span className="stack-cashflow-legend"><i className="stack-cashflow-key" />Net cash flow</span>}
+        </span>
+        <strong className={(latestPoint ? modeTotal(latestPoint, mode) : 0) < 0 ? "negative" : ""}>{latestPoint ? formatInr(modeTotal(latestPoint, mode)) : "—"}</strong>
+      </header>
       <div ref={shellRef} className="fund-stack-shell">
         <canvas
           ref={canvasRef}
@@ -741,7 +786,8 @@ export default function FundStackPanel({
           data-axis-step={scale.step}
           data-hovered-date={hoveredPoint?.date ?? ""}
           data-hovered-fund={hoveredFund?.key ?? ""}
-          aria-label={`${stackModeTitle(mode)} stacked chart showing ${model.funds.length} funds from ${stackFormatDate(visible[0].date)} to ${stackFormatDate(visible.at(-1)?.date ?? visible[0].date)}. Hover for exact values, drag the circular lens to inspect thin layers, press Enter to select a date, or use left and right arrows for dates.`}
+          data-total-period-cash-flow={mode === "periodChange" ? latestPoint?.totalPeriodCashFlow ?? 0 : undefined}
+          aria-label={`${stackModeTitle(mode)} stacked chart showing ${model.funds.length} funds from ${stackFormatDate(visible[0].date)} to ${stackFormatDate(visible.at(-1)?.date ?? visible[0].date)}.${mode === "periodChange" ? " The amber step-line shows cumulative net cash flow from exact investments and redemptions after the selected start date." : ""} Hover for exact values, drag the circular lens to inspect thin layers, press Enter to select a date, or use left and right arrows for dates.`}
         />
         <canvas
           ref={lensCanvasRef}
@@ -793,6 +839,8 @@ export default function FundStackPanel({
                 <>
                   <div><span>Portfolio start</span><b>{formatInr(hoveredPoint.periodStartValue ?? 0)}</b></div>
                   <div><span>Portfolio value</span><b>{formatInr(hoveredPoint.totalValue)}</b></div>
+                  <div><span>Net cash flow</span><b className={hoveredPortfolioCashFlow < 0 ? "negative" : hoveredPortfolioCashFlow > 0 ? "positive" : ""}>{formatInr(hoveredPortfolioCashFlow)}</b></div>
+                  <div><span>Market movement</span><b className={hoveredPortfolioMarketMovement < 0 ? "negative" : hoveredPortfolioMarketMovement > 0 ? "positive" : ""}>{formatInr(hoveredPortfolioMarketMovement)}</b></div>
                   <div><span>Period change</span><b className={(hoveredPoint.totalPeriodChange ?? 0) < 0 ? "negative" : "positive"}>{formatInr(hoveredPoint.totalPeriodChange ?? 0)}</b></div>
                 </>
               ) : (

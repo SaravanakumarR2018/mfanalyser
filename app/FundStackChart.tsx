@@ -85,8 +85,8 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
     [model.points, range],
   );
   const visible = useMemo(
-    () => rebaseFundStackToPeriodStart(rawVisible),
-    [rawVisible],
+    () => rebaseFundStackToPeriodStart(rawVisible, model.funds),
+    [model.funds, rawVisible],
   );
   const visibleTimes = useMemo(
     () => visible.map((point) => new Date(`${point.date}T00:00:00Z`).getTime()),
@@ -181,7 +181,7 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
         <span>{modes.length} {modes.length === 1 ? "view" : "views"} selected · shared Y-axis</span>
         <span>Y {formatInr(sharedScale.min)}–{formatInr(sharedScale.max)}</span>
         <span>{model.funds.length} funds · all shown</span>
-        {modes.includes("periodChange") && visible[0] && <span>Period change starts at ₹0 · {stackFormatDate(visible[0].date)}</span>}
+        {modes.includes("periodChange") && visible[0] && <span>Period change and net cash flow start at ₹0 · {stackFormatDate(visible[0].date)}</span>}
         <em>{lens.enabled ? "Drag the lens on any chart · hover inside it for exact details" : "Turn on Lens to inspect thin layers without changing the chart"}</em>
       </div>
       {visible.length > 1 ? (
@@ -244,7 +244,7 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
       )}
       <p className="stack-chart-note"><strong>Reconciled stack:</strong> {portfolio.source === "demo"
         ? "every demo fund is included in a stable order using the illustrative demo allocation."
-        : "every active and closed CAS fund is included in a stable order. Historical points appear only when exact same-day NAVs are available for every fund held on that date; missing dates are not estimated."} <strong>Period change</strong> rebases every fund to ₹0 at the left slider date and plots its exact value change from that baseline. It includes investments and redemptions during the period, so it explains the portfolio’s rupee movement rather than investment performance. Annualised return is the money-weighted XIRR from exact dated CAS cash flows and the fund value on the hovered date; it is shown as — when it cannot be computed.</p>
+        : "every active and closed CAS fund is included in a stable order. Historical points appear only when exact same-day NAVs are available for every fund held on that date; missing dates are not estimated."} <strong>Period change</strong> rebases every fund to ₹0 at the left slider date and plots its exact value change from that baseline. The amber <strong>Net cash flow</strong> step-line starts at ₹0 and moves only on exact CAS investments or redemptions after that date, separating money added or withdrawn from market movement. Annualised return is the money-weighted XIRR from exact dated CAS cash flows and the fund value on the hovered date; it is shown as — when it cannot be computed.</p>
     </section>
   );
 }

@@ -20,6 +20,7 @@ import {
 } from "../app/chart-lens.ts";
 import {
   annualizedReturnAt,
+  buildPeriodCashFlowSteps,
   buildSharedFundStackScale,
   buildFundStackModel,
   findStackFundIndex,
@@ -415,6 +416,14 @@ test("stack hover hit-testing identifies positive and negative fund layers exact
     step: 50,
     ticks: [-50, 0, 50, 100, 150, 200, 250],
   });
+  const periodScale = buildSharedFundStackScale([{
+    ...point,
+    funds: point.funds.map((fund) => ({ ...fund, periodChange: fund.contribution })),
+    periodStartValue: 200,
+    totalPeriodChange: 30,
+    totalPeriodCashFlow: 500,
+  }], ["periodChange"]);
+  assert.ok(periodScale.max >= 500, "the shared scale must include the net cash-flow line");
 });
 
 test("period change rebases every fund to the slider start and reconciles exact portfolio movement", () => {
@@ -454,9 +463,46 @@ test("period change rebases every fund to the slider start and reconciles exact 
     },
   ];
 
-  const rebased = rebaseFundStackToPeriodStart(points);
+  const fundDefinitions = [
+    {
+      key: "first", name: "First", category: "Test", closed: false,
+      transactions: [
+        transaction("2026-01-01", 80, 8, 10, 8),
+        transaction("2026-01-15", 20, 2, 10, 10),
+        transaction("2026-02-15", 30, 2, 15, 12),
+      ],
+    },
+    {
+      key: "second", name: "Second", category: "Test", closed: false,
+      transactions: [
+        transaction("2026-01-01", 180, 18, 10, 18),
+        transaction("2026-02-10", -15, -1, 15, 17),
+      ],
+    },
+    {
+      key: "third", name: "Third", category: "Test", closed: false,
+      transactions: [
+        transaction("2026-01-01", 90, 9, 10, 9),
+        transaction("2026-01-20", 10, 1, 10, 10),
+      ],
+    },
+  ];
+
+  const rebased = rebaseFundStackToPeriodStart(points, fundDefinitions);
+  assert.deepEqual(buildPeriodCashFlowSteps(fundDefinitions, "2026-01-01", "2026-03-01"), [
+    { date: "2026-01-15", amount: 20, total: 20 },
+    { date: "2026-01-20", amount: 10, total: 30 },
+    { date: "2026-02-10", amount: -15, total: 15 },
+    { date: "2026-02-15", amount: 30, total: 45 },
+  ]);
   assert.deepEqual(rebased[0].funds.map((fund) => fund.periodChange), [0, 0, 0]);
+  assert.deepEqual(rebased[0].funds.map((fund) => fund.periodCashFlow), [0, 0, 0]);
+  assert.equal(rebased[0].totalPeriodCashFlow, 0);
+  assert.deepEqual(rebased[1].funds.map((fund) => fund.periodCashFlow), [20, 0, 10]);
+  assert.equal(rebased[1].totalPeriodCashFlow, 30);
   assert.deepEqual(rebased[2].funds.map((fund) => fund.periodChange), [50, -40, -10]);
+  assert.deepEqual(rebased[2].funds.map((fund) => fund.periodCashFlow), [50, -15, 10]);
+  assert.equal(rebased[2].totalPeriodCashFlow, 45);
   assert.equal(rebased[2].totalPeriodChange, 0);
   assert.equal(rebased[2].totalPeriodChange, rebased[2].totalValue - rebased[0].totalValue);
   assert.deepEqual(stackBoundsForPoint(rebased[2], "periodChange"), [
@@ -472,11 +518,19 @@ test("period change rebases every fund to the slider start and reconciles exact 
     funds: [],
     points: [{ ...rebased[2], totalPeriodChange: 5 }],
   }), 5);
+  assert.equal(maxStackReconciliationDifference({
+    funds: [],
+    points: [{ ...rebased[2], totalPeriodCashFlow: 50 }],
+  }), 5);
   assert.equal(points[0].funds[0].periodChange, undefined);
+  assert.equal(points[0].funds[0].periodCashFlow, undefined);
 
-  const movedSlider = rebaseFundStackToPeriodStart(points.slice(1));
+  const movedSlider = rebaseFundStackToPeriodStart(points.slice(1), fundDefinitions);
   assert.deepEqual(movedSlider[0].funds.map((fund) => fund.periodChange), [0, 0, 0]);
+  assert.deepEqual(movedSlider[0].funds.map((fund) => fund.periodCashFlow), [0, 0, 0]);
   assert.deepEqual(movedSlider[1].funds.map((fund) => fund.periodChange), [30, -10, -10]);
+  assert.deepEqual(movedSlider[1].funds.map((fund) => fund.periodCashFlow), [30, -15, 0]);
+  assert.equal(movedSlider[1].totalPeriodCashFlow, 15);
   assert.equal(movedSlider[1].totalPeriodChange, 10);
   assert.equal(movedSlider[1].totalPeriodChange, movedSlider[1].totalValue - movedSlider[0].totalValue);
 });

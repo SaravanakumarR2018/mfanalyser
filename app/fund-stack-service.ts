@@ -17,6 +17,7 @@ export type FundStackValue = {
   contribution: number;
   periodStartValue?: number;
   periodChange?: number;
+  periodCashFlow?: number;
 };
 
 export type FundStackPoint = {
@@ -28,12 +29,19 @@ export type FundStackPoint = {
   periodStartDate?: string;
   periodStartValue?: number;
   totalPeriodChange?: number;
+  totalPeriodCashFlow?: number;
   latest?: boolean;
 };
 
 export type FundStackModel = {
   funds: FundStackFund[];
   points: FundStackPoint[];
+};
+
+export type PeriodCashFlowStep = {
+  date: string;
+  amount: number;
+  total: number;
 };
 
 const STACK_MODE_ORDER: FundStackMode[] = ["value", "invested", "contribution", "periodChange"];
@@ -335,18 +343,43 @@ export function buildFundStackModel(portfolio: Portfolio): FundStackModel {
   return { funds, points };
 }
 
-export function rebaseFundStackToPeriodStart(points: FundStackPoint[]): FundStackPoint[] {
+export function rebaseFundStackToPeriodStart(
+  points: FundStackPoint[],
+  fundDefinitions: FundStackFund[] = [],
+): FundStackPoint[] {
   const periodStart = points[0];
   if (!periodStart) return [];
   const startValues = new Map(periodStart.funds.map((fund) => [fund.fundKey, fund.value]));
+  const cashFlowByFundAndDate = new Map<string, Map<string, number>>();
+  for (const fund of fundDefinitions) {
+    const transactions = fund.transactions
+      .filter((transaction) =>
+        transaction.date > periodStart.date
+        && isoDateTime(transaction.date) !== null
+        && Number.isFinite(transaction.amount))
+      .sort((left, right) => left.date.localeCompare(right.date));
+    let transactionIndex = 0;
+    let total = 0;
+    const byDate = new Map<string, number>();
+    for (const point of points) {
+      while (transactionIndex < transactions.length && transactions[transactionIndex].date <= point.date) {
+        total += transactions[transactionIndex].amount;
+        transactionIndex += 1;
+      }
+      byDate.set(point.date, total);
+    }
+    cashFlowByFundAndDate.set(fund.key, byDate);
+  }
 
   return points.map((point) => {
     const funds = point.funds.map((fund) => {
       const periodStartValue = startValues.get(fund.fundKey) ?? 0;
+      const periodCashFlow = cashFlowByFundAndDate.get(fund.fundKey)?.get(point.date) ?? 0;
       return {
         ...fund,
         periodStartValue,
         periodChange: fund.value - periodStartValue,
+        periodCashFlow,
       };
     });
     return {
@@ -355,8 +388,36 @@ export function rebaseFundStackToPeriodStart(points: FundStackPoint[]): FundStac
       periodStartDate: periodStart.date,
       periodStartValue: periodStart.totalValue,
       totalPeriodChange: funds.reduce((total, fund) => total + (fund.periodChange ?? 0), 0),
+      totalPeriodCashFlow: funds.reduce((total, fund) => total + (fund.periodCashFlow ?? 0), 0),
     };
   });
+}
+
+export function buildPeriodCashFlowSteps(
+  funds: FundStackFund[],
+  periodStartDate: string,
+  periodEndDate: string,
+): PeriodCashFlowStep[] {
+  const grouped = new Map<string, number>();
+  for (const fund of funds) {
+    for (const transaction of fund.transactions) {
+      if (
+        transaction.date <= periodStartDate
+        || transaction.date > periodEndDate
+        || isoDateTime(transaction.date) === null
+        || !Number.isFinite(transaction.amount)
+      ) continue;
+      grouped.set(transaction.date, (grouped.get(transaction.date) ?? 0) + transaction.amount);
+    }
+  }
+
+  let total = 0;
+  return [...grouped]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([date, amount]) => {
+      total += amount;
+      return { date, amount, total };
+    });
 }
 
 export const stackMetric = (point: FundStackValue, mode: FundStackMode) => {
@@ -401,6 +462,10 @@ export function buildSharedFundStackScale(
       for (const bound of stackBoundsForPoint(point, mode)) {
         highest = Math.max(highest, bound.upper);
         lowest = Math.min(lowest, bound.lower);
+      }
+      if (mode === "periodChange" && Number.isFinite(point.totalPeriodCashFlow)) {
+        highest = Math.max(highest, point.totalPeriodCashFlow ?? 0);
+        lowest = Math.min(lowest, point.totalPeriodCashFlow ?? 0);
       }
     }
   }
@@ -451,6 +516,12 @@ export function maxStackReconciliationDifference(model: FundStackModel) {
     const periodPortfolioDifference = point.totalPeriodChange === undefined || point.periodStartValue === undefined
       ? 0
       : Math.abs(point.totalPeriodChange - (point.totalValue - point.periodStartValue));
+    const periodCashFlowDifference = point.totalPeriodCashFlow === undefined
+      ? 0
+      : Math.abs(
+        point.totalPeriodCashFlow
+        - point.funds.reduce((total, fund) => total + (fund.periodCashFlow ?? 0), 0),
+      );
     return Math.max(
       largest,
       valueDifference,
@@ -458,6 +529,7 @@ export function maxStackReconciliationDifference(model: FundStackModel) {
       contributionDifference,
       periodChangeDifference,
       periodPortfolioDifference,
+      periodCashFlowDifference,
     );
   }, 0);
 }
