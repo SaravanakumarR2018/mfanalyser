@@ -17,6 +17,7 @@ import {
 } from "./cas-parser";
 import { refreshWithDailyHistory, refreshWithLatestNav, type NavHistoryProgress } from "./nav-service";
 import { buildHoldingTimeline } from "./timeline-service";
+import { annualizedReturnAt } from "./fund-stack-service";
 import {
   DEFAULT_FUND_SORT,
   nextFundSort,
@@ -710,12 +711,24 @@ function Dashboard({
     }).join(", ");
   }, [allocations, portfolio.currentValue]);
 
+  const fundsWithAnnualizedReturn = useMemo(
+    () => portfolio.funds.map((fund) => ({
+      ...fund,
+      annualizedReturn: annualizedReturnAt(
+        fund.transactions,
+        fund.navDate || portfolio.valuationDate,
+        fund.currentValue,
+      ),
+    })),
+    [portfolio.funds, portfolio.valuationDate],
+  );
+
   const filteredFunds = useMemo(() => {
     const lower = query.toLowerCase();
-    const matches = portfolio.funds
+    const matches = fundsWithAnnualizedReturn
       .filter((fund) => `${fund.name} ${fund.fundHouse} ${fund.category}`.toLowerCase().includes(lower));
     return sortFunds(matches, sort);
-  }, [portfolio.funds, query, sort]);
+  }, [fundsWithAnnualizedReturn, query, sort]);
 
   const selectSort = useCallback((key: FundSortKey) => {
     setSort((current) => nextFundSort(current, key));
@@ -787,6 +800,7 @@ function Dashboard({
               <SortableFundHeader label="Current value" sortKey="value" sort={sort} onSort={selectSort} />
               <SortableFundHeader label="Gain / loss" sortKey="gain" sort={sort} onSort={selectSort} />
               <SortableFundHeader label="Return" sortKey="return" sort={sort} onSort={selectSort} />
+              <SortableFundHeader label="Return p.a." sortKey="annualizedReturn" sort={sort} onSort={selectSort} />
               <span role="columnheader">Momentum</span><span role="columnheader">Below cost</span><span role="columnheader" />
             </div>
             {filteredFunds.map((fund) => {
@@ -807,6 +821,14 @@ function Dashboard({
                     <span data-label="Current value"><strong>{formatMoney(fund.currentValue)}</strong></span>
                     <span data-label="Gain / loss" className={fundGain >= 0 ? "positive" : "negative"}>{fundGain >= 0 ? "+" : ""}{formatMoney(fundGain)}</span>
                     <span data-label="Return"><em className={fundReturn >= 0 ? "return-pill positive" : "return-pill negative"}>{fundReturn >= 0 ? "↗" : "↘"} {fundReturn.toFixed(1)}%</em></span>
+                    <span data-label="Return p.a. (XIRR)">
+                      {fund.annualizedReturn === null
+                        ? <em className="annualized-return-unavailable" title="Not enough dated cash flows to calculate an annualized return">—</em>
+                        : <em
+                            className={fund.annualizedReturn >= 0 ? "return-pill positive" : "return-pill negative"}
+                            title={`Money-weighted annualized return (XIRR) using CAS cash flows and the fund value dated ${formatDate(fund.navDate || portfolio.valuationDate)}`}
+                          >{fund.annualizedReturn >= 0 ? "↗" : "↘"} {fund.annualizedReturn.toFixed(1)}% p.a.</em>}
+                    </span>
                     <span data-label="Momentum"><MomentumBadge holding={fund} /></span>
                     <span data-label="Below cost"><DownsideBadge holding={fund} /></span>
                     <button
@@ -825,6 +847,11 @@ function Dashboard({
                       {fund.folioHoldings.map((folio) => {
                         const folioGain = folio.currentValue - folio.invested;
                         const folioReturn = folio.invested ? (folioGain / folio.invested) * 100 : 0;
+                        const folioAnnualizedReturn = annualizedReturnAt(
+                          folio.transactions,
+                          folio.navDate || portfolio.valuationDate,
+                          folio.currentValue,
+                        );
                         return (
                           <button className="folio-row" key={folio.key} onClick={() => setSelectedFolioKey({ fundKey: fund.key, folioKey: folio.key })}>
                             <span className="folio-name"><i>F</i><span><strong>{folio.label}</strong><small>{folio.currentValue > 0 ? `${folio.transactions.length} transactions` : "Closed / zero balance"}</small></span></span>
@@ -832,6 +859,14 @@ function Dashboard({
                             <span data-label="Current value"><strong>{formatMoney(folio.currentValue)}</strong></span>
                             <span data-label="Gain / loss" className={folioGain >= 0 ? "positive" : "negative"}>{folioGain >= 0 ? "+" : ""}{formatMoney(folioGain)}</span>
                             <span data-label="Return"><em className={folioReturn >= 0 ? "return-pill positive" : "return-pill negative"}>{folioReturn >= 0 ? "↗" : "↘"} {folioReturn.toFixed(1)}%</em></span>
+                            <span data-label="Return p.a. (XIRR)">
+                              {folioAnnualizedReturn === null
+                                ? <em className="annualized-return-unavailable" title="Not enough dated cash flows to calculate an annualized return">—</em>
+                                : <em
+                                    className={folioAnnualizedReturn >= 0 ? "return-pill positive" : "return-pill negative"}
+                                    title={`Money-weighted annualized return (XIRR) using CAS cash flows and the folio value dated ${formatDate(folio.navDate || portfolio.valuationDate)}`}
+                                  >{folioAnnualizedReturn >= 0 ? "↗" : "↘"} {folioAnnualizedReturn.toFixed(1)}% p.a.</em>}
+                            </span>
                             <span data-label="Momentum"><MomentumBadge holding={folio} /></span>
                             <span data-label="Below cost"><DownsideBadge holding={folio} /></span>
                             <span className="row-arrow">›</span>

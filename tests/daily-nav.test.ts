@@ -173,15 +173,16 @@ test("chart lens starts hidden and supports deliberate zoom through 10x", () => 
 
 test("fund table applies exactly one sortable financial column at a time", () => {
   const funds = [
-    { name: "Alpha", invested: 100, currentValue: 150 },
-    { name: "Beta", invested: 200, currentValue: 220 },
-    { name: "Gamma", invested: 50, currentValue: 40 },
+    { name: "Alpha", invested: 100, currentValue: 150, annualizedReturn: 18 },
+    { name: "Beta", invested: 200, currentValue: 220, annualizedReturn: 12 },
+    { name: "Gamma", invested: 50, currentValue: 40, annualizedReturn: -8 },
   ];
   const descending: Record<FundSortKey, string[]> = {
     invested: ["Beta", "Alpha", "Gamma"],
     value: ["Beta", "Alpha", "Gamma"],
     gain: ["Alpha", "Beta", "Gamma"],
     return: ["Alpha", "Beta", "Gamma"],
+    annualizedReturn: ["Alpha", "Beta", "Gamma"],
   };
   (Object.keys(descending) as FundSortKey[]).forEach((key) => {
     assert.deepEqual(sortFunds(funds, { key, direction: "desc" }).map((fund) => fund.name), descending[key]);
@@ -192,6 +193,14 @@ test("fund table applies exactly one sortable financial column at a time", () =>
   assert.deepEqual(invested, { key: "invested", direction: "desc" });
   assert.deepEqual(nextFundSort(invested, "invested"), { key: "invested", direction: "asc" });
   assert.deepEqual(nextFundSort({ key: "invested", direction: "asc" }, "return"), { key: "return", direction: "desc" });
+  assert.deepEqual(nextFundSort({ key: "return", direction: "asc" }, "annualizedReturn"), { key: "annualizedReturn", direction: "desc" });
+
+  const unavailable = [
+    ...funds,
+    { name: "No history", invested: 75, currentValue: 90, annualizedReturn: null },
+  ];
+  assert.deepEqual(sortFunds(unavailable, { key: "annualizedReturn", direction: "desc" }).map((fund) => fund.name), ["Alpha", "Beta", "Gamma", "No history"]);
+  assert.deepEqual(sortFunds(unavailable, { key: "annualizedReturn", direction: "asc" }).map((fund) => fund.name), ["Gamma", "Beta", "Alpha", "No history"]);
 });
 
 test("hiding net invested tightens the Y-axis around visible portfolio values", () => {
