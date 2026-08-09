@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Portfolio } from "./cas-parser";
+import type { ChartLensState } from "./chart-lens";
 import FundStackPanel, {
   stackFormatDate,
   stackFundColor,
@@ -12,10 +13,6 @@ import {
   buildSharedFundStackScale,
   buildFundStackModel,
   maxStackReconciliationDifference,
-  magnifyFundStackPoints,
-  magnifyFundStackScale,
-  magnifiedFundStackWindow,
-  shiftMagnifiedFundStackFocus,
   stackMetric,
   toggleStackModeSelection,
   type FundStackMode,
@@ -36,8 +33,6 @@ const modeTotal = (point: FundStackPoint, mode: FundStackMode) => {
 };
 
 type DateSelection = { date: string; mode: FundStackMode };
-type StackFocus = { date: string; value: number };
-type ZoomFactor = 1 | 2 | 4;
 
 export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) {
   const headingId = useId();
@@ -45,17 +40,18 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
   const [modes, setModes] = useState<FundStackMode[]>(["value"]);
   const [range, setRange] = useState<[number, number]>([0, Math.max(1, model.points.length - 1)]);
   const [selection, setSelection] = useState<DateSelection | null>(null);
-  const [zoomFactor, setZoomFactor] = useState<ZoomFactor>(1);
-  const [focus, setFocus] = useState<StackFocus | null>(null);
+  const [lens, setLens] = useState<ChartLensState>({
+    enabled: true,
+    x: 0.66,
+    y: 0.38,
+    magnification: 2.5,
+    size: 164,
+  });
   const priorPoints = useRef(model.points);
   const rangeWindowDrag = useRangeWindowDrag({
     range,
     setRange,
     totalPoints: model.points.length,
-    onMoveStart: () => {
-      setZoomFactor(1);
-      setFocus(null);
-    },
   });
 
   useEffect(() => {
@@ -77,63 +73,21 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
     priorPoints.current = model.points;
   }, [model.points]);
 
-  const baseVisible = useMemo(
+  const visible = useMemo(
     () => model.points.slice(range[0], Math.min(model.points.length, range[1] + 1)),
     [model.points, range],
-  );
-  const baseScale = useMemo(
-    () => buildSharedFundStackScale(baseVisible, modes),
-    [baseVisible, modes],
-  );
-  const defaultFocus = useMemo<StackFocus>(() => ({
-    date: baseVisible[Math.floor(baseVisible.length / 2)]?.date ?? "",
-    value: (baseScale.min + baseScale.max) / 2,
-  }), [baseScale.max, baseScale.min, baseVisible]);
-  const activeFocus = focus && baseVisible.some((point) => point.date === focus.date)
-    ? focus
-    : defaultFocus;
-  const visible = useMemo(
-    () => magnifyFundStackPoints(baseVisible, activeFocus.date, zoomFactor),
-    [activeFocus.date, baseVisible, zoomFactor],
   );
   const visibleTimes = useMemo(
     () => visible.map((point) => new Date(`${point.date}T00:00:00Z`).getTime()),
     [visible],
   );
   const sharedScale = useMemo(
-    () => magnifyFundStackScale(baseScale, activeFocus.value, zoomFactor),
-    [activeFocus.value, baseScale, zoomFactor],
+    () => buildSharedFundStackScale(visible, modes),
+    [modes, visible],
   );
-  const viewKey = `${range[0]}:${range[1]}:${zoomFactor}:${activeFocus.value}:${visible[0]?.date ?? ""}:${visible.at(-1)?.date ?? ""}`;
-  const focusWindow = magnifiedFundStackWindow(baseVisible, activeFocus.date, zoomFactor);
-
-  const resetFocus = () => {
-    setZoomFactor(1);
-    setFocus(null);
-  };
-
-  const chooseZoom = (factor: ZoomFactor) => {
-    if (factor === 1) {
-      resetFocus();
-      return;
-    }
-    setZoomFactor(factor);
-    const selectedDate = selection && baseVisible.some((point) => point.date === selection.date)
-      ? selection.date
-      : activeFocus.date;
-    setFocus({ date: selectedDate, value: activeFocus.value });
-  };
-
-  const moveFocus = (direction: -1 | 1) => {
-    setFocus({
-      date: shiftMagnifiedFundStackFocus(baseVisible, activeFocus.date, zoomFactor, direction),
-      value: activeFocus.value,
-    });
-    setSelection(null);
-  };
+  const viewKey = `${range[0]}:${range[1]}:${lens.enabled}:${lens.x}:${lens.y}:${lens.magnification}:${lens.size}:${visible[0]?.date ?? ""}:${visible.at(-1)?.date ?? ""}`;
 
   const selectPeriod = (months: number | "all") => {
-    resetFocus();
     if (months === "all" || model.points.length < 2) {
       setRange([0, Math.max(1, model.points.length - 1)]);
       return;
@@ -194,9 +148,10 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
               return <button type="button" key={item.key} className={active ? "active" : ""} aria-pressed={active} onClick={() => toggleMode(item.key)}><i aria-hidden="true">{active ? "✓" : "+"}</i>{item.label}</button>;
             })}
           </div>
-          <div className="stack-zoom-tools" aria-label="Linked chart magnification">
-            <span className="stack-zoom-label"><i aria-hidden="true" />Focus</span>
-            {([1, 2, 4] as ZoomFactor[]).map((factor) => <button type="button" key={factor} className={zoomFactor === factor ? "active" : ""} aria-pressed={zoomFactor === factor} onClick={() => chooseZoom(factor)}>{factor}×</button>)}
+          <div className={`stack-lens-tools${lens.enabled ? " active" : ""}`} aria-label="Synchronized chart magnifier">
+            <button type="button" className="stack-lens-toggle" aria-pressed={lens.enabled} onClick={() => setLens((current) => ({ ...current, enabled: !current.enabled }))}><i aria-hidden="true" />Lens</button>
+            <label><span>Zoom <b>{lens.magnification.toFixed(1)}×</b></span><input aria-label="Lens magnification" type="range" min="1.5" max="5" step="0.5" value={lens.magnification} disabled={!lens.enabled} onChange={(event) => setLens((current) => ({ ...current, magnification: Number(event.target.value) }))} /></label>
+            <label><span>Size <b>{lens.size}px</b></span><input aria-label="Lens size" type="range" min="110" max="220" step="10" value={lens.size} disabled={!lens.enabled} onChange={(event) => setLens((current) => ({ ...current, size: Number(event.target.value) }))} /></label>
           </div>
           <div className="periods" aria-label="Stacked chart period">
             <button onClick={() => selectPeriod(12)}>1Y</button><button onClick={() => selectPeriod(24)}>2Y</button><button onClick={() => selectPeriod(36)}>3Y</button><button onClick={() => selectPeriod(60)}>5Y</button><button onClick={() => selectPeriod("all")}>All</button>
@@ -206,17 +161,8 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
       <div className="stack-chart-meta">
         <span>{modes.length} {modes.length === 1 ? "view" : "views"} selected · shared Y-axis</span>
         <span>{model.funds.length} funds · all shown</span>
-        <em>{zoomFactor > 1 ? "Click any chart layer to reposition the linked focus" : "Hover for exact details · choose 2× or 4× to inspect thin layers"}</em>
+        <em>{lens.enabled ? "Drag the lens on any chart · hover inside it for exact details" : "Turn on Lens to inspect thin layers without changing the chart"}</em>
       </div>
-      {zoomFactor > 1 && visible.length > 1 && (
-        <div className="stack-focus-status" role="status">
-          <button type="button" onClick={() => moveFocus(-1)} disabled={focusWindow.start === 0} aria-label="Move linked focus earlier">‹</button>
-          <i aria-hidden="true" />
-          <span><strong>{zoomFactor}× linked focus</strong><small>{stackFormatDate(visible[0].date)}–{stackFormatDate(visible.at(-1)?.date ?? visible[0].date)} · shared {formatInr(sharedScale.min)} to {formatInr(sharedScale.max)}</small></span>
-          <button type="button" onClick={() => moveFocus(1)} disabled={focusWindow.end === baseVisible.length} aria-label="Move linked focus later">›</button>
-          <button type="button" className="stack-focus-reset" onClick={resetFocus}>Reset</button>
-        </div>
-      )}
       {visible.length > 1 ? (
         <div className={`fund-stack-panels panels-${modes.length}`}>
           {modes.map((mode) => (
@@ -228,13 +174,10 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
               visibleTimes={visibleTimes}
               selectedDate={selection?.date ?? null}
               scale={sharedScale}
-              zoomFactor={zoomFactor}
+              lens={lens}
               viewKey={viewKey}
-              onMoveVerticalFocus={(value) => setFocus({ date: activeFocus.date, value })}
-              onSelectPoint={(date, selectedPanelMode, focusValue) => {
-                setSelection({ date, mode: selectedPanelMode });
-                if (zoomFactor > 1) setFocus({ date, value: focusValue ?? activeFocus.value });
-              }}
+              onLensMove={(position) => setLens((current) => ({ ...current, ...position }))}
+              onSelectPoint={(date, selectedPanelMode) => setSelection({ date, mode: selectedPanelMode })}
             />
           ))}
         </div>
@@ -258,8 +201,8 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
               onPointerUp={rangeWindowDrag.onPointerUp}
               style={{ left: `${range[0] / Math.max(1, model.points.length - 1) * 100}%`, right: `${100 - range[1] / Math.max(1, model.points.length - 1) * 100}%` }}
             />
-            <input aria-label="Stacked chart start" type="range" min={0} max={Math.max(1, model.points.length - 2)} value={range[0]} onChange={(event) => { resetFocus(); setRange([Math.min(Number(event.target.value), range[1] - 1), range[1]]); }} />
-            <input aria-label="Stacked chart end" type="range" min={1} max={Math.max(1, model.points.length - 1)} value={range[1]} onChange={(event) => { resetFocus(); setRange([range[0], Math.max(Number(event.target.value), range[0] + 1)]); }} />
+            <input aria-label="Stacked chart start" type="range" min={0} max={Math.max(1, model.points.length - 2)} value={range[0]} onChange={(event) => setRange([Math.min(Number(event.target.value), range[1] - 1), range[1]])} />
+            <input aria-label="Stacked chart end" type="range" min={1} max={Math.max(1, model.points.length - 1)} value={range[1]} onChange={(event) => setRange([range[0], Math.max(Number(event.target.value), range[0] + 1)])} />
           </div>
         </div>
       )}

@@ -4,15 +4,19 @@ import test from "node:test";
 import { buildNavPoints } from "../app/nav-activity-service.ts";
 import { buildChartScale } from "../app/chart-scale.ts";
 import {
+  chartLensGeometry,
+  lensSourcePoint,
+  normalizedChartLensPosition,
+  pointIsInsideChartLens,
+  type ChartLensState,
+} from "../app/chart-lens.ts";
+import {
   annualizedReturnAt,
   buildSharedFundStackScale,
   buildFundStackModel,
   findStackFundIndex,
   fundValueShare,
   maxStackReconciliationDifference,
-  magnifyFundStackPoints,
-  magnifyFundStackScale,
-  shiftMagnifiedFundStackFocus,
   stackBoundsForPoint,
   toggleStackModeSelection,
   type FundStackPoint,
@@ -79,38 +83,17 @@ test("annualised fund return uses dated investor cash flows and terminal value",
   assert.equal(annualizedReturnAt([], "2026-01-01", 100), null);
 });
 
-test("linked focus lens uses the same centered time and Y windows", () => {
-  const points = Array.from({ length: 12 }, (_, index) => ({
-    date: `2026-${String(index + 1).padStart(2, "0")}-01`,
-  })) as FundStackPoint[];
-  assert.deepEqual(
-    magnifyFundStackPoints(points, "2026-07-01", 2).map((point) => point.date),
-    ["2026-04-01", "2026-05-01", "2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01"],
-  );
-  assert.deepEqual(
-    magnifyFundStackPoints(points, "2026-12-01", 4).map((point) => point.date),
-    ["2026-10-01", "2026-11-01", "2026-12-01"],
-  );
-  const earlier = shiftMagnifiedFundStackFocus(points, "2026-07-01", 2, -1);
-  const later = shiftMagnifiedFundStackFocus(points, earlier, 2, 1);
-  assert.equal(earlier, "2026-04-01");
-  assert.equal(later, "2026-07-01");
-  assert.notDeepEqual(
-    magnifyFundStackPoints(points, earlier, 2).map((point) => point.date),
-    magnifyFundStackPoints(points, later, 2).map((point) => point.date),
-  );
-  assert.deepEqual(magnifyFundStackScale({ min: 0, max: 300, step: 50, ticks: [] }, 150, 2), {
-    min: 75,
-    max: 225,
-    step: 20,
-    ticks: [80, 100, 120, 140, 160, 180, 200, 220],
-  });
-  assert.deepEqual(magnifyFundStackScale({ min: -100, max: 300, step: 100, ticks: [] }, -100, 4), {
-    min: -100,
-    max: 0,
-    step: 20,
-    ticks: [-100, -80, -60, -40, -20, 0],
-  });
+test("draggable chart lens keeps synchronized geometry and inverse hover mapping", () => {
+  const lens: ChartLensState = { enabled: true, x: 0.5, y: 0.5, magnification: 2.5, size: 160 };
+  const padding = { left: 60, right: 20, top: 28, bottom: 40 };
+  const geometry = chartLensGeometry(500, 390, padding, lens);
+  assert.deepEqual(geometry, { centerX: 270, centerY: 189, radius: 80 });
+  assert.equal(pointIsInsideChartLens(310, 189, geometry), true);
+  assert.deepEqual(lensSourcePoint(310, 189, geometry, lens.magnification), { x: 286, y: 189 });
+  assert.deepEqual(normalizedChartLensPosition(270, 189, 500, 390, padding), { x: 0.5, y: 0.5 });
+
+  const edge = chartLensGeometry(500, 390, padding, { ...lens, x: 0, y: 0 });
+  assert.deepEqual(edge, { centerX: 140, centerY: 108, radius: 80 });
 });
 
 test("hiding net invested tightens the Y-axis around visible portfolio values", () => {
