@@ -5,6 +5,8 @@ import { buildNavPoints } from "../app/nav-activity-service.ts";
 import { buildChartScale } from "../app/chart-scale.ts";
 import {
   CHART_LENS_CONTENT_INSET,
+  CHART_LENS_MAX_MAGNIFICATION,
+  DEFAULT_CHART_LENS_STATE,
   chartLensGeometry,
   chartLensMovementBounds,
   insetChartLensGeometry,
@@ -160,6 +162,12 @@ test("draggable chart lens moves continuously beyond every plot edge with invers
     shiftNormalizedChartLensPosition(-0.5, 1.5, 0, 0, 500, 390, padding, movement),
     { x: movement.minX, y: movement.maxY },
   );
+});
+
+test("chart lens starts hidden and supports deliberate zoom through 10x", () => {
+  assert.equal(DEFAULT_CHART_LENS_STATE.enabled, false);
+  assert.equal(DEFAULT_CHART_LENS_STATE.magnification, 2.5);
+  assert.equal(CHART_LENS_MAX_MAGNIFICATION, 10);
 });
 
 test("hiding net invested tightens the Y-axis around visible portfolio values", () => {

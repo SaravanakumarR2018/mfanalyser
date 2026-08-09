@@ -742,9 +742,12 @@ export default function FundStackPanel({
             {!activeHover.insideLens && <span className="stack-hover-guide" style={{ left: `${activeHover.x}px` }} />}
             {activeHover.insideLens && <span className="stack-lens-cursor" style={{ left: `${activeHover.cursorX}px`, top: `${activeHover.cursorY}px` }} />}
             {activeHover.markerVisible && <i className={`stack-hover-marker${activeHover.insideLens ? " lens-pointer" : ""}`} data-inside-lens={activeHover.insideLens} style={{ left: `${activeHover.x}px`, top: `${activeHover.y}px`, background: hoveredFund ? stackFundColor(activeHover.fundIndex ?? 0) : "#0B1D2A" }} />}
-            <div className="stack-hover-tooltip" role="status" data-fund-key={hoveredFund?.key ?? "portfolio-total"} data-date={hoveredPoint.date} data-inside-lens={activeHover.insideLens} style={{ left: `${activeHover.tooltipLeft}px`, top: `${activeHover.tooltipTop}px` }}>
+            <div className="stack-hover-tooltip" role="status" data-fund-key={hoveredFund?.key ?? "portfolio-total"} data-fund-color={hoveredFund && activeHover.fundIndex !== null ? stackFundColor(activeHover.fundIndex) : ""} data-date={hoveredPoint.date} data-inside-lens={activeHover.insideLens} style={{ left: `${activeHover.tooltipLeft}px`, top: `${activeHover.tooltipTop}px` }}>
               <span className="stack-tooltip-date">{stackFormatDate(hoveredPoint.date)}</span>
-              <strong>{hoveredFund?.name ?? "Portfolio total"}</strong>
+              <div className="stack-tooltip-title">
+                {hoveredFund && activeHover.fundIndex !== null && <i aria-hidden="true" style={{ background: stackFundColor(activeHover.fundIndex) }} />}
+                <strong>{hoveredFund?.name ?? "Portfolio total"}</strong>
+              </div>
               {hoveredFund && hoveredFundValue ? (
                 <>
                   <small>{hoveredFund.category}{hoveredFund.closed ? " · Closed" : ""}</small>

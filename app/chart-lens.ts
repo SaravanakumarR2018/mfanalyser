@@ -6,6 +6,18 @@ export type ChartLensState = {
   size: number;
 };
 
+export const DEFAULT_CHART_LENS_STATE: ChartLensState = {
+  enabled: false,
+  x: 0.66,
+  y: 0.38,
+  magnification: 2.5,
+  size: 164,
+};
+
+export const CHART_LENS_MIN_MAGNIFICATION = 1.5;
+export const CHART_LENS_MAX_MAGNIFICATION = 10;
+export const CHART_LENS_MAGNIFICATION_STEP = 0.5;
+
 export type ChartPadding = { left: number; right: number; top: number; bottom: number };
 export type ChartLensGeometry = {
   centerX: number;

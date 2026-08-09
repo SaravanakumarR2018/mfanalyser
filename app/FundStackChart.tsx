@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Portfolio } from "./cas-parser";
-import type { ChartLensState } from "./chart-lens";
+import {
+  CHART_LENS_MAGNIFICATION_STEP,
+  CHART_LENS_MAX_MAGNIFICATION,
+  CHART_LENS_MIN_MAGNIFICATION,
+  DEFAULT_CHART_LENS_STATE,
+  type ChartLensState,
+} from "./chart-lens";
 import FundStackPanel, {
   stackFormatDate,
   stackFundColor,
@@ -44,13 +50,7 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
   const [range, setRange] = useState<[number, number]>([0, Math.max(1, model.points.length - 1)]);
   const [selection, setSelection] = useState<DateSelection | null>(null);
   const [verticalRange, setVerticalRange] = useState<IndexRange>([0, VERTICAL_RANGE_MAX]);
-  const [lens, setLens] = useState<ChartLensState>({
-    enabled: true,
-    x: 0.66,
-    y: 0.38,
-    magnification: 2.5,
-    size: 164,
-  });
+  const [lens, setLens] = useState<ChartLensState>(() => ({ ...DEFAULT_CHART_LENS_STATE }));
   const priorPoints = useRef(model.points);
   const rangeWindowDrag = useRangeWindowDrag({
     range,
@@ -161,7 +161,7 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
           </div>
           <div className={`stack-lens-tools${lens.enabled ? " active" : ""}`} aria-label="Synchronized chart magnifier">
             <button type="button" className="stack-lens-toggle" aria-pressed={lens.enabled} onClick={() => setLens((current) => ({ ...current, enabled: !current.enabled }))}><i aria-hidden="true" />Lens</button>
-            <label><span>Zoom <b>{lens.magnification.toFixed(1)}×</b></span><input aria-label="Lens magnification" type="range" min="1.5" max="5" step="0.5" value={lens.magnification} disabled={!lens.enabled} onChange={(event) => setLens((current) => ({ ...current, magnification: Number(event.target.value) }))} /></label>
+            <label><span>Zoom <b>{lens.magnification.toFixed(1)}×</b></span><input aria-label="Lens magnification" type="range" min={CHART_LENS_MIN_MAGNIFICATION} max={CHART_LENS_MAX_MAGNIFICATION} step={CHART_LENS_MAGNIFICATION_STEP} value={lens.magnification} disabled={!lens.enabled} onChange={(event) => setLens((current) => ({ ...current, magnification: Number(event.target.value) }))} /></label>
             <label><span>Size <b>{lens.size}px</b></span><input aria-label="Lens size" type="range" min="110" max="220" step="10" value={lens.size} disabled={!lens.enabled} onChange={(event) => setLens((current) => ({ ...current, size: Number(event.target.value) }))} /></label>
           </div>
           <div className="periods" aria-label="Stacked chart period">
