@@ -772,6 +772,7 @@ function Dashboard({
           <div className="summary-main">
             <p>CURRENT PORTFOLIO VALUE <span title="Latest available NAV multiplied by the unit balances in this CAS">i</span></p>
             <h1>{compactMoney(portfolio.currentValue)}</h1>
+            <div className="summary-exact-value"><span>Exact</span><strong>{formatMoney(portfolio.currentValue, 2)}</strong></div>
             <div className="gain-line"><strong className={gain >= 0 ? "positive" : "negative"}>{gain >= 0 ? "↗" : "↘"} {formatMoney(Math.abs(gain))}</strong><span>all-time gain</span><i /> <strong>{absoluteReturnLabel}</strong><span>absolute return</span></div>
             <small>{portfolio.valuationSource === "amfi" ? "Official AMFI NAV" : "CAS statement value"} · {formatDate(portfolio.valuationDate)} · CAS units as of {formatDate(portfolio.statementDate)}</small>
           </div>
