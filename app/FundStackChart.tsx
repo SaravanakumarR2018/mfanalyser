@@ -9,6 +9,7 @@ import FundStackPanel, {
   stackModeTitle,
 } from "./FundStackPanel";
 import { formatInr } from "./formatters";
+import VerticalScaleControl from "./VerticalScaleControl";
 import {
   buildSharedFundStackScale,
   buildFundStackModel,
@@ -19,6 +20,8 @@ import {
   type FundStackPoint,
 } from "./fund-stack-service";
 import { useRangeWindowDrag } from "./useRangeWindowDrag";
+import type { IndexRange } from "./range-window";
+import { scaleForVerticalRange, VERTICAL_RANGE_MAX } from "./vertical-range";
 
 const MODES: Array<{ key: FundStackMode; label: string }> = [
   { key: "value", label: "Value" },
@@ -40,6 +43,7 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
   const [modes, setModes] = useState<FundStackMode[]>(["value"]);
   const [range, setRange] = useState<[number, number]>([0, Math.max(1, model.points.length - 1)]);
   const [selection, setSelection] = useState<DateSelection | null>(null);
+  const [verticalRange, setVerticalRange] = useState<IndexRange>([0, VERTICAL_RANGE_MAX]);
   const [lens, setLens] = useState<ChartLensState>({
     enabled: true,
     x: 0.66,
@@ -81,11 +85,15 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
     () => visible.map((point) => new Date(`${point.date}T00:00:00Z`).getTime()),
     [visible],
   );
-  const sharedScale = useMemo(
+  const baseSharedScale = useMemo(
     () => buildSharedFundStackScale(visible, modes),
     [modes, visible],
   );
-  const viewKey = `${range[0]}:${range[1]}:${lens.enabled}:${lens.x}:${lens.y}:${lens.magnification}:${lens.size}:${visible[0]?.date ?? ""}:${visible.at(-1)?.date ?? ""}`;
+  const sharedScale = useMemo(
+    () => scaleForVerticalRange(baseSharedScale, verticalRange),
+    [baseSharedScale, verticalRange],
+  );
+  const viewKey = `${range[0]}:${range[1]}:${verticalRange[0]}:${verticalRange[1]}:${lens.enabled}:${lens.x}:${lens.y}:${lens.magnification}:${lens.size}:${visible[0]?.date ?? ""}:${visible.at(-1)?.date ?? ""}`;
 
   const selectPeriod = (months: number | "all") => {
     if (months === "all" || model.points.length < 2) {
@@ -163,26 +171,30 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
       </div>
       <div className="stack-chart-meta">
         <span>{modes.length} {modes.length === 1 ? "view" : "views"} selected · shared Y-axis</span>
+        <span>Y {formatInr(sharedScale.min)}–{formatInr(sharedScale.max)}</span>
         <span>{model.funds.length} funds · all shown</span>
         <em>{lens.enabled ? "Drag the lens on any chart · hover inside it for exact details" : "Turn on Lens to inspect thin layers without changing the chart"}</em>
       </div>
       {visible.length > 1 ? (
-        <div className={`fund-stack-panels panels-${modes.length}`}>
-          {modes.map((mode) => (
-            <FundStackPanel
-              key={mode}
-              mode={mode}
-              model={model}
-              visible={visible}
-              visibleTimes={visibleTimes}
-              selectedDate={selection?.date ?? null}
-              scale={sharedScale}
-              lens={lens}
-              viewKey={viewKey}
-              onLensMove={moveLens}
-              onSelectPoint={(date, selectedPanelMode) => setSelection({ date, mode: selectedPanelMode })}
-            />
-          ))}
+        <div className="stack-chart-stage">
+          <VerticalScaleControl range={verticalRange} scale={sharedScale} setRange={setVerticalRange} />
+          <div className={`fund-stack-panels panels-${modes.length}`}>
+            {modes.map((mode) => (
+              <FundStackPanel
+                key={mode}
+                mode={mode}
+                model={model}
+                visible={visible}
+                visibleTimes={visibleTimes}
+                selectedDate={selection?.date ?? null}
+                scale={sharedScale}
+                lens={lens}
+                viewKey={viewKey}
+                onLensMove={moveLens}
+                onSelectPoint={(date, selectedPanelMode) => setSelection({ date, mode: selectedPanelMode })}
+              />
+            ))}
+          </div>
         </div>
       ) : <div className="fund-stack-empty">Complete same-day fund values will appear after published NAV history finishes loading.</div>}
       {model.points.length > 1 && (

@@ -29,6 +29,13 @@ import { formatInr } from "../app/formatters.ts";
 import { historyRange, mirrorDateToIso } from "../app/nav-history-utils.ts";
 import { shiftRangeWindow } from "../app/range-window.ts";
 import {
+  MIN_VERTICAL_RANGE,
+  resizeVerticalRange,
+  scaleForVerticalRange,
+  shiftVerticalRangeWindow,
+  VERTICAL_RANGE_MAX,
+} from "../app/vertical-range.ts";
+import {
   addDailyPortfolioPoints,
   buildHoldingTimeline,
   normalizePublishedNav,
@@ -66,6 +73,26 @@ test("dragging a selected chart window preserves its width and clamps at both en
 
   const shifted = shiftRangeWindow([12, 31], 17, 100);
   assert.equal(shifted[1] - shifted[0], 19);
+});
+
+test("shared vertical range resizes, pans, and converts to one exact Y scale", () => {
+  assert.deepEqual(resizeVerticalRange([0, VERTICAL_RANGE_MAX], "lower", VERTICAL_RANGE_MAX), [VERTICAL_RANGE_MAX - MIN_VERTICAL_RANGE, VERTICAL_RANGE_MAX]);
+  assert.deepEqual(resizeVerticalRange([0, VERTICAL_RANGE_MAX], "upper", 0), [0, MIN_VERTICAL_RANGE]);
+  assert.deepEqual(shiftVerticalRangeWindow([200, 600], 500), [600, 1_000]);
+  assert.deepEqual(shiftVerticalRangeWindow([200, 600], -500), [0, 400]);
+
+  const baseScale = { min: -100, max: 300, step: 100, ticks: [-100, 0, 100, 200, 300] };
+  assert.equal(scaleForVerticalRange(baseScale, [0, VERTICAL_RANGE_MAX]), baseScale);
+  const scale = scaleForVerticalRange(
+    baseScale,
+    [250, 750],
+  );
+  assert.deepEqual(scale, {
+    min: 0,
+    max: 200,
+    step: 20,
+    ticks: [0, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200],
+  });
 });
 
 test("stack view selection supports one, two, or three ordered panels", () => {
