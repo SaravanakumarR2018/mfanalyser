@@ -11,6 +11,7 @@ import {
   lensSourcePoint,
   normalizedChartLensPosition,
   pointIsInsideChartLens,
+  shiftNormalizedChartLensPosition,
   type ChartLensState,
 } from "../app/chart-lens.ts";
 import {
@@ -90,7 +91,7 @@ test("draggable chart lens keeps synchronized geometry and inverse hover mapping
   const lens: ChartLensState = { enabled: true, x: 0.5, y: 0.5, magnification: 2.5, size: 160 };
   const padding = { left: 60, right: 20, top: 28, bottom: 40 };
   const geometry = chartLensGeometry(500, 390, padding, lens);
-  assert.deepEqual(geometry, { centerX: 270, centerY: 189, radius: 80 });
+  assert.deepEqual(geometry, { centerX: 270, centerY: 189, focusX: 270, focusY: 189, radius: 80 });
   assert.equal(pointIsInsideChartLens(310, 189, geometry), true);
   const source = lensSourcePoint(310, 189, geometry, lens.magnification);
   assert.deepEqual(source, { x: 286, y: 189 });
@@ -101,7 +102,15 @@ test("draggable chart lens keeps synchronized geometry and inverse hover mapping
   assert.deepEqual(normalizedChartLensPosition(270, 189, 500, 390, padding), { x: 0.5, y: 0.5 });
 
   const edge = chartLensGeometry(500, 390, padding, { ...lens, x: 0, y: 0 });
-  assert.deepEqual(edge, { centerX: 140, centerY: 108, radius: 80 });
+  assert.deepEqual(edge, { centerX: 140, centerY: 108, focusX: 60, focusY: 28, radius: 80 });
+  assert.deepEqual(lensSourcePoint(edge.centerX, edge.centerY, edge, lens.magnification), { x: 60, y: 28 });
+  assert.deepEqual(lensDisplayPoint(60, 28, edge, lens.magnification), { x: 140, y: 108 });
+
+  const oppositeEdge = chartLensGeometry(500, 390, padding, { ...lens, x: 1, y: 1 });
+  assert.deepEqual(oppositeEdge, { centerX: 400, centerY: 270, focusX: 480, focusY: 350, radius: 80 });
+  assert.deepEqual(lensSourcePoint(oppositeEdge.centerX, oppositeEdge.centerY, oppositeEdge, lens.magnification), { x: 480, y: 350 });
+  assert.deepEqual(shiftNormalizedChartLensPosition(0.5, 0.5, -1_000, -1_000, 500, 390, padding), { x: 0, y: 0 });
+  assert.deepEqual(shiftNormalizedChartLensPosition(0.5, 0.5, 1_000, 1_000, 500, 390, padding), { x: 1, y: 1 });
 });
 
 test("hiding net invested tightens the Y-axis around visible portfolio values", () => {

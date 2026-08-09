@@ -7,7 +7,13 @@ export type ChartLensState = {
 };
 
 export type ChartPadding = { left: number; right: number; top: number; bottom: number };
-export type ChartLensGeometry = { centerX: number; centerY: number; radius: number };
+export type ChartLensGeometry = {
+  centerX: number;
+  centerY: number;
+  focusX: number;
+  focusY: number;
+  radius: number;
+};
 export const CHART_LENS_CONTENT_INSET = 5;
 
 const clamp = (value: number, minimum: number, maximum: number) =>
@@ -22,11 +28,13 @@ export function chartLensGeometry(
   const chartWidth = Math.max(1, width - padding.left - padding.right);
   const chartHeight = Math.max(1, height - padding.top - padding.bottom);
   const radius = Math.max(36, Math.min(lens.size / 2, chartWidth / 2 - 2, chartHeight / 2 - 2));
-  const desiredX = padding.left + clamp(lens.x, 0, 1) * chartWidth;
-  const desiredY = padding.top + clamp(lens.y, 0, 1) * chartHeight;
+  const focusX = padding.left + clamp(lens.x, 0, 1) * chartWidth;
+  const focusY = padding.top + clamp(lens.y, 0, 1) * chartHeight;
   return {
-    centerX: clamp(desiredX, padding.left + radius, width - padding.right - radius),
-    centerY: clamp(desiredY, padding.top + radius, height - padding.bottom - radius),
+    centerX: clamp(focusX, padding.left + radius, width - padding.right - radius),
+    centerY: clamp(focusY, padding.top + radius, height - padding.bottom - radius),
+    focusX,
+    focusY,
     radius,
   };
 }
@@ -54,8 +62,8 @@ export function lensSourcePoint(
 ) {
   const safeMagnification = Math.max(1, magnification);
   return {
-    x: geometry.centerX + (x - geometry.centerX) / safeMagnification,
-    y: geometry.centerY + (y - geometry.centerY) / safeMagnification,
+    x: geometry.focusX + (x - geometry.centerX) / safeMagnification,
+    y: geometry.focusY + (y - geometry.centerY) / safeMagnification,
   };
 }
 
@@ -67,8 +75,25 @@ export function lensDisplayPoint(
 ) {
   const safeMagnification = Math.max(1, magnification);
   return {
-    x: geometry.centerX + (x - geometry.centerX) * safeMagnification,
-    y: geometry.centerY + (y - geometry.centerY) * safeMagnification,
+    x: geometry.centerX + (x - geometry.focusX) * safeMagnification,
+    y: geometry.centerY + (y - geometry.focusY) * safeMagnification,
+  };
+}
+
+export function shiftNormalizedChartLensPosition(
+  startX: number,
+  startY: number,
+  deltaX: number,
+  deltaY: number,
+  width: number,
+  height: number,
+  padding: ChartPadding,
+) {
+  const chartWidth = Math.max(1, width - padding.left - padding.right);
+  const chartHeight = Math.max(1, height - padding.top - padding.bottom);
+  return {
+    x: clamp(startX + deltaX / chartWidth, 0, 1),
+    y: clamp(startY + deltaY / chartHeight, 0, 1),
   };
 }
 

@@ -8,8 +8,8 @@ import {
   insetChartLensGeometry,
   lensDisplayPoint,
   lensSourcePoint,
-  normalizedChartLensPosition,
   pointIsInsideChartLens,
+  shiftNormalizedChartLensPosition,
   type ChartLensState,
 } from "./chart-lens";
 import { formatInr } from "./formatters";
@@ -109,8 +109,8 @@ export default function FundStackPanel({
     pointerId: number;
     startX: number;
     startY: number;
-    offsetX: number;
-    offsetY: number;
+    startLensX: number;
+    startLensY: number;
     moved: boolean;
   } | null>(null);
   const latestLensDrawRef = useRef<() => void>(() => undefined);
@@ -161,7 +161,14 @@ export default function FundStackPanel({
     const resolved = resolvePointer(event.clientX, event.clientY, rect);
     const { padding } = resolved;
     const chartHeight = rect.height - padding.top - padding.bottom;
-    if (resolved.raw.y < padding.top || resolved.raw.y > rect.height - padding.bottom) {
+    if (
+      resolved.raw.y < padding.top
+      || resolved.raw.y > rect.height - padding.bottom
+      || resolved.source.x < padding.left
+      || resolved.source.x > rect.width - padding.right
+      || resolved.source.y < padding.top
+      || resolved.source.y > rect.height - padding.bottom
+    ) {
       setHover(null);
       return;
     }
@@ -402,7 +409,7 @@ export default function FundStackPanel({
     context.fillRect(destinationLeft, destinationTop, geometry.radius * 2, geometry.radius * 2);
     context.translate(geometry.centerX, geometry.centerY);
     context.scale(lens.magnification, lens.magnification);
-    context.translate(-geometry.centerX, -geometry.centerY);
+    context.translate(-geometry.focusX, -geometry.focusY);
     renderChart(context, width, height, 1 / lens.magnification);
     context.restore();
 
@@ -475,13 +482,17 @@ export default function FundStackPanel({
 
   const lensPositionForPointer = useCallback((
     event: ReactPointerEvent<HTMLCanvasElement>,
-    offsetX = 0,
-    offsetY = 0,
+    startLensX: number,
+    startLensY: number,
+    startClientX: number,
+    startClientY: number,
   ) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    return normalizedChartLensPosition(
-      event.clientX - rect.left - offsetX,
-      event.clientY - rect.top - offsetY,
+    return shiftNormalizedChartLensPosition(
+      startLensX,
+      startLensY,
+      event.clientX - startClientX,
+      event.clientY - startClientY,
       rect.width,
       rect.height,
       chartPadding(rect.width),
@@ -508,8 +519,8 @@ export default function FundStackPanel({
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      offsetX: resolved.raw.x - resolved.geometry.centerX,
-      offsetY: resolved.raw.y - resolved.geometry.centerY,
+      startLensX: lens.x,
+      startLensY: lens.y,
       moved: false,
     };
     suppressClickRef.current = false;
@@ -517,13 +528,19 @@ export default function FundStackPanel({
     event.currentTarget.style.cursor = "grabbing";
     setDragging(true);
     event.preventDefault();
-  }, [lens.enabled, resolvePointer]);
+  }, [lens.enabled, lens.x, lens.y, resolvePointer]);
 
   const movePointer = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current;
     if (drag?.pointerId === event.pointerId) {
       if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 3) drag.moved = true;
-      scheduleLensMove(lensPositionForPointer(event, drag.offsetX, drag.offsetY));
+      scheduleLensMove(lensPositionForPointer(
+        event,
+        drag.startLensX,
+        drag.startLensY,
+        drag.startX,
+        drag.startY,
+      ));
       setHover(null);
       event.preventDefault();
       return;
