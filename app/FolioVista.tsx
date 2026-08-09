@@ -787,8 +787,6 @@ function Dashboard({
           <article className="return-metric"><p>Absolute return <MetricInfo label="About absolute return">Wealth created divided by amount invested, including realised gains.</MetricInfo></p><strong className={absoluteReturn === null ? "" : absoluteReturn >= 0 ? "positive" : "negative"}>{absoluteReturnLabel}</strong><small>{absoluteReturn === null ? "Requires a positive invested amount" : "Total return including realised gains"}</small></article>
           <article className="return-metric"><p>Return p.a. <MetricInfo label="About return per annum">Money-weighted XIRR from exact dated CAS cash flows, including closed-fund proceeds, and the current portfolio value.</MetricInfo></p><strong className={annualizedReturn === null ? "" : annualizedReturn >= 0 ? "positive" : "negative"}>{annualizedReturn === null ? "—" : `${annualizedReturn.toFixed(2)}%`}</strong><small>{annualizedReturn === null ? "Not enough dated cash flows" : "Money-weighted XIRR · all funds"}</small></article>
           <article><p>Realised gains</p><strong className={portfolio.realizedGain >= 0 ? "positive" : "negative"}>{compactMoney(portfolio.realizedGain)}</strong><small>From {portfolio.closedFunds.length} closed {portfolio.closedFunds.length === 1 ? "fund" : "funds"}</small></article>
-          <article><p>Active funds</p><strong>{portfolio.funds.length}</strong><small>{activeFolios} statement folios</small></article>
-          <article className="accuracy-metric"><p>Accuracy check</p><strong><i>✓</i> Reconciled</strong><small>{portfolio.reconciliationDifference <= 0.01 ? "Within statement rounding" : `₹${portfolio.reconciliationDifference.toFixed(2)} rounding difference`}</small></article>
         </section>
 
         <PortfolioChart
