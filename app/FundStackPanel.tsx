@@ -67,8 +67,10 @@ type FundStackPanelProps = {
   visibleTimes: number[];
   selectedDate: string | null;
   scale: FundStackScale;
+  zoomFactor: number;
   viewKey: string;
-  onSelectDate: (date: string, mode: FundStackMode) => void;
+  onMoveVerticalFocus: (value: number) => void;
+  onSelectPoint: (date: string, mode: FundStackMode, focusValue: number | null) => void;
 };
 
 export default function FundStackPanel({
@@ -78,8 +80,10 @@ export default function FundStackPanel({
   visibleTimes,
   selectedDate,
   scale,
+  zoomFactor,
   viewKey,
-  onSelectDate,
+  onMoveVerticalFocus,
+  onSelectPoint,
 }: FundStackPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -129,7 +133,8 @@ export default function FundStackPanel({
     const matchedIndex = findStackFundIndexFromBounds(pointBounds, valueAtPointer);
     const fundIndex = matchedIndex >= 0 ? matchedIndex : null;
     const fundBounds = fundIndex === null ? null : pointBounds[fundIndex];
-    const markerValue = fundBounds ? (fundBounds.lower + fundBounds.upper) / 2 : modeTotal(point, mode);
+    const rawMarkerValue = fundBounds ? (fundBounds.lower + fundBounds.upper) / 2 : modeTotal(point, mode);
+    const markerValue = Math.max(scale.min, Math.min(scale.max, rawMarkerValue));
     const firstTime = visibleTimes[0];
     const lastTime = visibleTimes.at(-1) ?? firstTime;
     const pointTime = visibleTimes[pointIndex];
@@ -152,20 +157,38 @@ export default function FundStackPanel({
         : { pointIndex, point, fundIndex, viewKey, x, y, tooltipLeft });
   }, [bounds, mode, pointerToIndex, scale, viewKey, visible, visibleTimes]);
 
+  const focusValueAtPointer = useCallback((clientY: number) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const top = 28;
+    const bottom = 40;
+    const localY = clientY - rect.top;
+    if (localY < top || localY > rect.height - bottom) return null;
+    const span = Math.max(1, scale.max - scale.min);
+    return scale.max - ((localY - top) / Math.max(1, rect.height - top - bottom)) * span;
+  }, [scale.max, scale.min]);
+
   const selectFromKeyboard = (event: KeyboardEvent<HTMLCanvasElement>) => {
     if (!visible.length) return;
     if (event.key === "Enter" || event.key === " ") {
       const visibleSelection = selectedDate && visible.some((point) => point.date === selectedDate)
         ? selectedDate
         : visible.at(-1)?.date;
-      if (visibleSelection) onSelectDate(visibleSelection, mode);
+      if (visibleSelection) onSelectPoint(visibleSelection, mode, null);
+      event.preventDefault();
+      return;
+    }
+    if (zoomFactor > 1 && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      const direction = event.key === "ArrowUp" ? 1 : -1;
+      const focusValue = (scale.min + scale.max) / 2 + direction * (scale.max - scale.min) * 0.25;
+      onMoveVerticalFocus(focusValue);
       event.preventDefault();
       return;
     }
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     const current = Math.max(0, visible.findIndex((point) => point.date === selectedDate));
     const next = Math.max(0, Math.min(visible.length - 1, current + (event.key === "ArrowLeft" ? -1 : 1)));
-    onSelectDate(visible[next].date, mode);
+    onSelectPoint(visible[next].date, mode, null);
     event.preventDefault();
   };
 
@@ -216,6 +239,11 @@ export default function FundStackPanel({
     }
     context.setLineDash([]);
 
+    context.save();
+    context.beginPath();
+    context.rect(padding.left, padding.top, chartWidth, chartHeight);
+    context.clip();
+
     model.funds.forEach((fund, fundIndex) => {
       context.beginPath();
       visible.forEach((point, pointIndex) => {
@@ -248,6 +276,7 @@ export default function FundStackPanel({
     context.setLineDash(mode === "contribution" ? [5, 4] : []);
     context.stroke();
     context.setLineDash([]);
+    context.restore();
 
     const labelCount = width < 500 ? 3 : 5;
     context.fillStyle = "#728078";
@@ -269,9 +298,12 @@ export default function FundStackPanel({
       context.lineTo(x, height - padding.bottom);
       context.stroke();
       context.fillStyle = "#0B1D2A";
-      context.beginPath();
-      context.arc(x, yFor(modeTotal(visible[selectedIndex], mode)), 4, 0, Math.PI * 2);
-      context.fill();
+      const markerY = yFor(modeTotal(visible[selectedIndex], mode));
+      if (markerY >= padding.top && markerY <= height - padding.bottom) {
+        context.beginPath();
+        context.arc(x, markerY, 4, 0, Math.PI * 2);
+        context.fill();
+      }
     }
   }, [bounds, mode, model.funds, scale, selectedDate, visible, visibleTimes]);
 
@@ -306,7 +338,7 @@ export default function FundStackPanel({
   const latestPoint = visible.at(-1);
 
   return (
-    <article className="fund-stack-panel" data-panel-mode={mode}>
+    <article className={`fund-stack-panel${zoomFactor > 1 ? " magnified" : ""}`} data-panel-mode={mode} data-zoom-factor={zoomFactor}>
       <header><span><i className="stack-total-key" />{stackModeTitle(mode)}</span><strong className={(latestPoint ? modeTotal(latestPoint, mode) : 0) < 0 ? "negative" : ""}>{latestPoint ? formatInr(modeTotal(latestPoint, mode)) : "—"}</strong></header>
       <div ref={shellRef} className="fund-stack-shell">
         <canvas
@@ -314,8 +346,9 @@ export default function FundStackPanel({
           role="button"
           tabIndex={0}
           onClick={(event) => {
-            const date = visible[pointerToIndex(event.clientX)]?.date;
-            if (date) onSelectDate(date, mode);
+            const pointIndex = pointerToIndex(event.clientX);
+            const date = visible[pointIndex]?.date;
+            if (date) onSelectPoint(date, mode, focusValueAtPointer(event.clientY));
           }}
           onKeyDown={selectFromKeyboard}
           onPointerMove={updateHover}
@@ -328,7 +361,7 @@ export default function FundStackPanel({
           data-axis-step={scale.step}
           data-hovered-date={hoveredPoint?.date ?? ""}
           data-hovered-fund={hoveredFund?.key ?? ""}
-          aria-label={`${stackModeTitle(mode)} stacked chart showing ${model.funds.length} funds from ${stackFormatDate(visible[0].date)} to ${stackFormatDate(visible.at(-1)?.date ?? visible[0].date)}. Press Enter to select a date, then use arrow keys.`}
+          aria-label={`${stackModeTitle(mode)} stacked chart showing ${model.funds.length} funds from ${stackFormatDate(visible[0].date)} to ${stackFormatDate(visible.at(-1)?.date ?? visible[0].date)}. Press Enter to select a date, use left and right arrows for dates${zoomFactor > 1 ? ", and up and down arrows to move the linked vertical focus" : ""}.`}
         />
         {activeHover && hoveredPoint && (
           <>

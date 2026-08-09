@@ -332,6 +332,74 @@ export function buildSharedFundStackScale(
   return { min, max, step, ticks };
 }
 
+export function magnifyFundStackPoints(
+  points: FundStackPoint[],
+  focusDate: string,
+  factor: number,
+) {
+  return magnifiedFundStackWindow(points, focusDate, factor).points;
+}
+
+export function magnifiedFundStackWindow(
+  points: FundStackPoint[],
+  focusDate: string,
+  factor: number,
+) {
+  if (factor <= 1 || points.length < 3) return { points, start: 0, end: points.length };
+  const foundFocusIndex = points.findIndex((point) => point.date === focusDate);
+  const focusIndex = foundFocusIndex >= 0 ? foundFocusIndex : Math.floor(points.length / 2);
+  const windowSize = Math.max(2, Math.ceil(points.length / factor));
+  const maximumStart = Math.max(0, points.length - windowSize);
+  const start = Math.max(0, Math.min(maximumStart, focusIndex - Math.floor(windowSize / 2)));
+  const end = start + windowSize;
+  return { points: points.slice(start, end), start, end };
+}
+
+export function shiftMagnifiedFundStackFocus(
+  points: FundStackPoint[],
+  focusDate: string,
+  factor: number,
+  direction: -1 | 1,
+) {
+  if (!points.length || factor <= 1) return focusDate;
+  const window = magnifiedFundStackWindow(points, focusDate, factor);
+  const windowSize = window.end - window.start;
+  const maximumStart = Math.max(0, points.length - windowSize);
+  const step = Math.max(1, Math.floor(windowSize * 0.65));
+  const nextStart = Math.max(0, Math.min(maximumStart, window.start + direction * step));
+  if (nextStart === window.start) return focusDate;
+  const nextFocusIndex = Math.min(points.length - 1, nextStart + Math.floor(windowSize / 2));
+  return points[nextFocusIndex]?.date ?? focusDate;
+}
+
+export function magnifyFundStackScale(
+  scale: FundStackScale,
+  focusValue: number,
+  factor: number,
+): FundStackScale {
+  if (factor <= 1) return scale;
+  const fullSpan = Math.max(1, scale.max - scale.min);
+  const span = fullSpan / factor;
+  const center = Math.max(scale.min, Math.min(scale.max, focusValue));
+  let min = center - span / 2;
+  let max = center + span / 2;
+  if (min < scale.min) {
+    max += scale.min - min;
+    min = scale.min;
+  }
+  if (max > scale.max) {
+    min -= max - scale.max;
+    max = scale.max;
+  }
+  const step = niceStackStep(span / 6);
+  const ticks: number[] = [];
+  const firstTick = Math.ceil((min - step * 0.000001) / step) * step;
+  for (let value = firstTick; value <= max + step * 0.000001 && ticks.length < 20; value += step) {
+    ticks.push(Math.abs(value) < step * 0.000001 ? 0 : value);
+  }
+  return { min, max, step, ticks };
+}
+
 export function findStackFundIndex(point: FundStackPoint, mode: FundStackMode, value: number) {
   return findStackFundIndexFromBounds(stackBoundsForPoint(point, mode), value);
 }
