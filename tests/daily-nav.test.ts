@@ -4,7 +4,10 @@ import test from "node:test";
 import { buildNavPoints } from "../app/nav-activity-service.ts";
 import { buildChartScale } from "../app/chart-scale.ts";
 import {
+  CHART_LENS_CONTENT_INSET,
   chartLensGeometry,
+  insetChartLensGeometry,
+  lensDisplayPoint,
   lensSourcePoint,
   normalizedChartLensPosition,
   pointIsInsideChartLens,
@@ -89,7 +92,12 @@ test("draggable chart lens keeps synchronized geometry and inverse hover mapping
   const geometry = chartLensGeometry(500, 390, padding, lens);
   assert.deepEqual(geometry, { centerX: 270, centerY: 189, radius: 80 });
   assert.equal(pointIsInsideChartLens(310, 189, geometry), true);
-  assert.deepEqual(lensSourcePoint(310, 189, geometry, lens.magnification), { x: 286, y: 189 });
+  const source = lensSourcePoint(310, 189, geometry, lens.magnification);
+  assert.deepEqual(source, { x: 286, y: 189 });
+  assert.deepEqual(lensDisplayPoint(source.x, source.y, geometry, lens.magnification), { x: 310, y: 189 });
+  const contentGeometry = insetChartLensGeometry(geometry, CHART_LENS_CONTENT_INSET);
+  assert.equal(contentGeometry.radius, 75);
+  assert.equal(pointIsInsideChartLens(347, 189, contentGeometry), false);
   assert.deepEqual(normalizedChartLensPosition(270, 189, 500, 390, padding), { x: 0.5, y: 0.5 });
 
   const edge = chartLensGeometry(500, 390, padding, { ...lens, x: 0, y: 0 });

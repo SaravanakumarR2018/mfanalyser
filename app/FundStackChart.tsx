@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Portfolio } from "./cas-parser";
 import type { ChartLensState } from "./chart-lens";
 import FundStackPanel, {
@@ -120,6 +120,9 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
     : [];
   const selectedTotal = selectedPoint ? modeTotal(selectedPoint, selectedMode) : 0;
   const reconciliationDifference = maxStackReconciliationDifference(model);
+  const moveLens = useCallback((position: { x: number; y: number }) => {
+    setLens((current) => ({ ...current, ...position }));
+  }, []);
 
   const renderRows = (rows: typeof ranked, offset = 0) => {
     const shareBase = selectedMode === "contribution"
@@ -176,7 +179,7 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
               scale={sharedScale}
               lens={lens}
               viewKey={viewKey}
-              onLensMove={(position) => setLens((current) => ({ ...current, ...position }))}
+              onLensMove={moveLens}
               onSelectPoint={(date, selectedPanelMode) => setSelection({ date, mode: selectedPanelMode })}
             />
           ))}

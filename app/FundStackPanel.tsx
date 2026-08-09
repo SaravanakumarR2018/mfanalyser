@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
+  CHART_LENS_CONTENT_INSET,
   chartLensGeometry,
+  insetChartLensGeometry,
+  lensDisplayPoint,
   lensSourcePoint,
   normalizedChartLensPosition,
   pointIsInsideChartLens,
@@ -66,7 +69,11 @@ type StackHover = {
   viewKey: string;
   x: number;
   y: number;
+  cursorX: number;
+  cursorY: number;
+  markerVisible: boolean;
   tooltipLeft: number;
+  tooltipTop: number;
   insideLens: boolean;
 };
 
@@ -107,6 +114,8 @@ export default function FundStackPanel({
     moved: boolean;
   } | null>(null);
   const latestLensDrawRef = useRef<() => void>(() => undefined);
+  const lensMoveFrameRef = useRef<number | null>(null);
+  const pendingLensPositionRef = useRef<{ x: number; y: number } | null>(null);
   const suppressClickRef = useRef(false);
   const [hover, setHover] = useState<StackHover | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -138,11 +147,12 @@ export default function FundStackPanel({
     const padding = chartPadding(rect.width);
     const raw = { x: clientX - rect.left, y: clientY - rect.top };
     const geometry = chartLensGeometry(rect.width, rect.height, padding, lens);
-    const insideLens = lens.enabled && pointIsInsideChartLens(raw.x, raw.y, geometry);
+    const contentGeometry = insetChartLensGeometry(geometry, CHART_LENS_CONTENT_INSET);
+    const insideLens = lens.enabled && pointIsInsideChartLens(raw.x, raw.y, contentGeometry);
     const source = insideLens
       ? lensSourcePoint(raw.x, raw.y, geometry, lens.magnification)
       : raw;
-    return { raw, source, insideLens, geometry, padding };
+    return { raw, source, insideLens, geometry, contentGeometry, padding };
   }, [lens]);
 
   const updateHover = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -174,11 +184,23 @@ export default function FundStackPanel({
       ? padding.left + chartWidth / 2
       : padding.left + ((pointTime - firstTime) / Math.max(1, lastTime - firstTime)) * chartWidth;
     const sourceY = padding.top + ((scale.max - markerValue) / span) * chartHeight;
-    const x = resolved.insideLens ? resolved.raw.x : sourceX;
-    const y = resolved.insideLens ? resolved.raw.y : sourceY;
+    const displayPoint = resolved.insideLens
+      ? lensDisplayPoint(sourceX, sourceY, resolved.geometry, lens.magnification)
+      : { x: sourceX, y: sourceY };
+    const markerVisible = !resolved.insideLens
+      || pointIsInsideChartLens(displayPoint.x, displayPoint.y, resolved.contentGeometry);
+    const x = displayPoint.x;
+    const y = displayPoint.y;
+    const cursorX = resolved.raw.x;
+    const cursorY = resolved.raw.y;
     const tooltipWidth = Math.min(218, rect.width - 16);
-    const preferredLeft = x < rect.width / 2 ? x + 14 : x - tooltipWidth - 14;
+    const tooltipAnchorX = resolved.insideLens ? cursorX : x;
+    const preferredLeft = tooltipAnchorX < rect.width / 2 ? tooltipAnchorX + 14 : tooltipAnchorX - tooltipWidth - 14;
     const tooltipLeft = Math.max(8, Math.min(rect.width - tooltipWidth - 8, preferredLeft));
+    const tooltipHeight = fundIndex === null ? 122 : 158;
+    const tooltipTop = resolved.insideLens && resolved.geometry.centerY < rect.height / 2
+      ? Math.max(8, rect.height - tooltipHeight - 8)
+      : 8;
 
     setHover((current) => current
       && current.point === point
@@ -187,9 +209,13 @@ export default function FundStackPanel({
       && current.insideLens === resolved.insideLens
       && Math.abs(current.x - x) < 0.5
       && Math.abs(current.y - y) < 0.5
+      && Math.abs(current.cursorX - cursorX) < 0.5
+      && Math.abs(current.cursorY - cursorY) < 0.5
+      && current.markerVisible === markerVisible
+      && current.tooltipTop === tooltipTop
         ? current
-        : { pointIndex, point, fundIndex, viewKey, x, y, tooltipLeft, insideLens: resolved.insideLens });
-  }, [bounds, mode, pointerToIndex, resolvePointer, scale, viewKey, visible, visibleTimes]);
+        : { pointIndex, point, fundIndex, viewKey, x, y, cursorX, cursorY, markerVisible, tooltipLeft, tooltipTop, insideLens: resolved.insideLens });
+  }, [bounds, lens.magnification, mode, pointerToIndex, resolvePointer, scale, viewKey, visible, visibleTimes]);
 
   const selectFromKeyboard = (event: KeyboardEvent<HTMLCanvasElement>) => {
     if (!visible.length) return;
@@ -208,22 +234,13 @@ export default function FundStackPanel({
     event.preventDefault();
   };
 
-  const draw = useCallback(() => {
-    const canvas = canvasRef.current;
-    const shell = shellRef.current;
-    if (!canvas || !shell || !visible.length) return;
-    const width = shell.clientWidth;
-    const height = 390;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-    const context = canvas.getContext("2d");
-    if (!context) return;
-    context.scale(dpr, dpr);
-
-    const padding = { left: width < 360 ? 12 : 62, right: 18, top: 28, bottom: 40 };
+  const renderChart = useCallback((
+    context: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    detailScale = 1,
+  ) => {
+    const padding = chartPadding(width);
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
     const span = Math.max(1, scale.max - scale.min);
@@ -235,14 +252,15 @@ export default function FundStackPanel({
       : padding.left + ((visibleTimes[index] - firstTime) / timeSpan) * chartWidth;
     const yFor = (value: number) => padding.top + ((scale.max - value) / span) * chartHeight;
 
-    context.clearRect(0, 0, width, height);
-    context.font = "10px Arial, sans-serif";
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.font = `${10 * detailScale}px Arial, sans-serif`;
     context.textBaseline = "middle";
     for (const tick of scale.ticks) {
       const y = yFor(tick);
       context.strokeStyle = tick === 0 ? "rgba(11, 29, 42, 0.22)" : "rgba(11, 29, 42, 0.08)";
-      context.lineWidth = tick === 0 ? 1.2 : 1;
-      context.setLineDash(tick === 0 ? [] : [3, 6]);
+      context.lineWidth = (tick === 0 ? 1.2 : 1) * detailScale;
+      context.setLineDash(tick === 0 ? [] : [3 * detailScale, 6 * detailScale]);
       context.beginPath();
       context.moveTo(padding.left, y);
       context.lineTo(width - padding.right, y);
@@ -277,7 +295,7 @@ export default function FundStackPanel({
       context.fill();
       context.globalAlpha = 1;
       context.strokeStyle = "rgba(253,252,247,.42)";
-      context.lineWidth = 0.65;
+      context.lineWidth = 0.65 * detailScale;
       context.stroke();
     });
 
@@ -288,8 +306,8 @@ export default function FundStackPanel({
       else context.lineTo(xFor(index), y);
     });
     context.strokeStyle = "rgba(11,29,42,.72)";
-    context.lineWidth = 1.6;
-    context.setLineDash(mode === "contribution" ? [5, 4] : []);
+    context.lineWidth = 1.6 * detailScale;
+    context.setLineDash(mode === "contribution" ? [5 * detailScale, 4 * detailScale] : []);
     context.stroke();
     context.setLineDash([]);
     context.restore();
@@ -308,7 +326,7 @@ export default function FundStackPanel({
     if (selectedIndex >= 0) {
       const x = xFor(selectedIndex);
       context.strokeStyle = "rgba(11,29,42,.68)";
-      context.lineWidth = 1.3;
+      context.lineWidth = 1.3 * detailScale;
       context.beginPath();
       context.moveTo(x, padding.top);
       context.lineTo(x, height - padding.bottom);
@@ -317,24 +335,45 @@ export default function FundStackPanel({
       const markerY = yFor(modeTotal(visible[selectedIndex], mode));
       if (markerY >= padding.top && markerY <= height - padding.bottom) {
         context.beginPath();
-        context.arc(x, markerY, 4, 0, Math.PI * 2);
+        context.arc(x, markerY, 4 * detailScale, 0, Math.PI * 2);
         context.fill();
       }
     }
   }, [bounds, mode, model.funds, scale, selectedDate, visible, visibleTimes]);
 
-  const drawLens = useCallback(() => {
-    const baseCanvas = canvasRef.current;
-    const lensCanvas = lensCanvasRef.current;
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
     const shell = shellRef.current;
-    if (!baseCanvas || !lensCanvas || !shell) return;
+    if (!canvas || !shell || !visible.length) return;
     const width = shell.clientWidth;
     const height = 390;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    lensCanvas.width = width * dpr;
-    lensCanvas.height = height * dpr;
-    lensCanvas.style.width = `${width}px`;
-    lensCanvas.style.height = `${height}px`;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.clearRect(0, 0, width, height);
+    renderChart(context, width, height);
+  }, [renderChart, visible.length]);
+
+  const drawLens = useCallback(() => {
+    const lensCanvas = lensCanvasRef.current;
+    const shell = shellRef.current;
+    if (!lensCanvas || !shell) return;
+    const width = shell.clientWidth;
+    const height = 390;
+    const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 2), 3);
+    const pixelWidth = Math.round(width * dpr);
+    const pixelHeight = Math.round(height * dpr);
+    if (lensCanvas.width !== pixelWidth || lensCanvas.height !== pixelHeight) {
+      lensCanvas.width = pixelWidth;
+      lensCanvas.height = pixelHeight;
+    }
+    if (lensCanvas.style.width !== `${width}px`) lensCanvas.style.width = `${width}px`;
+    if (lensCanvas.style.height !== `${height}px`) lensCanvas.style.height = `${height}px`;
     const context = lensCanvas.getContext("2d");
     if (!context) return;
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -342,67 +381,85 @@ export default function FundStackPanel({
     if (!lens.enabled || !visible.length) return;
 
     const geometry = chartLensGeometry(width, height, chartPadding(width), lens);
-    const sourceRadius = geometry.radius / Math.max(1, lens.magnification);
-    const destinationSize = geometry.radius * 2;
     const destinationLeft = geometry.centerX - geometry.radius;
     const destinationTop = geometry.centerY - geometry.radius;
 
     context.save();
-    context.shadowColor = "rgba(11, 29, 42, 0.24)";
-    context.shadowBlur = 18;
-    context.shadowOffsetY = 5;
-    context.fillStyle = "#fff";
+    context.shadowColor = "rgba(11, 29, 42, 0.22)";
+    context.shadowBlur = 24;
+    context.shadowOffsetY = 8;
+    context.fillStyle = "#fdfcf7";
     context.beginPath();
-    context.arc(geometry.centerX, geometry.centerY, geometry.radius, 0, Math.PI * 2);
+    context.arc(geometry.centerX, geometry.centerY, geometry.radius - 2, 0, Math.PI * 2);
     context.fill();
     context.restore();
 
     context.save();
     context.beginPath();
-    context.arc(geometry.centerX, geometry.centerY, geometry.radius - 2, 0, Math.PI * 2);
+    context.arc(geometry.centerX, geometry.centerY, geometry.radius - CHART_LENS_CONTENT_INSET, 0, Math.PI * 2);
     context.clip();
-    context.drawImage(
-      baseCanvas,
-      (geometry.centerX - sourceRadius) * dpr,
-      (geometry.centerY - sourceRadius) * dpr,
-      sourceRadius * 2 * dpr,
-      sourceRadius * 2 * dpr,
-      destinationLeft,
-      destinationTop,
-      destinationSize,
-      destinationSize,
-    );
-    const sheen = context.createLinearGradient(destinationLeft, destinationTop, geometry.centerX, geometry.centerY);
-    sheen.addColorStop(0, "rgba(255,255,255,.18)");
-    sheen.addColorStop(0.55, "rgba(255,255,255,0)");
-    context.fillStyle = sheen;
-    context.fillRect(destinationLeft, destinationTop, destinationSize, destinationSize);
+    context.fillStyle = "#fdfcf7";
+    context.fillRect(destinationLeft, destinationTop, geometry.radius * 2, geometry.radius * 2);
+    context.translate(geometry.centerX, geometry.centerY);
+    context.scale(lens.magnification, lens.magnification);
+    context.translate(-geometry.centerX, -geometry.centerY);
+    renderChart(context, width, height, 1 / lens.magnification);
     context.restore();
 
-    context.strokeStyle = dragging ? "#087A4B" : "rgba(11, 29, 42, .72)";
-    context.lineWidth = dragging ? 3 : 2;
+    context.save();
+    context.beginPath();
+    context.arc(geometry.centerX, geometry.centerY, geometry.radius - CHART_LENS_CONTENT_INSET, 0, Math.PI * 2);
+    context.clip();
+    const sheen = context.createLinearGradient(
+      destinationLeft,
+      destinationTop,
+      geometry.centerX + geometry.radius * 0.35,
+      geometry.centerY + geometry.radius * 0.35,
+    );
+    sheen.addColorStop(0, "rgba(255,255,255,.28)");
+    sheen.addColorStop(0.38, "rgba(255,255,255,.04)");
+    sheen.addColorStop(1, "rgba(255,255,255,0)");
+    context.fillStyle = sheen;
+    context.fillRect(destinationLeft, destinationTop, geometry.radius * 2, geometry.radius * 2);
+    const vignette = context.createRadialGradient(
+      geometry.centerX,
+      geometry.centerY,
+      geometry.radius * 0.72,
+      geometry.centerX,
+      geometry.centerY,
+      geometry.radius,
+    );
+    vignette.addColorStop(0, "rgba(11,29,42,0)");
+    vignette.addColorStop(1, "rgba(11,29,42,.10)");
+    context.fillStyle = vignette;
+    context.fillRect(destinationLeft, destinationTop, geometry.radius * 2, geometry.radius * 2);
+    context.restore();
+
+    context.strokeStyle = "rgba(255,255,255,.94)";
+    context.lineWidth = 5;
+    context.beginPath();
+    context.arc(geometry.centerX, geometry.centerY, geometry.radius - 4, 0, Math.PI * 2);
+    context.stroke();
+    context.strokeStyle = dragging ? "#087A4B" : "#315e4d";
+    context.lineWidth = dragging ? 3 : 2.25;
     context.beginPath();
     context.arc(geometry.centerX, geometry.centerY, geometry.radius - 1.5, 0, Math.PI * 2);
     context.stroke();
-
-    context.fillStyle = dragging ? "#087A4B" : "#0B1D2A";
-    context.beginPath();
-    context.roundRect(geometry.centerX - 20, geometry.centerY + geometry.radius - 7, 40, 13, 7);
-    context.fill();
-    context.strokeStyle = "rgba(255,255,255,.72)";
+    context.strokeStyle = dragging ? "rgba(8,122,75,.30)" : "rgba(49,94,77,.18)";
     context.lineWidth = 1;
-    for (let offset = -6; offset <= 6; offset += 6) {
-      context.beginPath();
-      context.moveTo(geometry.centerX + offset, geometry.centerY + geometry.radius - 3);
-      context.lineTo(geometry.centerX + offset, geometry.centerY + geometry.radius + 2);
-      context.stroke();
-    }
-  }, [dragging, lens, visible.length]);
+    context.beginPath();
+    context.arc(geometry.centerX, geometry.centerY, geometry.radius + 1.5, 0, Math.PI * 2);
+    context.stroke();
+  }, [dragging, lens, renderChart, visible.length]);
 
   useEffect(() => {
     latestLensDrawRef.current = drawLens;
     drawLens();
   }, [drawLens]);
+
+  useEffect(() => () => {
+    if (lensMoveFrameRef.current !== null) cancelAnimationFrame(lensMoveFrameRef.current);
+  }, []);
 
   useEffect(() => {
     draw();
@@ -431,11 +488,22 @@ export default function FundStackPanel({
     );
   }, []);
 
+  const scheduleLensMove = useCallback((position: { x: number; y: number }) => {
+    pendingLensPositionRef.current = position;
+    if (lensMoveFrameRef.current !== null) return;
+    lensMoveFrameRef.current = requestAnimationFrame(() => {
+      lensMoveFrameRef.current = null;
+      const pending = pendingLensPositionRef.current;
+      pendingLensPositionRef.current = null;
+      if (pending) onLensMove(pending);
+    });
+  }, [onLensMove]);
+
   const beginLensDrag = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (!lens.enabled || event.button !== 0) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const resolved = resolvePointer(event.clientX, event.clientY, rect);
-    if (!resolved.insideLens) return;
+    if (!pointIsInsideChartLens(resolved.raw.x, resolved.raw.y, resolved.geometry)) return;
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -455,7 +523,7 @@ export default function FundStackPanel({
     const drag = dragRef.current;
     if (drag?.pointerId === event.pointerId) {
       if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 3) drag.moved = true;
-      onLensMove(lensPositionForPointer(event, drag.offsetX, drag.offsetY));
+      scheduleLensMove(lensPositionForPointer(event, drag.offsetX, drag.offsetY));
       setHover(null);
       event.preventDefault();
       return;
@@ -464,7 +532,7 @@ export default function FundStackPanel({
     const resolved = resolvePointer(event.clientX, event.clientY, rect);
     event.currentTarget.style.cursor = resolved.insideLens ? "grab" : "crosshair";
     updateHover(event);
-  }, [lensPositionForPointer, onLensMove, resolvePointer, updateHover]);
+  }, [lensPositionForPointer, resolvePointer, scheduleLensMove, updateHover]);
 
   const finishLensDrag = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current;
@@ -473,6 +541,21 @@ export default function FundStackPanel({
     dragRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     event.currentTarget.style.cursor = "grab";
+    setDragging(false);
+  }, []);
+
+  const cancelLensDrag = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    suppressClickRef.current = false;
+    dragRef.current = null;
+    pendingLensPositionRef.current = null;
+    if (lensMoveFrameRef.current !== null) {
+      cancelAnimationFrame(lensMoveFrameRef.current);
+      lensMoveFrameRef.current = null;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    event.currentTarget.style.cursor = "crosshair";
     setDragging(false);
   }, []);
 
@@ -522,7 +605,7 @@ export default function FundStackPanel({
           onPointerDown={beginLensDrag}
           onPointerMove={movePointer}
           onPointerUp={finishLensDrag}
-          onPointerCancel={finishLensDrag}
+          onPointerCancel={cancelLensDrag}
           onPointerLeave={(event) => {
             if (!dragRef.current) setHover(null);
             if (!dragRef.current) event.currentTarget.style.cursor = "crosshair";
@@ -537,12 +620,13 @@ export default function FundStackPanel({
           data-hovered-fund={hoveredFund?.key ?? ""}
           aria-label={`${stackModeTitle(mode)} stacked chart showing ${model.funds.length} funds from ${stackFormatDate(visible[0].date)} to ${stackFormatDate(visible.at(-1)?.date ?? visible[0].date)}. Hover for exact values, drag the circular lens to inspect thin layers, press Enter to select a date, or use left and right arrows for dates.`}
         />
-        <canvas ref={lensCanvasRef} className="stack-lens-canvas" aria-hidden="true" />
+        <canvas ref={lensCanvasRef} className="stack-lens-canvas" data-render-mode="vector" aria-hidden="true" />
         {activeHover && hoveredPoint && (
           <>
             {!activeHover.insideLens && <span className="stack-hover-guide" style={{ left: `${activeHover.x}px` }} />}
-            <i className="stack-hover-marker" style={{ left: `${activeHover.x}px`, top: `${activeHover.y}px`, background: hoveredFund ? stackFundColor(activeHover.fundIndex ?? 0) : "#0B1D2A" }} />
-            <div className="stack-hover-tooltip" role="status" data-fund-key={hoveredFund?.key ?? "portfolio-total"} data-date={hoveredPoint.date} style={{ left: `${activeHover.tooltipLeft}px` }}>
+            {activeHover.insideLens && <span className="stack-lens-cursor" style={{ left: `${activeHover.cursorX}px`, top: `${activeHover.cursorY}px` }} />}
+            {activeHover.markerVisible && <i className={`stack-hover-marker${activeHover.insideLens ? " lens-pointer" : ""}`} data-inside-lens={activeHover.insideLens} style={{ left: `${activeHover.x}px`, top: `${activeHover.y}px`, background: hoveredFund ? stackFundColor(activeHover.fundIndex ?? 0) : "#0B1D2A" }} />}
+            <div className="stack-hover-tooltip" role="status" data-fund-key={hoveredFund?.key ?? "portfolio-total"} data-date={hoveredPoint.date} data-inside-lens={activeHover.insideLens} style={{ left: `${activeHover.tooltipLeft}px`, top: `${activeHover.tooltipTop}px` }}>
               <span className="stack-tooltip-date">{stackFormatDate(hoveredPoint.date)}</span>
               <strong>{hoveredFund?.name ?? "Portfolio total"}</strong>
               {hoveredFund && hoveredFundValue ? (

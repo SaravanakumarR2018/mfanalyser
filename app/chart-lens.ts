@@ -8,6 +8,7 @@ export type ChartLensState = {
 
 export type ChartPadding = { left: number; right: number; top: number; bottom: number };
 export type ChartLensGeometry = { centerX: number; centerY: number; radius: number };
+export const CHART_LENS_CONTENT_INSET = 5;
 
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.max(minimum, Math.min(maximum, value));
@@ -38,6 +39,13 @@ export function pointIsInsideChartLens(
   return Math.hypot(x - geometry.centerX, y - geometry.centerY) <= geometry.radius;
 }
 
+export function insetChartLensGeometry(
+  geometry: ChartLensGeometry,
+  inset: number,
+): ChartLensGeometry {
+  return { ...geometry, radius: Math.max(0, geometry.radius - Math.max(0, inset)) };
+}
+
 export function lensSourcePoint(
   x: number,
   y: number,
@@ -48,6 +56,19 @@ export function lensSourcePoint(
   return {
     x: geometry.centerX + (x - geometry.centerX) / safeMagnification,
     y: geometry.centerY + (y - geometry.centerY) / safeMagnification,
+  };
+}
+
+export function lensDisplayPoint(
+  x: number,
+  y: number,
+  geometry: ChartLensGeometry,
+  magnification: number,
+) {
+  const safeMagnification = Math.max(1, magnification);
+  return {
+    x: geometry.centerX + (x - geometry.centerX) * safeMagnification,
+    y: geometry.centerY + (y - geometry.centerY) * safeMagnification,
   };
 }
 
