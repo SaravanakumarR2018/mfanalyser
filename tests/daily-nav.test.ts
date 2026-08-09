@@ -4,11 +4,13 @@ import test from "node:test";
 import { buildNavPoints } from "../app/nav-activity-service.ts";
 import { buildChartScale } from "../app/chart-scale.ts";
 import {
+  annualizedReturnAt,
   buildFundStackModel,
   findStackFundIndex,
   fundValueShare,
   maxStackReconciliationDifference,
   stackBoundsForPoint,
+  toggleStackModeSelection,
   type FundStackPoint,
 } from "../app/fund-stack-service.ts";
 import { formatInr } from "../app/formatters.ts";
@@ -52,6 +54,25 @@ test("dragging a selected chart window preserves its width and clamps at both en
 
   const shifted = shiftRangeWindow([12, 31], 17, 100);
   assert.equal(shifted[1] - shifted[0], 19);
+});
+
+test("stack view selection supports one, two, or three ordered panels", () => {
+  assert.deepEqual(toggleStackModeSelection(["value"], "invested"), ["value", "invested"]);
+  assert.deepEqual(toggleStackModeSelection(["value", "invested"], "contribution"), ["value", "invested", "contribution"]);
+  assert.deepEqual(toggleStackModeSelection(["value", "invested", "contribution"], "value"), ["invested", "contribution"]);
+  assert.deepEqual(toggleStackModeSelection(["invested"], "invested"), ["invested"]);
+});
+
+test("annualised fund return uses dated investor cash flows and terminal value", () => {
+  const purchase = transaction("2025-01-01", 100, 10, 10, 10);
+  const oneYear = annualizedReturnAt([purchase], "2026-01-01", 110);
+  assert.ok(oneYear !== null && Math.abs(oneYear - 10) < 0.0001);
+
+  const partialRedemption = transaction("2025-07-01", -30, -2.5, 12, 7.5);
+  const withRedemption = annualizedReturnAt([purchase, partialRedemption], "2026-01-01", 90);
+  assert.ok(withRedemption !== null && withRedemption > 20);
+  assert.equal(annualizedReturnAt([purchase], "2025-01-01", 100), null);
+  assert.equal(annualizedReturnAt([], "2026-01-01", 100), null);
 });
 
 test("hiding net invested tightens the Y-axis around visible portfolio values", () => {

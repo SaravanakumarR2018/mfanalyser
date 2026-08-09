@@ -7,6 +7,7 @@ export type FundStackFund = {
   name: string;
   category: string;
   closed: boolean;
+  transactions: FundTransaction[];
 };
 
 export type FundStackValue = {
@@ -29,6 +30,74 @@ export type FundStackModel = {
   funds: FundStackFund[];
   points: FundStackPoint[];
 };
+
+const STACK_MODE_ORDER: FundStackMode[] = ["value", "invested", "contribution"];
+
+export function toggleStackModeSelection(selected: FundStackMode[], mode: FundStackMode) {
+  if (selected.includes(mode)) {
+    return selected.length === 1 ? selected : selected.filter((item) => item !== mode);
+  }
+  return STACK_MODE_ORDER.filter((item) => item === mode || selected.includes(item));
+}
+
+export function annualizedReturnAt(
+  transactions: FundTransaction[],
+  date: string,
+  terminalValue: number,
+): number | null {
+  const terminalTime = new Date(`${date}T00:00:00Z`).getTime();
+  if (!Number.isFinite(terminalTime)) return null;
+
+  const grouped = new Map<number, number>();
+  for (const transaction of transactions) {
+    if (transaction.date > date || !Number.isFinite(transaction.amount)) continue;
+    const time = new Date(`${transaction.date}T00:00:00Z`).getTime();
+    if (!Number.isFinite(time)) continue;
+    grouped.set(time, (grouped.get(time) ?? 0) - transaction.amount);
+  }
+  if (Number.isFinite(terminalValue) && Math.abs(terminalValue) > 0.000001) {
+    grouped.set(terminalTime, (grouped.get(terminalTime) ?? 0) + terminalValue);
+  }
+
+  const flows = [...grouped]
+    .map(([time, amount]) => ({ time, amount }))
+    .filter((flow) => Math.abs(flow.amount) > 0.000001)
+    .sort((left, right) => left.time - right.time);
+  if (flows.length < 2 || flows[0].time === flows.at(-1)?.time) return null;
+  if (!flows.some((flow) => flow.amount < 0) || !flows.some((flow) => flow.amount > 0)) return null;
+
+  const origin = flows[0].time;
+  const npv = (rate: number) => flows.reduce((total, flow) =>
+    total + flow.amount / ((1 + rate) ** ((flow.time - origin) / 86_400_000 / 365)), 0);
+
+  let low = -0.999999;
+  let high = 1;
+  let lowValue = npv(low);
+  let highValue = npv(high);
+  while (Number.isFinite(highValue) && Math.sign(lowValue) === Math.sign(highValue) && high < 1_000_000) {
+    high = high * 2 + 1;
+    highValue = npv(high);
+  }
+  if (!Number.isFinite(lowValue) || !Number.isFinite(highValue) || Math.sign(lowValue) === Math.sign(highValue)) {
+    return null;
+  }
+
+  for (let iteration = 0; iteration < 160; iteration += 1) {
+    const middle = (low + high) / 2;
+    const middleValue = npv(middle);
+    if (!Number.isFinite(middleValue)) return null;
+    if (Math.abs(middleValue) < 0.000001) return middle * 100;
+    if (Math.sign(middleValue) === Math.sign(lowValue)) {
+      low = middle;
+      lowValue = middleValue;
+    } else {
+      high = middle;
+      highValue = middleValue;
+    }
+  }
+  const result = (low + high) / 2 * 100;
+  return Number.isFinite(result) ? result : null;
+}
 
 const approximatelyEqual = (left: number, right: number) =>
   Math.abs(left - right) <= Math.max(0.001, Math.abs(right) * 0.000001);
@@ -180,8 +249,8 @@ const buildDemoPoints = (portfolio: Portfolio) => {
 
 export function buildFundStackModel(portfolio: Portfolio): FundStackModel {
   const funds = [
-    ...portfolio.funds.map(({ key, name, category }) => ({ key, name, category, closed: false })),
-    ...portfolio.closedFunds.map(({ key, name, category }) => ({ key, name, category, closed: true })),
+    ...portfolio.funds.map(({ key, name, category, transactions }) => ({ key, name, category, closed: false, transactions })),
+    ...portfolio.closedFunds.map(({ key, name, category, transactions }) => ({ key, name, category, closed: true, transactions })),
   ];
   if (!funds.length) return { funds, points: [] };
   if (portfolio.source === "demo") return { funds, points: buildDemoPoints(portfolio) };
