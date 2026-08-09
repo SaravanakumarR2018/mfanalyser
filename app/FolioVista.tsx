@@ -60,6 +60,11 @@ function SortableFundHeader({
   const active = sort.key === sortKey;
   const direction = active ? sort.direction : null;
   const nextDirection = active && direction === "desc" ? "ascending" : "descending";
+  const stateLabel = active
+    ? direction === "asc"
+      ? "Low → high"
+      : "High → low"
+    : "Sort";
   return (
     <span className={`sort-column${active ? " active" : ""}`} role="columnheader" aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : undefined}>
       <button
@@ -69,8 +74,11 @@ function SortableFundHeader({
         title={`Sort ${label.toLowerCase()} ${nextDirection}`}
         onClick={() => onSort(sortKey)}
       >
-        <span>{label}</span>
-        <i className={`sort-arrows${direction ? ` ${direction}` : ""}`} aria-hidden="true"><b>▴</b><b>▾</b></i>
+        <span className="table-sort-copy">
+          <strong>{label}</strong>
+          <small>{stateLabel}</small>
+        </span>
+        <i className={`sort-arrows${direction ? ` ${direction}` : ""}`} aria-hidden="true"><b>↑</b><b>↓</b></i>
       </button>
     </span>
   );
