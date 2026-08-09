@@ -17,6 +17,13 @@ import {
 } from "./cas-parser";
 import { refreshWithDailyHistory, refreshWithLatestNav, type NavHistoryProgress } from "./nav-service";
 import { buildHoldingTimeline } from "./timeline-service";
+import {
+  DEFAULT_FUND_SORT,
+  nextFundSort,
+  sortFunds,
+  type FundSort,
+  type FundSortKey,
+} from "./fund-sort";
 
 const formatMoney = (value: number, decimals = 0) =>
   new Intl.NumberFormat("en-IN", {
@@ -38,6 +45,36 @@ const formatDate = (date: string) =>
   );
 
 const palette = ["#79DDA7", "#FF856F", "#F2C96D", "#86A8D4", "#B49BD8", "#9FB69F", "#D59C76"];
+
+function SortableFundHeader({
+  label,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  label: string;
+  sortKey: FundSortKey;
+  sort: FundSort;
+  onSort: (key: FundSortKey) => void;
+}) {
+  const active = sort.key === sortKey;
+  const direction = active ? sort.direction : null;
+  const nextDirection = active && direction === "desc" ? "ascending" : "descending";
+  return (
+    <span className={`sort-column${active ? " active" : ""}`} role="columnheader" aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : undefined}>
+      <button
+        type="button"
+        className={`table-sort${active ? " active" : ""}`}
+        aria-label={`${label}: ${active ? `sorted ${direction === "asc" ? "ascending" : "descending"}` : "not sorted"}. Sort ${nextDirection}.`}
+        title={`Sort ${label.toLowerCase()} ${nextDirection}`}
+        onClick={() => onSort(sortKey)}
+      >
+        <span>{label}</span>
+        <i className={`sort-arrows${direction ? ` ${direction}` : ""}`} aria-hidden="true"><b>▴</b><b>▾</b></i>
+      </button>
+    </span>
+  );
+}
 
 function Brand() {
   return (
@@ -628,7 +665,7 @@ function Dashboard({
   historyProgress: HistoryProgressState | null;
 }) {
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<"value" | "return" | "name">("value");
+  const [sort, setSort] = useState<FundSort>(() => ({ ...DEFAULT_FUND_SORT }));
   const [selectedFundKey, setSelectedFundKey] = useState<string | null>(null);
   const [selectedFolioKey, setSelectedFolioKey] = useState<{ fundKey: string; folioKey: string } | null>(null);
   const [expandedFund, setExpandedFund] = useState<string | null>(null);
@@ -645,6 +682,10 @@ function Dashboard({
   const gain = unrealizedGain + portfolio.realizedGain;
   const absoluteReturn = portfolio.invested ? (gain / portfolio.invested) * 100 : 0;
   const activeFolios = portfolio.funds.reduce((total, fund) => total + fund.folios, 0);
+  const fundColors = useMemo(
+    () => new Map(portfolio.funds.map((fund, index) => [fund.key, palette[index % palette.length]])),
+    [portfolio.funds],
+  );
 
   const allocations = useMemo(() => {
     const grouped = new Map<string, number>();
@@ -663,14 +704,14 @@ function Dashboard({
 
   const filteredFunds = useMemo(() => {
     const lower = query.toLowerCase();
-    return portfolio.funds
-      .filter((fund) => `${fund.name} ${fund.fundHouse} ${fund.category}`.toLowerCase().includes(lower))
-      .sort((a, b) => {
-        if (sort === "name") return a.name.localeCompare(b.name);
-        if (sort === "return") return ((b.currentValue - b.invested) / Math.max(1, b.invested)) - ((a.currentValue - a.invested) / Math.max(1, a.invested));
-        return b.currentValue - a.currentValue;
-      });
+    const matches = portfolio.funds
+      .filter((fund) => `${fund.name} ${fund.fundHouse} ${fund.category}`.toLowerCase().includes(lower));
+    return sortFunds(matches, sort);
   }, [portfolio.funds, query, sort]);
+
+  const selectSort = useCallback((key: FundSortKey) => {
+    setSort((current) => nextFundSort(current, key));
+  }, []);
 
   return (
     <main className="dashboard">
@@ -725,11 +766,6 @@ function Dashboard({
             <div><p className="eyebrow">The full picture</p><h2 id="holdings-title">Your funds</h2></div>
             <div className="table-tools">
               <label className="search-field"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search funds" aria-label="Search funds" /></label>
-              <select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label="Sort funds">
-                <option value="value">Sort: Value</option>
-                <option value="return">Sort: Return</option>
-                <option value="name">Sort: Name</option>
-              </select>
             </div>
           </div>
           <div className="signal-guide">
@@ -737,8 +773,15 @@ function Dashboard({
             <p><i className="guide-dip">↓</i><span><strong>Below-cost periods</strong>Counts distinct observed periods where estimated value fell below net invested by more than 0.25%.</span></p>
           </div>
           <div className="fund-table" role="table" aria-label="Mutual fund holdings">
-            <div className="fund-row table-header" role="row"><span>Fund</span><span>Invested amount</span><span>Current value</span><span>Gain / loss</span><span>Return</span><span>Momentum</span><span>Below cost</span><span /></div>
-            {filteredFunds.map((fund, index) => {
+            <div className="fund-row table-header" role="row">
+              <span role="columnheader">Fund</span>
+              <SortableFundHeader label="Invested amount" sortKey="invested" sort={sort} onSort={selectSort} />
+              <SortableFundHeader label="Current value" sortKey="value" sort={sort} onSort={selectSort} />
+              <SortableFundHeader label="Gain / loss" sortKey="gain" sort={sort} onSort={selectSort} />
+              <SortableFundHeader label="Return" sortKey="return" sort={sort} onSort={selectSort} />
+              <span role="columnheader">Momentum</span><span role="columnheader">Below cost</span><span role="columnheader" />
+            </div>
+            {filteredFunds.map((fund) => {
               const fundGain = fund.currentValue - fund.invested;
               const fundReturn = fund.invested ? (fundGain / fund.invested) * 100 : 0;
               const expanded = expandedFund === fund.key;
@@ -751,7 +794,7 @@ function Dashboard({
                     onClick={() => setSelectedFundKey(fund.key)}
                     onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedFundKey(fund.key); }}
                   >
-                    <span className="fund-name"><i style={{ background: palette[index % palette.length] }}>{fund.fundHouse.slice(0, 2).toUpperCase()}</i><span><strong>{fund.name}</strong><small>{fund.category} · {fund.folios} {fund.folios === 1 ? "folio" : "folios"}</small></span></span>
+                    <span className="fund-name"><i style={{ background: fundColors.get(fund.key) ?? palette[0] }}>{fund.fundHouse.slice(0, 2).toUpperCase()}</i><span><strong>{fund.name}</strong><small>{fund.category} · {fund.folios} {fund.folios === 1 ? "folio" : "folios"}</small></span></span>
                     <span data-label="Invested amount">{formatMoney(fund.invested)}</span>
                     <span data-label="Current value"><strong>{formatMoney(fund.currentValue)}</strong></span>
                     <span data-label="Gain / loss" className={fundGain >= 0 ? "positive" : "negative"}>{fundGain >= 0 ? "+" : ""}{formatMoney(fundGain)}</span>

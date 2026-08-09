@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { buildNavPoints } from "../app/nav-activity-service.ts";
 import { buildChartScale } from "../app/chart-scale.ts";
+import { nextFundSort, sortFunds, type FundSortKey } from "../app/fund-sort.ts";
 import {
   CHART_LENS_CONTENT_INSET,
   CHART_LENS_MAX_MAGNIFICATION,
@@ -168,6 +169,29 @@ test("chart lens starts hidden and supports deliberate zoom through 10x", () => 
   assert.equal(DEFAULT_CHART_LENS_STATE.enabled, false);
   assert.equal(DEFAULT_CHART_LENS_STATE.magnification, 2.5);
   assert.equal(CHART_LENS_MAX_MAGNIFICATION, 10);
+});
+
+test("fund table applies exactly one sortable financial column at a time", () => {
+  const funds = [
+    { name: "Alpha", invested: 100, currentValue: 150 },
+    { name: "Beta", invested: 200, currentValue: 220 },
+    { name: "Gamma", invested: 50, currentValue: 40 },
+  ];
+  const descending: Record<FundSortKey, string[]> = {
+    invested: ["Beta", "Alpha", "Gamma"],
+    value: ["Beta", "Alpha", "Gamma"],
+    gain: ["Alpha", "Beta", "Gamma"],
+    return: ["Alpha", "Beta", "Gamma"],
+  };
+  (Object.keys(descending) as FundSortKey[]).forEach((key) => {
+    assert.deepEqual(sortFunds(funds, { key, direction: "desc" }).map((fund) => fund.name), descending[key]);
+    assert.deepEqual(sortFunds(funds, { key, direction: "asc" }).map((fund) => fund.name), [...descending[key]].reverse());
+  });
+
+  const invested = nextFundSort({ key: "value", direction: "desc" }, "invested");
+  assert.deepEqual(invested, { key: "invested", direction: "desc" });
+  assert.deepEqual(nextFundSort(invested, "invested"), { key: "invested", direction: "asc" });
+  assert.deepEqual(nextFundSort({ key: "invested", direction: "asc" }, "return"), { key: "return", direction: "desc" });
 });
 
 test("hiding net invested tightens the Y-axis around visible portfolio values", () => {
