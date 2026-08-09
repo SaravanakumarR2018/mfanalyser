@@ -282,6 +282,14 @@ export function buildFundStackModel(portfolio: Portfolio): FundStackModel {
 export const stackMetric = (point: FundStackValue, mode: FundStackMode) => point[mode];
 
 export type FundStackBound = { lower: number; upper: number };
+export type FundStackScale = { min: number; max: number; step: number; ticks: number[] };
+
+const niceStackStep = (value: number) => {
+  if (!Number.isFinite(value) || value <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  const fraction = value / magnitude;
+  return (fraction < 1.5 ? 1 : fraction < 3 ? 2 : fraction < 7 ? 5 : 10) * magnitude;
+};
 
 export function stackBoundsForPoint(point: FundStackPoint, mode: FundStackMode): FundStackBound[] {
   let positive = 0;
@@ -297,6 +305,31 @@ export function stackBoundsForPoint(point: FundStackPoint, mode: FundStackMode):
     negative += amount;
     return { lower: negative, upper };
   });
+}
+
+export function buildSharedFundStackScale(
+  points: FundStackPoint[],
+  modes: FundStackMode[],
+): FundStackScale {
+  let highest = 0;
+  let lowest = 0;
+  for (const mode of modes) {
+    for (const point of points) {
+      for (const bound of stackBoundsForPoint(point, mode)) {
+        highest = Math.max(highest, bound.upper);
+        lowest = Math.min(lowest, bound.lower);
+      }
+    }
+  }
+  const observedSpan = Math.max(1, highest - lowest);
+  const paddedMin = lowest < 0 ? lowest - observedSpan * 0.06 : 0;
+  const paddedMax = highest + observedSpan * 0.06;
+  const step = niceStackStep(Math.max(1, paddedMax - paddedMin) / 5);
+  const min = lowest < 0 ? Math.floor(paddedMin / step) * step : 0;
+  const max = Math.max(step, Math.ceil(paddedMax / step) * step);
+  const ticks: number[] = [];
+  for (let value = min; value <= max + step / 2 && ticks.length < 20; value += step) ticks.push(value);
+  return { min, max, step, ticks };
 }
 
 export function findStackFundIndex(point: FundStackPoint, mode: FundStackMode, value: number) {

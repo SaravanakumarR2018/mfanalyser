@@ -9,6 +9,7 @@ import FundStackPanel, {
 } from "./FundStackPanel";
 import { formatInr } from "./formatters";
 import {
+  buildSharedFundStackScale,
   buildFundStackModel,
   maxStackReconciliationDifference,
   stackMetric,
@@ -71,6 +72,10 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
   const visibleTimes = useMemo(
     () => visible.map((point) => new Date(`${point.date}T00:00:00Z`).getTime()),
     [visible],
+  );
+  const sharedScale = useMemo(
+    () => buildSharedFundStackScale(visible, modes),
+    [modes, visible],
   );
   const viewKey = `${range[0]}:${range[1]}:${visible[0]?.date ?? ""}:${visible.at(-1)?.date ?? ""}`;
 
@@ -141,7 +146,7 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
         </div>
       </div>
       <div className="stack-chart-meta">
-        <span>{modes.length} {modes.length === 1 ? "view" : "views"} selected · shown left to right</span>
+        <span>{modes.length} {modes.length === 1 ? "view" : "views"} selected · shared Y-axis</span>
         <span>{model.funds.length} funds · all shown</span>
         <em>Hover for exact fund details · click any date to open the full ranked list</em>
       </div>
@@ -155,6 +160,7 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
               visible={visible}
               visibleTimes={visibleTimes}
               selectedDate={selection?.date ?? null}
+              scale={sharedScale}
               viewKey={viewKey}
               onSelectDate={(date, selectedPanelMode) => setSelection({ date, mode: selectedPanelMode })}
             />

@@ -8,10 +8,10 @@ import {
   findStackFundIndexFromBounds,
   fundValueShare,
   stackBoundsForPoint,
-  stackMetric,
   type FundStackMode,
   type FundStackModel,
   type FundStackPoint,
+  type FundStackScale,
 } from "./fund-stack-service";
 
 const modeTotal = (point: FundStackPoint, mode: FundStackMode) => {
@@ -37,13 +37,6 @@ const compactDate = (date: string) =>
   new Intl.DateTimeFormat("en-IN", { month: "short", year: "2-digit" })
     .format(new Date(`${date}T00:00:00Z`));
 
-const niceStep = (value: number) => {
-  if (!Number.isFinite(value) || value <= 0) return 1;
-  const magnitude = 10 ** Math.floor(Math.log10(value));
-  const fraction = value / magnitude;
-  return (fraction < 1.5 ? 1 : fraction < 3 ? 2 : fraction < 7 ? 5 : 10) * magnitude;
-};
-
 const axisMoney = (value: number, step: number) => {
   const absolute = Math.abs(value);
   const formatUnit = (divisor: number, suffix: string) => {
@@ -55,25 +48,6 @@ const axisMoney = (value: number, step: number) => {
   if (absolute >= 100_000) return formatUnit(100_000, "L");
   if (absolute >= 1_000) return formatUnit(1_000, "K");
   return `${value < 0 ? "−" : ""}₹${Math.round(absolute)}`;
-};
-
-const chartScale = (points: FundStackPoint[], mode: FundStackMode) => {
-  let highest = 0;
-  let lowest = 0;
-  for (const point of points) {
-    const values = point.funds.map((fund) => stackMetric(fund, mode));
-    highest = Math.max(highest, values.filter((value) => value > 0).reduce((total, value) => total + value, 0));
-    lowest = Math.min(lowest, values.filter((value) => value < 0).reduce((total, value) => total + value, 0));
-  }
-  const observedSpan = Math.max(1, highest - lowest);
-  const paddedMin = lowest < 0 ? lowest - observedSpan * 0.06 : 0;
-  const paddedMax = highest + observedSpan * 0.06;
-  const step = niceStep(Math.max(1, paddedMax - paddedMin) / 5);
-  const min = lowest < 0 ? Math.floor(paddedMin / step) * step : 0;
-  const max = Math.max(step, Math.ceil(paddedMax / step) * step);
-  const ticks: number[] = [];
-  for (let value = min; value <= max + step / 2 && ticks.length < 20; value += step) ticks.push(value);
-  return { min, max, step, ticks };
 };
 
 type StackHover = {
@@ -92,6 +66,7 @@ type FundStackPanelProps = {
   visible: FundStackPoint[];
   visibleTimes: number[];
   selectedDate: string | null;
+  scale: FundStackScale;
   viewKey: string;
   onSelectDate: (date: string, mode: FundStackMode) => void;
 };
@@ -102,13 +77,13 @@ export default function FundStackPanel({
   visible,
   visibleTimes,
   selectedDate,
+  scale,
   viewKey,
   onSelectDate,
 }: FundStackPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const [hover, setHover] = useState<StackHover | null>(null);
-  const scale = useMemo(() => chartScale(visible, mode), [mode, visible]);
   const bounds = useMemo(
     () => visible.map((point) => stackBoundsForPoint(point, mode)),
     [mode, visible],
@@ -348,6 +323,9 @@ export default function FundStackPanel({
           data-mode={mode}
           data-visible-points={visible.length}
           data-fund-count={model.funds.length}
+          data-axis-min={scale.min}
+          data-axis-max={scale.max}
+          data-axis-step={scale.step}
           data-hovered-date={hoveredPoint?.date ?? ""}
           data-hovered-fund={hoveredFund?.key ?? ""}
           aria-label={`${stackModeTitle(mode)} stacked chart showing ${model.funds.length} funds from ${stackFormatDate(visible[0].date)} to ${stackFormatDate(visible.at(-1)?.date ?? visible[0].date)}. Press Enter to select a date, then use arrow keys.`}

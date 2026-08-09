@@ -5,6 +5,7 @@ import { buildNavPoints } from "../app/nav-activity-service.ts";
 import { buildChartScale } from "../app/chart-scale.ts";
 import {
   annualizedReturnAt,
+  buildSharedFundStackScale,
   buildFundStackModel,
   findStackFundIndex,
   fundValueShare,
@@ -220,6 +221,18 @@ test("stack hover hit-testing identifies positive and negative fund layers exact
   assert.equal(findStackFundIndex(point, "contribution", 45), 2);
   assert.equal(findStackFundIndex(point, "contribution", 60), -1);
   assert.equal(fundValueShare(point, 0), 120 / 230 * 100);
+  assert.deepEqual(buildSharedFundStackScale([point], ["value", "invested"]), {
+    min: 0,
+    max: 250,
+    step: 50,
+    ticks: [0, 50, 100, 150, 200, 250],
+  });
+  assert.deepEqual(buildSharedFundStackScale([point], ["value", "invested", "contribution"]), {
+    min: -50,
+    max: 250,
+    step: 50,
+    ticks: [-50, 0, 50, 100, 150, 200, 250],
+  });
 });
 
 test("daily normalization retains every real published NAV date", () => {
