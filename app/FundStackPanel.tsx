@@ -5,6 +5,7 @@ import type { KeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as Reac
 import {
   CHART_LENS_CONTENT_INSET,
   chartLensGeometry,
+  chartLensMovementBounds,
   insetChartLensGeometry,
   lensDisplayPoint,
   lensSourcePoint,
@@ -107,6 +108,7 @@ export default function FundStackPanel({
   const shellRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     pointerId: number;
+    captureTarget: HTMLCanvasElement;
     startX: number;
     startY: number;
     startLensX: number;
@@ -156,15 +158,13 @@ export default function FundStackPanel({
   }, [lens]);
 
   const updateHover = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (!visible.length) return;
+    const rect = shellRef.current?.getBoundingClientRect();
+    if (!rect || !visible.length) return;
     const resolved = resolvePointer(event.clientX, event.clientY, rect);
     const { padding } = resolved;
     const chartHeight = rect.height - padding.top - padding.bottom;
     if (
-      resolved.raw.y < padding.top
-      || resolved.raw.y > rect.height - padding.bottom
-      || resolved.source.x < padding.left
+      resolved.source.x < padding.left
       || resolved.source.x > rect.width - padding.right
       || resolved.source.y < padding.top
       || resolved.source.y > rect.height - padding.bottom
@@ -366,48 +366,59 @@ export default function FundStackPanel({
     renderChart(context, width, height);
   }, [renderChart, visible.length]);
 
-  const drawLens = useCallback(() => {
+  const positionLens = useCallback(() => {
     const lensCanvas = lensCanvasRef.current;
     const shell = shellRef.current;
-    if (!lensCanvas || !shell) return;
+    if (!lensCanvas || !shell) return null;
+    if (!lens.enabled || !visible.length) {
+      lensCanvas.style.display = "none";
+      return null;
+    }
+
     const width = shell.clientWidth;
     const height = 390;
+    const shellRect = shell.getBoundingClientRect();
+    const geometry = chartLensGeometry(width, height, chartPadding(width), lens);
+    const diameter = Math.ceil(geometry.radius * 2 + 8);
+    const localCenter = diameter / 2;
+    lensCanvas.style.display = "block";
+    lensCanvas.style.width = `${diameter}px`;
+    lensCanvas.style.setProperty("height", `${diameter}px`, "important");
+    lensCanvas.style.transform = `translate3d(${shellRect.left + geometry.centerX - localCenter}px, ${shellRect.top + geometry.centerY - localCenter}px, 0)`;
+    return { lensCanvas, width, height, geometry, diameter, localCenter };
+  }, [lens, visible.length]);
+
+  const drawLens = useCallback(() => {
+    const positioned = positionLens();
+    if (!positioned) return;
+    const { lensCanvas, width, height, geometry, diameter, localCenter } = positioned;
     const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 2), 3);
-    const pixelWidth = Math.round(width * dpr);
-    const pixelHeight = Math.round(height * dpr);
-    if (lensCanvas.width !== pixelWidth || lensCanvas.height !== pixelHeight) {
-      lensCanvas.width = pixelWidth;
-      lensCanvas.height = pixelHeight;
+    const pixelSize = Math.round(diameter * dpr);
+    if (lensCanvas.width !== pixelSize || lensCanvas.height !== pixelSize) {
+      lensCanvas.width = pixelSize;
+      lensCanvas.height = pixelSize;
     }
-    if (lensCanvas.style.width !== `${width}px`) lensCanvas.style.width = `${width}px`;
-    if (lensCanvas.style.height !== `${height}px`) lensCanvas.style.height = `${height}px`;
     const context = lensCanvas.getContext("2d");
     if (!context) return;
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    context.clearRect(0, 0, width, height);
-    if (!lens.enabled || !visible.length) return;
-
-    const geometry = chartLensGeometry(width, height, chartPadding(width), lens);
-    const destinationLeft = geometry.centerX - geometry.radius;
-    const destinationTop = geometry.centerY - geometry.radius;
+    context.clearRect(0, 0, diameter, diameter);
+    const destinationLeft = localCenter - geometry.radius;
+    const destinationTop = localCenter - geometry.radius;
 
     context.save();
-    context.shadowColor = "rgba(11, 29, 42, 0.22)";
-    context.shadowBlur = 24;
-    context.shadowOffsetY = 8;
     context.fillStyle = "#fdfcf7";
     context.beginPath();
-    context.arc(geometry.centerX, geometry.centerY, geometry.radius - 2, 0, Math.PI * 2);
+    context.arc(localCenter, localCenter, geometry.radius - 2, 0, Math.PI * 2);
     context.fill();
     context.restore();
 
     context.save();
     context.beginPath();
-    context.arc(geometry.centerX, geometry.centerY, geometry.radius - CHART_LENS_CONTENT_INSET, 0, Math.PI * 2);
+    context.arc(localCenter, localCenter, geometry.radius - CHART_LENS_CONTENT_INSET, 0, Math.PI * 2);
     context.clip();
     context.fillStyle = "#fdfcf7";
     context.fillRect(destinationLeft, destinationTop, geometry.radius * 2, geometry.radius * 2);
-    context.translate(geometry.centerX, geometry.centerY);
+    context.translate(localCenter, localCenter);
     context.scale(lens.magnification, lens.magnification);
     context.translate(-geometry.focusX, -geometry.focusY);
     renderChart(context, width, height, 1 / lens.magnification);
@@ -415,13 +426,13 @@ export default function FundStackPanel({
 
     context.save();
     context.beginPath();
-    context.arc(geometry.centerX, geometry.centerY, geometry.radius - CHART_LENS_CONTENT_INSET, 0, Math.PI * 2);
+    context.arc(localCenter, localCenter, geometry.radius - CHART_LENS_CONTENT_INSET, 0, Math.PI * 2);
     context.clip();
     const sheen = context.createLinearGradient(
       destinationLeft,
       destinationTop,
-      geometry.centerX + geometry.radius * 0.35,
-      geometry.centerY + geometry.radius * 0.35,
+      localCenter + geometry.radius * 0.35,
+      localCenter + geometry.radius * 0.35,
     );
     sheen.addColorStop(0, "rgba(255,255,255,.28)");
     sheen.addColorStop(0.38, "rgba(255,255,255,.04)");
@@ -429,11 +440,11 @@ export default function FundStackPanel({
     context.fillStyle = sheen;
     context.fillRect(destinationLeft, destinationTop, geometry.radius * 2, geometry.radius * 2);
     const vignette = context.createRadialGradient(
-      geometry.centerX,
-      geometry.centerY,
+      localCenter,
+      localCenter,
       geometry.radius * 0.72,
-      geometry.centerX,
-      geometry.centerY,
+      localCenter,
+      localCenter,
       geometry.radius,
     );
     vignette.addColorStop(0, "rgba(11,29,42,0)");
@@ -445,24 +456,63 @@ export default function FundStackPanel({
     context.strokeStyle = "rgba(255,255,255,.94)";
     context.lineWidth = 5;
     context.beginPath();
-    context.arc(geometry.centerX, geometry.centerY, geometry.radius - 4, 0, Math.PI * 2);
+    context.arc(localCenter, localCenter, geometry.radius - 4, 0, Math.PI * 2);
     context.stroke();
     context.strokeStyle = dragging ? "#087A4B" : "#315e4d";
     context.lineWidth = dragging ? 3 : 2.25;
     context.beginPath();
-    context.arc(geometry.centerX, geometry.centerY, geometry.radius - 1.5, 0, Math.PI * 2);
+    context.arc(localCenter, localCenter, geometry.radius - 1.5, 0, Math.PI * 2);
     context.stroke();
     context.strokeStyle = dragging ? "rgba(8,122,75,.30)" : "rgba(49,94,77,.18)";
     context.lineWidth = 1;
     context.beginPath();
-    context.arc(geometry.centerX, geometry.centerY, geometry.radius + 1.5, 0, Math.PI * 2);
+    context.arc(localCenter, localCenter, geometry.radius + 1.5, 0, Math.PI * 2);
     context.stroke();
-  }, [dragging, lens, renderChart, visible.length]);
+  }, [dragging, lens.magnification, positionLens, renderChart]);
+
+  useEffect(() => {
+    if (lens.enabled) return;
+    const drag = dragRef.current;
+    dragRef.current = null;
+    pendingLensPositionRef.current = null;
+    suppressClickRef.current = false;
+    if (lensMoveFrameRef.current !== null) {
+      cancelAnimationFrame(lensMoveFrameRef.current);
+      lensMoveFrameRef.current = null;
+    }
+    if (drag?.captureTarget.hasPointerCapture(drag.pointerId)) {
+      drag.captureTarget.releasePointerCapture(drag.pointerId);
+    }
+    if (canvasRef.current) canvasRef.current.style.cursor = "crosshair";
+    if (lensCanvasRef.current) lensCanvasRef.current.style.cursor = "grab";
+    requestAnimationFrame(() => {
+      setHover(null);
+      setDragging(false);
+    });
+  }, [lens.enabled]);
 
   useEffect(() => {
     latestLensDrawRef.current = drawLens;
     drawLens();
   }, [drawLens]);
+
+  useEffect(() => {
+    let viewportFrame: number | null = null;
+    const refreshLensPosition = () => {
+      if (viewportFrame !== null) return;
+      viewportFrame = requestAnimationFrame(() => {
+        viewportFrame = null;
+        positionLens();
+      });
+    };
+    window.addEventListener("resize", refreshLensPosition);
+    document.addEventListener("scroll", refreshLensPosition, true);
+    return () => {
+      window.removeEventListener("resize", refreshLensPosition);
+      document.removeEventListener("scroll", refreshLensPosition, true);
+      if (viewportFrame !== null) cancelAnimationFrame(viewportFrame);
+    };
+  }, [positionLens]);
 
   useEffect(() => () => {
     if (lensMoveFrameRef.current !== null) cancelAnimationFrame(lensMoveFrameRef.current);
@@ -487,7 +537,9 @@ export default function FundStackPanel({
     startClientX: number,
     startClientY: number,
   ) => {
-    const rect = event.currentTarget.getBoundingClientRect();
+    const rect = shellRef.current?.getBoundingClientRect();
+    if (!rect) return { x: startLensX, y: startLensY };
+    const padding = chartPadding(rect.width);
     return shiftNormalizedChartLensPosition(
       startLensX,
       startLensY,
@@ -495,9 +547,10 @@ export default function FundStackPanel({
       event.clientY - startClientY,
       rect.width,
       rect.height,
-      chartPadding(rect.width),
+      padding,
+      chartLensMovementBounds(rect.width, rect.height, padding, lens),
     );
-  }, []);
+  }, [lens]);
 
   const scheduleLensMove = useCallback((position: { x: number; y: number }) => {
     pendingLensPositionRef.current = position;
@@ -512,15 +565,28 @@ export default function FundStackPanel({
 
   const beginLensDrag = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (!lens.enabled || event.button !== 0) return;
-    const rect = event.currentTarget.getBoundingClientRect();
+    const rect = shellRef.current?.getBoundingClientRect();
+    if (!rect) return;
     const resolved = resolvePointer(event.clientX, event.clientY, rect);
     if (!pointIsInsideChartLens(resolved.raw.x, resolved.raw.y, resolved.geometry)) return;
+    const movement = chartLensMovementBounds(rect.width, rect.height, resolved.padding, lens);
+    const effectiveStart = shiftNormalizedChartLensPosition(
+      lens.x,
+      lens.y,
+      0,
+      0,
+      rect.width,
+      rect.height,
+      resolved.padding,
+      movement,
+    );
     dragRef.current = {
       pointerId: event.pointerId,
+      captureTarget: event.currentTarget,
       startX: event.clientX,
       startY: event.clientY,
-      startLensX: lens.x,
-      startLensY: lens.y,
+      startLensX: effectiveStart.x,
+      startLensY: effectiveStart.y,
       moved: false,
     };
     suppressClickRef.current = false;
@@ -528,7 +594,7 @@ export default function FundStackPanel({
     event.currentTarget.style.cursor = "grabbing";
     setDragging(true);
     event.preventDefault();
-  }, [lens.enabled, lens.x, lens.y, resolvePointer]);
+  }, [lens, resolvePointer]);
 
   const movePointer = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current;
@@ -545,7 +611,8 @@ export default function FundStackPanel({
       event.preventDefault();
       return;
     }
-    const rect = event.currentTarget.getBoundingClientRect();
+    const rect = shellRef.current?.getBoundingClientRect();
+    if (!rect) return;
     const resolved = resolvePointer(event.clientX, event.clientY, rect);
     event.currentTarget.style.cursor = resolved.insideLens ? "grab" : "crosshair";
     updateHover(event);
@@ -556,8 +623,8 @@ export default function FundStackPanel({
     if (!drag || drag.pointerId !== event.pointerId) return;
     suppressClickRef.current = drag.moved;
     dragRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    event.currentTarget.style.cursor = "grab";
+    if (drag.captureTarget.hasPointerCapture(event.pointerId)) drag.captureTarget.releasePointerCapture(event.pointerId);
+    drag.captureTarget.style.cursor = drag.captureTarget === lensCanvasRef.current ? "grab" : "crosshair";
     setDragging(false);
   }, []);
 
@@ -571,8 +638,23 @@ export default function FundStackPanel({
       cancelAnimationFrame(lensMoveFrameRef.current);
       lensMoveFrameRef.current = null;
     }
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    event.currentTarget.style.cursor = "crosshair";
+    if (drag.captureTarget.hasPointerCapture(event.pointerId)) drag.captureTarget.releasePointerCapture(event.pointerId);
+    drag.captureTarget.style.cursor = drag.captureTarget === lensCanvasRef.current ? "grab" : "crosshair";
+    setDragging(false);
+  }, []);
+
+  const loseLensCapture = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    pendingLensPositionRef.current = null;
+    suppressClickRef.current = false;
+    if (lensMoveFrameRef.current !== null) {
+      cancelAnimationFrame(lensMoveFrameRef.current);
+      lensMoveFrameRef.current = null;
+    }
+    event.currentTarget.style.cursor = event.currentTarget === lensCanvasRef.current ? "grab" : "crosshair";
+    setHover(null);
     setDragging(false);
   }, []);
 
@@ -581,7 +663,8 @@ export default function FundStackPanel({
       suppressClickRef.current = false;
       return;
     }
-    const rect = event.currentTarget.getBoundingClientRect();
+    const rect = shellRef.current?.getBoundingClientRect();
+    if (!rect) return;
     const resolved = resolvePointer(event.clientX, event.clientY, rect);
     const pointIndex = pointerToIndex(resolved.source.x, rect.width);
     const date = visible[pointIndex]?.date;
@@ -623,6 +706,7 @@ export default function FundStackPanel({
           onPointerMove={movePointer}
           onPointerUp={finishLensDrag}
           onPointerCancel={cancelLensDrag}
+          onLostPointerCapture={loseLensCapture}
           onPointerLeave={(event) => {
             if (!dragRef.current) setHover(null);
             if (!dragRef.current) event.currentTarget.style.cursor = "crosshair";
@@ -637,7 +721,22 @@ export default function FundStackPanel({
           data-hovered-fund={hoveredFund?.key ?? ""}
           aria-label={`${stackModeTitle(mode)} stacked chart showing ${model.funds.length} funds from ${stackFormatDate(visible[0].date)} to ${stackFormatDate(visible.at(-1)?.date ?? visible[0].date)}. Hover for exact values, drag the circular lens to inspect thin layers, press Enter to select a date, or use left and right arrows for dates.`}
         />
-        <canvas ref={lensCanvasRef} className="stack-lens-canvas" data-render-mode="vector" aria-hidden="true" />
+        <canvas
+          ref={lensCanvasRef}
+          className="stack-lens-canvas"
+          data-render-mode="vector"
+          aria-hidden="true"
+          onClick={selectFromPointer}
+          onPointerDown={beginLensDrag}
+          onPointerMove={movePointer}
+          onPointerUp={finishLensDrag}
+          onPointerCancel={cancelLensDrag}
+          onLostPointerCapture={loseLensCapture}
+          onPointerLeave={(event) => {
+            if (!dragRef.current) setHover(null);
+            if (!dragRef.current) event.currentTarget.style.cursor = "grab";
+          }}
+        />
         {activeHover && hoveredPoint && (
           <>
             {!activeHover.insideLens && <span className="stack-hover-guide" style={{ left: `${activeHover.x}px` }} />}

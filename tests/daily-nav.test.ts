@@ -6,6 +6,7 @@ import { buildChartScale } from "../app/chart-scale.ts";
 import {
   CHART_LENS_CONTENT_INSET,
   chartLensGeometry,
+  chartLensMovementBounds,
   insetChartLensGeometry,
   lensDisplayPoint,
   lensSourcePoint,
@@ -114,7 +115,7 @@ test("annualised fund return uses dated investor cash flows and terminal value",
   assert.equal(annualizedReturnAt([], "2026-01-01", 100), null);
 });
 
-test("draggable chart lens keeps synchronized geometry and inverse hover mapping", () => {
+test("draggable chart lens moves continuously beyond every plot edge with inverse hover mapping", () => {
   const lens: ChartLensState = { enabled: true, x: 0.5, y: 0.5, magnification: 2.5, size: 160 };
   const padding = { left: 60, right: 20, top: 28, bottom: 40 };
   const geometry = chartLensGeometry(500, 390, padding, lens);
@@ -129,15 +130,36 @@ test("draggable chart lens keeps synchronized geometry and inverse hover mapping
   assert.deepEqual(normalizedChartLensPosition(270, 189, 500, 390, padding), { x: 0.5, y: 0.5 });
 
   const edge = chartLensGeometry(500, 390, padding, { ...lens, x: 0, y: 0 });
-  assert.deepEqual(edge, { centerX: 140, centerY: 108, focusX: 60, focusY: 28, radius: 80 });
+  assert.deepEqual(edge, { centerX: 60, centerY: 28, focusX: 60, focusY: 28, radius: 80 });
   assert.deepEqual(lensSourcePoint(edge.centerX, edge.centerY, edge, lens.magnification), { x: 60, y: 28 });
-  assert.deepEqual(lensDisplayPoint(60, 28, edge, lens.magnification), { x: 140, y: 108 });
+  assert.deepEqual(lensDisplayPoint(60, 28, edge, lens.magnification), { x: 60, y: 28 });
 
   const oppositeEdge = chartLensGeometry(500, 390, padding, { ...lens, x: 1, y: 1 });
-  assert.deepEqual(oppositeEdge, { centerX: 400, centerY: 270, focusX: 480, focusY: 350, radius: 80 });
+  assert.deepEqual(oppositeEdge, { centerX: 480, centerY: 350, focusX: 480, focusY: 350, radius: 80 });
   assert.deepEqual(lensSourcePoint(oppositeEdge.centerX, oppositeEdge.centerY, oppositeEdge, lens.magnification), { x: 480, y: 350 });
-  assert.deepEqual(shiftNormalizedChartLensPosition(0.5, 0.5, -1_000, -1_000, 500, 390, padding), { x: 0, y: 0 });
-  assert.deepEqual(shiftNormalizedChartLensPosition(0.5, 0.5, 1_000, 1_000, 500, 390, padding), { x: 1, y: 1 });
+  const movement = chartLensMovementBounds(500, 390, padding, lens);
+  assert.deepEqual(movement, {
+    minX: -80 / 420,
+    maxX: 1 + 80 / 420,
+    minY: -80 / 322,
+    maxY: 1 + 80 / 322,
+  });
+  const beyondStart = chartLensGeometry(500, 390, padding, { ...lens, x: movement.minX, y: movement.minY });
+  assert.deepEqual(beyondStart, { centerX: -20, centerY: -52, focusX: -20, focusY: -52, radius: 80 });
+  const beyondEnd = chartLensGeometry(500, 390, padding, { ...lens, x: movement.maxX, y: movement.maxY });
+  assert.deepEqual(beyondEnd, { centerX: 560, centerY: 430, focusX: 560, focusY: 430, radius: 80 });
+  assert.deepEqual(
+    shiftNormalizedChartLensPosition(0.5, 0.5, -1_000, -1_000, 500, 390, padding, movement),
+    { x: movement.minX, y: movement.minY },
+  );
+  assert.deepEqual(
+    shiftNormalizedChartLensPosition(0.5, 0.5, 1_000, 1_000, 500, 390, padding, movement),
+    { x: movement.maxX, y: movement.maxY },
+  );
+  assert.deepEqual(
+    shiftNormalizedChartLensPosition(-0.5, 1.5, 0, 0, 500, 390, padding, movement),
+    { x: movement.minX, y: movement.maxY },
+  );
 });
 
 test("hiding net invested tightens the Y-axis around visible portfolio values", () => {

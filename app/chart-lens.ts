@@ -14,10 +14,44 @@ export type ChartLensGeometry = {
   focusY: number;
   radius: number;
 };
+export type ChartLensMovementBounds = {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+};
 export const CHART_LENS_CONTENT_INSET = 5;
 
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.max(minimum, Math.min(maximum, value));
+
+const lensRadius = (
+  width: number,
+  height: number,
+  padding: ChartPadding,
+  lens: ChartLensState,
+) => {
+  const chartWidth = Math.max(1, width - padding.left - padding.right);
+  const chartHeight = Math.max(1, height - padding.top - padding.bottom);
+  return Math.max(36, Math.min(lens.size / 2, chartWidth / 2 - 2, chartHeight / 2 - 2));
+};
+
+export function chartLensMovementBounds(
+  width: number,
+  height: number,
+  padding: ChartPadding,
+  lens: ChartLensState,
+): ChartLensMovementBounds {
+  const chartWidth = Math.max(1, width - padding.left - padding.right);
+  const chartHeight = Math.max(1, height - padding.top - padding.bottom);
+  const radius = lensRadius(width, height, padding, lens);
+  return {
+    minX: -radius / chartWidth,
+    maxX: 1 + radius / chartWidth,
+    minY: -radius / chartHeight,
+    maxY: 1 + radius / chartHeight,
+  };
+}
 
 export function chartLensGeometry(
   width: number,
@@ -27,12 +61,13 @@ export function chartLensGeometry(
 ): ChartLensGeometry {
   const chartWidth = Math.max(1, width - padding.left - padding.right);
   const chartHeight = Math.max(1, height - padding.top - padding.bottom);
-  const radius = Math.max(36, Math.min(lens.size / 2, chartWidth / 2 - 2, chartHeight / 2 - 2));
-  const focusX = padding.left + clamp(lens.x, 0, 1) * chartWidth;
-  const focusY = padding.top + clamp(lens.y, 0, 1) * chartHeight;
+  const radius = lensRadius(width, height, padding, lens);
+  const movement = chartLensMovementBounds(width, height, padding, lens);
+  const focusX = padding.left + clamp(lens.x, movement.minX, movement.maxX) * chartWidth;
+  const focusY = padding.top + clamp(lens.y, movement.minY, movement.maxY) * chartHeight;
   return {
-    centerX: clamp(focusX, padding.left + radius, width - padding.right - radius),
-    centerY: clamp(focusY, padding.top + radius, height - padding.bottom - radius),
+    centerX: focusX,
+    centerY: focusY,
     focusX,
     focusY,
     radius,
@@ -88,12 +123,13 @@ export function shiftNormalizedChartLensPosition(
   width: number,
   height: number,
   padding: ChartPadding,
+  movement: ChartLensMovementBounds,
 ) {
   const chartWidth = Math.max(1, width - padding.left - padding.right);
   const chartHeight = Math.max(1, height - padding.top - padding.bottom);
   return {
-    x: clamp(startX + deltaX / chartWidth, 0, 1),
-    y: clamp(startY + deltaY / chartHeight, 0, 1),
+    x: clamp(startX + deltaX / chartWidth, movement.minX, movement.maxX),
+    y: clamp(startY + deltaY / chartHeight, movement.minY, movement.maxY),
   };
 }
 
