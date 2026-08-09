@@ -27,6 +27,7 @@ import {
   maxStackReconciliationDifference,
   portfolioAbsoluteReturn,
   portfolioAnnualizedReturn,
+  rebaseFundStackToPeriodStart,
   stackBoundsForPoint,
   toggleStackModeSelection,
   type FundStackPoint,
@@ -101,10 +102,11 @@ test("shared vertical range resizes, pans, and converts to one exact Y scale", (
   });
 });
 
-test("stack view selection supports one, two, or three ordered panels", () => {
+test("stack view selection supports one to four ordered panels", () => {
   assert.deepEqual(toggleStackModeSelection(["value"], "invested"), ["value", "invested"]);
   assert.deepEqual(toggleStackModeSelection(["value", "invested"], "contribution"), ["value", "invested", "contribution"]);
-  assert.deepEqual(toggleStackModeSelection(["value", "invested", "contribution"], "value"), ["invested", "contribution"]);
+  assert.deepEqual(toggleStackModeSelection(["value", "invested", "contribution"], "periodChange"), ["value", "invested", "contribution", "periodChange"]);
+  assert.deepEqual(toggleStackModeSelection(["value", "invested", "contribution", "periodChange"], "value"), ["invested", "contribution", "periodChange"]);
   assert.deepEqual(toggleStackModeSelection(["invested"], "invested"), ["invested"]);
 });
 
@@ -413,6 +415,70 @@ test("stack hover hit-testing identifies positive and negative fund layers exact
     step: 50,
     ticks: [-50, 0, 50, 100, 150, 200, 250],
   });
+});
+
+test("period change rebases every fund to the slider start and reconciles exact portfolio movement", () => {
+  const points: FundStackPoint[] = [
+    {
+      date: "2026-01-01",
+      funds: [
+        { fundKey: "first", value: 100, invested: 80, contribution: 20 },
+        { fundKey: "second", value: 200, invested: 180, contribution: 20 },
+        { fundKey: "third", value: 80, invested: 90, contribution: -10 },
+      ],
+      totalValue: 380,
+      totalInvested: 350,
+      totalContribution: 30,
+    },
+    {
+      date: "2026-02-01",
+      funds: [
+        { fundKey: "first", value: 120, invested: 80, contribution: 40 },
+        { fundKey: "second", value: 170, invested: 180, contribution: -10 },
+        { fundKey: "third", value: 80, invested: 90, contribution: -10 },
+      ],
+      totalValue: 370,
+      totalInvested: 350,
+      totalContribution: 20,
+    },
+    {
+      date: "2026-03-01",
+      funds: [
+        { fundKey: "first", value: 150, invested: 80, contribution: 70 },
+        { fundKey: "second", value: 160, invested: 180, contribution: -20 },
+        { fundKey: "third", value: 70, invested: 90, contribution: -20 },
+      ],
+      totalValue: 380,
+      totalInvested: 350,
+      totalContribution: 30,
+    },
+  ];
+
+  const rebased = rebaseFundStackToPeriodStart(points);
+  assert.deepEqual(rebased[0].funds.map((fund) => fund.periodChange), [0, 0, 0]);
+  assert.deepEqual(rebased[2].funds.map((fund) => fund.periodChange), [50, -40, -10]);
+  assert.equal(rebased[2].totalPeriodChange, 0);
+  assert.equal(rebased[2].totalPeriodChange, rebased[2].totalValue - rebased[0].totalValue);
+  assert.deepEqual(stackBoundsForPoint(rebased[2], "periodChange"), [
+    { lower: 0, upper: 50 },
+    { lower: -40, upper: 0 },
+    { lower: -50, upper: -40 },
+  ]);
+  assert.equal(findStackFundIndex(rebased[2], "periodChange", 25), 0);
+  assert.equal(findStackFundIndex(rebased[2], "periodChange", -20), 1);
+  assert.equal(findStackFundIndex(rebased[2], "periodChange", -45), 2);
+  assert.equal(maxStackReconciliationDifference({ funds: [], points: rebased }), 0);
+  assert.equal(maxStackReconciliationDifference({
+    funds: [],
+    points: [{ ...rebased[2], totalPeriodChange: 5 }],
+  }), 5);
+  assert.equal(points[0].funds[0].periodChange, undefined);
+
+  const movedSlider = rebaseFundStackToPeriodStart(points.slice(1));
+  assert.deepEqual(movedSlider[0].funds.map((fund) => fund.periodChange), [0, 0, 0]);
+  assert.deepEqual(movedSlider[1].funds.map((fund) => fund.periodChange), [30, -10, -10]);
+  assert.equal(movedSlider[1].totalPeriodChange, 10);
+  assert.equal(movedSlider[1].totalPeriodChange, movedSlider[1].totalValue - movedSlider[0].totalValue);
 });
 
 test("daily normalization retains every real published NAV date", () => {

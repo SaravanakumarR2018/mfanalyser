@@ -28,13 +28,15 @@ import {
 const modeTotal = (point: FundStackPoint, mode: FundStackMode) => {
   if (mode === "value") return point.totalValue;
   if (mode === "invested") return point.totalInvested;
-  return point.totalContribution;
+  if (mode === "contribution") return point.totalContribution;
+  return point.totalPeriodChange ?? 0;
 };
 
 export const stackModeTitle = (mode: FundStackMode) => {
   if (mode === "value") return "Fund value";
   if (mode === "invested") return "Net invested";
-  return "Contribution";
+  if (mode === "contribution") return "Contribution";
+  return "Period change";
 };
 
 export const stackFundColor = (index: number) =>
@@ -204,7 +206,7 @@ export default function FundStackPanel({
     const tooltipAnchorX = resolved.insideLens ? cursorX : x;
     const preferredLeft = tooltipAnchorX < rect.width / 2 ? tooltipAnchorX + 14 : tooltipAnchorX - tooltipWidth - 14;
     const tooltipLeft = Math.max(8, Math.min(rect.width - tooltipWidth - 8, preferredLeft));
-    const tooltipHeight = fundIndex === null ? 122 : 158;
+    const tooltipHeight = fundIndex === null ? 122 : mode === "periodChange" ? 182 : 158;
     const tooltipTop = resolved.insideLens && resolved.geometry.centerY < rect.height / 2
       ? Math.max(8, rect.height - tooltipHeight - 8)
       : 8;
@@ -314,7 +316,7 @@ export default function FundStackPanel({
     });
     context.strokeStyle = "rgba(11,29,42,.72)";
     context.lineWidth = 1.6 * detailScale;
-    context.setLineDash(mode === "contribution" ? [5 * detailScale, 4 * detailScale] : []);
+    context.setLineDash(mode === "contribution" || mode === "periodChange" ? [5 * detailScale, 4 * detailScale] : []);
     context.stroke();
     context.setLineDash([]);
     context.restore();
@@ -689,10 +691,30 @@ export default function FundStackPanel({
   const annualizedReturn = hoveredPoint && hoveredFund && hoveredFundValue
     ? annualizedReturnAt(hoveredFund.transactions, hoveredPoint.date, hoveredFundValue.value)
     : null;
+  const periodStartDate = visible[0]?.date ?? "";
+  const hoveredPeriodChange = hoveredFundValue?.periodChange ?? 0;
+  const hoveredPeriodCashFlow = hoveredPoint && hoveredFund
+    ? hoveredFund.transactions.reduce((total, transaction) =>
+      transaction.date > periodStartDate && transaction.date <= hoveredPoint.date
+        ? total + transaction.amount
+        : total, 0)
+    : 0;
+  const hoveredMarketMovement = hoveredPeriodChange - hoveredPeriodCashFlow;
+  const hoveredPeriodSideTotal = hoveredPoint
+    ? hoveredPoint.funds.reduce((total, fund) => {
+      const change = fund.periodChange ?? 0;
+      return change === 0 || Math.sign(change) === Math.sign(hoveredPeriodChange)
+        ? total + Math.abs(change)
+        : total;
+    }, 0)
+    : 0;
+  const hoveredPeriodShare = hoveredPeriodSideTotal
+    ? Math.abs(hoveredPeriodChange) / hoveredPeriodSideTotal * 100
+    : 0;
   const latestPoint = visible.at(-1);
 
   return (
-    <article className={`fund-stack-panel${lens.enabled ? " lens-active" : ""}${dragging ? " lens-dragging" : ""}`} data-panel-mode={mode} data-lens-enabled={lens.enabled} data-lens-x={lens.x.toFixed(4)} data-lens-y={lens.y.toFixed(4)} data-lens-magnification={lens.magnification} data-lens-size={lens.size}>
+    <article className={`fund-stack-panel${lens.enabled ? " lens-active" : ""}${dragging ? " lens-dragging" : ""}`} data-panel-mode={mode} data-period-start-date={mode === "periodChange" ? periodStartDate : ""} data-lens-enabled={lens.enabled} data-lens-x={lens.x.toFixed(4)} data-lens-y={lens.y.toFixed(4)} data-lens-magnification={lens.magnification} data-lens-size={lens.size}>
       <header><span><i className="stack-total-key" />{stackModeTitle(mode)}</span><strong className={(latestPoint ? modeTotal(latestPoint, mode) : 0) < 0 ? "negative" : ""}>{latestPoint ? formatInr(modeTotal(latestPoint, mode)) : "—"}</strong></header>
       <div ref={shellRef} className="fund-stack-shell">
         <canvas
@@ -748,7 +770,17 @@ export default function FundStackPanel({
                 {hoveredFund && activeHover.fundIndex !== null && <i aria-hidden="true" style={{ background: stackFundColor(activeHover.fundIndex) }} />}
                 <strong>{hoveredFund?.name ?? "Portfolio total"}</strong>
               </div>
-              {hoveredFund && hoveredFundValue ? (
+              {hoveredFund && hoveredFundValue && mode === "periodChange" ? (
+                <>
+                  <small>{hoveredFund.category}{hoveredFund.closed ? " · Closed" : ""} · baseline {stackFormatDate(periodStartDate)}</small>
+                  <div><span>Start value</span><b>{formatInr(hoveredFundValue.periodStartValue ?? 0)}</b></div>
+                  <div><span>Value on date</span><b>{formatInr(hoveredFundValue.value)}</b></div>
+                  <div><span>Net cash flow</span><b className={hoveredPeriodCashFlow < 0 ? "negative" : hoveredPeriodCashFlow > 0 ? "positive" : ""}>{formatInr(hoveredPeriodCashFlow)}</b></div>
+                  <div><span>Market movement</span><b className={hoveredMarketMovement < 0 ? "negative" : hoveredMarketMovement > 0 ? "positive" : ""}>{formatInr(hoveredMarketMovement)}</b></div>
+                  <div><span>Period change</span><b className={hoveredPeriodChange < 0 ? "negative" : "positive"}>{formatInr(hoveredPeriodChange)}</b></div>
+                  <footer><b>{hoveredPeriodShare.toFixed(2)}% of {hoveredPeriodChange < 0 ? "decrease" : "increase"}</b><span>Total {formatInr(hoveredPoint.totalPeriodChange ?? 0)}</span></footer>
+                </>
+              ) : hoveredFund && hoveredFundValue ? (
                 <>
                   <small>{hoveredFund.category}{hoveredFund.closed ? " · Closed" : ""}</small>
                   <div><span>Fund value</span><b>{formatInr(hoveredFundValue.value)}</b></div>
@@ -756,6 +788,12 @@ export default function FundStackPanel({
                   <div><span>Contribution</span><b className={hoveredFundValue.contribution < 0 ? "negative" : "positive"}>{formatInr(hoveredFundValue.contribution)}</b></div>
                   <div><span>Annualised return</span><b className={annualizedReturn !== null && annualizedReturn < 0 ? "negative" : annualizedReturn !== null ? "positive" : ""}>{annualizedReturn === null ? "—" : `${annualizedReturn.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}% p.a.`}</b></div>
                   <footer><b>{hoveredShare.toFixed(2)}% of portfolio</b><span>Total {formatInr(hoveredPoint.totalValue)}</span></footer>
+                </>
+              ) : mode === "periodChange" ? (
+                <>
+                  <div><span>Portfolio start</span><b>{formatInr(hoveredPoint.periodStartValue ?? 0)}</b></div>
+                  <div><span>Portfolio value</span><b>{formatInr(hoveredPoint.totalValue)}</b></div>
+                  <div><span>Period change</span><b className={(hoveredPoint.totalPeriodChange ?? 0) < 0 ? "negative" : "positive"}>{formatInr(hoveredPoint.totalPeriodChange ?? 0)}</b></div>
                 </>
               ) : (
                 <>

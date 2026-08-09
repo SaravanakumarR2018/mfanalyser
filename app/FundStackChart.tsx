@@ -20,6 +20,7 @@ import {
   buildSharedFundStackScale,
   buildFundStackModel,
   maxStackReconciliationDifference,
+  rebaseFundStackToPeriodStart,
   stackMetric,
   toggleStackModeSelection,
   type FundStackMode,
@@ -33,12 +34,14 @@ const MODES: Array<{ key: FundStackMode; label: string }> = [
   { key: "value", label: "Value" },
   { key: "invested", label: "Invested" },
   { key: "contribution", label: "Contribution" },
+  { key: "periodChange", label: "Period change" },
 ];
 
 const modeTotal = (point: FundStackPoint, mode: FundStackMode) => {
   if (mode === "value") return point.totalValue;
   if (mode === "invested") return point.totalInvested;
-  return point.totalContribution;
+  if (mode === "contribution") return point.totalContribution;
+  return point.totalPeriodChange ?? 0;
 };
 
 type DateSelection = { date: string; mode: FundStackMode };
@@ -77,9 +80,13 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
     priorPoints.current = model.points;
   }, [model.points]);
 
-  const visible = useMemo(
+  const rawVisible = useMemo(
     () => model.points.slice(range[0], Math.min(model.points.length, range[1] + 1)),
     [model.points, range],
+  );
+  const visible = useMemo(
+    () => rebaseFundStackToPeriodStart(rawVisible),
+    [rawVisible],
   );
   const visibleTimes = useMemo(
     () => visible.map((point) => new Date(`${point.date}T00:00:00Z`).getTime()),
@@ -122,18 +129,19 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
       .map((fund, index) => ({ ...fund, fund: model.funds[index], index, amount: stackMetric(fund, selectedMode) }))
       .sort((left, right) => right.amount - left.amount)
     : [];
-  const positiveRanked = selectedMode === "contribution" ? ranked.filter((item) => item.amount >= 0) : ranked;
-  const negativeRanked = selectedMode === "contribution"
+  const signedMode = selectedMode === "contribution" || selectedMode === "periodChange";
+  const positiveRanked = signedMode ? ranked.filter((item) => item.amount >= 0) : ranked;
+  const negativeRanked = signedMode
     ? ranked.filter((item) => item.amount < 0).sort((left, right) => left.amount - right.amount)
     : [];
   const selectedTotal = selectedPoint ? modeTotal(selectedPoint, selectedMode) : 0;
-  const reconciliationDifference = maxStackReconciliationDifference(model);
+  const reconciliationDifference = maxStackReconciliationDifference({ ...model, points: visible });
   const moveLens = useCallback((position: { x: number; y: number }) => {
     setLens((current) => ({ ...current, ...position }));
   }, []);
 
   const renderRows = (rows: typeof ranked, offset = 0) => {
-    const shareBase = selectedMode === "contribution"
+    const shareBase = signedMode
       ? rows.reduce((total, row) => total + Math.abs(row.amount), 0)
       : Math.abs(selectedTotal);
     return rows.map((item, index) => {
@@ -142,7 +150,7 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
         <div className="stack-ranking-row" key={item.fundKey}>
           <span className="stack-rank">{String(offset + index + 1).padStart(2, "0")}</span>
           <span className="stack-fund"><i style={{ background: stackFundColor(item.index) }} /><span><strong>{item.fund.name}</strong><small>{item.fund.category}{item.fund.closed ? " · Closed" : ""}</small></span></span>
-          <span className={item.amount < 0 ? "negative" : selectedMode === "contribution" ? "positive" : ""}><strong>{formatInr(item.amount)}</strong><small>{share.toFixed(1)}% of {selectedMode === "contribution" ? "this side" : "total"}</small></span>
+          <span className={item.amount < 0 ? "negative" : signedMode ? "positive" : ""}><strong>{formatInr(item.amount)}</strong><small>{share.toFixed(1)}% of {signedMode ? "this side" : "total"}</small></span>
         </div>
       );
     });
@@ -173,6 +181,7 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
         <span>{modes.length} {modes.length === 1 ? "view" : "views"} selected · shared Y-axis</span>
         <span>Y {formatInr(sharedScale.min)}–{formatInr(sharedScale.max)}</span>
         <span>{model.funds.length} funds · all shown</span>
+        {modes.includes("periodChange") && visible[0] && <span>Period change starts at ₹0 · {stackFormatDate(visible[0].date)}</span>}
         <em>{lens.enabled ? "Drag the lens on any chart · hover inside it for exact details" : "Turn on Lens to inspect thin layers without changing the chart"}</em>
       </div>
       {visible.length > 1 ? (
@@ -225,9 +234,9 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
         <section className="stack-ranking-panel" aria-label={`Fund ranking on ${stackFormatDate(selectedPoint.date)}`}>
           <header><div><span>Selected date</span><strong>{stackFormatDate(selectedPoint.date)}</strong></div><div><span>{stackModeTitle(selectedMode)}</span><strong className={selectedTotal < 0 ? "negative" : ""}>{formatInr(selectedTotal)}</strong></div><button type="button" onClick={() => setSelection(null)} aria-label="Close fund ranking">×</button></header>
           <div className="stack-ranking-scroll" role="region" aria-label={`All funds ranked by ${selectedMode}`}>
-            {selectedMode === "contribution" && <div className="stack-ranking-group positive">Positive contribution</div>}
+            {signedMode && <div className="stack-ranking-group positive">{selectedMode === "periodChange" ? "Positive value change" : "Positive contribution"}</div>}
             {renderRows(positiveRanked)}
-            {selectedMode === "contribution" && negativeRanked.length > 0 && <div className="stack-ranking-group negative">Negative contribution</div>}
+            {signedMode && negativeRanked.length > 0 && <div className="stack-ranking-group negative">{selectedMode === "periodChange" ? "Negative value change" : "Negative contribution"}</div>}
             {renderRows(negativeRanked, positiveRanked.length)}
           </div>
           <p>Showing all {model.funds.length} funds · the first eight are visible; scroll for the rest.</p>
@@ -235,7 +244,7 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
       )}
       <p className="stack-chart-note"><strong>Reconciled stack:</strong> {portfolio.source === "demo"
         ? "every demo fund is included in a stable order using the illustrative demo allocation."
-        : "every active and closed CAS fund is included in a stable order. Historical points appear only when exact same-day NAVs are available for every fund held on that date; missing dates are not estimated."} Annualised return is the money-weighted XIRR from exact dated CAS cash flows and the fund value on the hovered date; it is shown as — when it cannot be computed.</p>
+        : "every active and closed CAS fund is included in a stable order. Historical points appear only when exact same-day NAVs are available for every fund held on that date; missing dates are not estimated."} <strong>Period change</strong> rebases every fund to ₹0 at the left slider date and plots its exact value change from that baseline. It includes investments and redemptions during the period, so it explains the portfolio’s rupee movement rather than investment performance. Annualised return is the money-weighted XIRR from exact dated CAS cash flows and the fund value on the hovered date; it is shown as — when it cannot be computed.</p>
     </section>
   );
 }

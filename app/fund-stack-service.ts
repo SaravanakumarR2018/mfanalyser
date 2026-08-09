@@ -1,6 +1,6 @@
 import type { ClosedFund, FundHolding, FundTransaction, HistoricalNavPoint, Portfolio } from "./cas-parser";
 
-export type FundStackMode = "value" | "invested" | "contribution";
+export type FundStackMode = "value" | "invested" | "contribution" | "periodChange";
 
 export type FundStackFund = {
   key: string;
@@ -15,6 +15,8 @@ export type FundStackValue = {
   value: number;
   invested: number;
   contribution: number;
+  periodStartValue?: number;
+  periodChange?: number;
 };
 
 export type FundStackPoint = {
@@ -23,6 +25,9 @@ export type FundStackPoint = {
   totalValue: number;
   totalInvested: number;
   totalContribution: number;
+  periodStartDate?: string;
+  periodStartValue?: number;
+  totalPeriodChange?: number;
   latest?: boolean;
 };
 
@@ -31,7 +36,7 @@ export type FundStackModel = {
   points: FundStackPoint[];
 };
 
-const STACK_MODE_ORDER: FundStackMode[] = ["value", "invested", "contribution"];
+const STACK_MODE_ORDER: FundStackMode[] = ["value", "invested", "contribution", "periodChange"];
 
 const isoDateTime = (date: string) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
@@ -330,7 +335,34 @@ export function buildFundStackModel(portfolio: Portfolio): FundStackModel {
   return { funds, points };
 }
 
-export const stackMetric = (point: FundStackValue, mode: FundStackMode) => point[mode];
+export function rebaseFundStackToPeriodStart(points: FundStackPoint[]): FundStackPoint[] {
+  const periodStart = points[0];
+  if (!periodStart) return [];
+  const startValues = new Map(periodStart.funds.map((fund) => [fund.fundKey, fund.value]));
+
+  return points.map((point) => {
+    const funds = point.funds.map((fund) => {
+      const periodStartValue = startValues.get(fund.fundKey) ?? 0;
+      return {
+        ...fund,
+        periodStartValue,
+        periodChange: fund.value - periodStartValue,
+      };
+    });
+    return {
+      ...point,
+      funds,
+      periodStartDate: periodStart.date,
+      periodStartValue: periodStart.totalValue,
+      totalPeriodChange: funds.reduce((total, fund) => total + (fund.periodChange ?? 0), 0),
+    };
+  });
+}
+
+export const stackMetric = (point: FundStackValue, mode: FundStackMode) => {
+  if (mode === "periodChange") return point.periodChange ?? 0;
+  return point[mode];
+};
 
 export type FundStackBound = { lower: number; upper: number };
 export type FundStackScale = { min: number; max: number; step: number; ticks: number[] };
@@ -410,6 +442,22 @@ export function maxStackReconciliationDifference(model: FundStackModel) {
     const contributionDifference = Math.abs(
       point.totalContribution - point.funds.reduce((total, fund) => total + fund.contribution, 0),
     );
-    return Math.max(largest, valueDifference, investedDifference, contributionDifference);
+    const periodChangeDifference = point.totalPeriodChange === undefined
+      ? 0
+      : Math.abs(
+        point.totalPeriodChange
+        - point.funds.reduce((total, fund) => total + (fund.periodChange ?? 0), 0),
+      );
+    const periodPortfolioDifference = point.totalPeriodChange === undefined || point.periodStartValue === undefined
+      ? 0
+      : Math.abs(point.totalPeriodChange - (point.totalValue - point.periodStartValue));
+    return Math.max(
+      largest,
+      valueDifference,
+      investedDifference,
+      contributionDifference,
+      periodChangeDifference,
+      periodPortfolioDifference,
+    );
   }, 0);
 }
