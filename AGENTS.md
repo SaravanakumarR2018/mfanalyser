@@ -68,6 +68,12 @@ Non-negotiable product promises:
   testing, and reconciliation diagnostics.
 - `app/nav-activity-service.ts` combines official daily NAVs, transaction NAVs,
   purchase/redemption activity, and the latest marker for fund/folio drawers.
+- `app/fund-comparison-service.ts` deduplicates active/closed CAS schemes,
+  loads every selected scheme from its earliest published NAV, normalizes each
+  fund independently to ₹100 at its own inception and again at its first exact
+  observation in every selected range, preserves custom calendar windows when
+  selections change, builds the shared vertical scale, and resolves exact-date
+  single-fund comparison tooltips without estimating missing observations.
 - `app/chart-scale.ts`, `app/chart-lens.ts`, `app/range-window.ts`, and
   `app/vertical-range.ts` contain pure chart geometry and range calculations.
 - `app/fund-sort.ts` and `app/formatters.ts` contain deterministic sorting and
@@ -84,6 +90,10 @@ Non-negotiable product promises:
   magnification, selection, rankings, and cash-flow context.
 - `app/NavActivityChart.tsx` renders official/transaction NAV activity inside
   fund and folio drawers.
+- `app/FundComparisonChart.tsx` renders the final dashboard comparison with a
+  searchable native-checkbox picker, normalized multi-fund lines, exact-date
+  tooltips, line focus, keyboard inspection, preserved horizontal and shared
+  vertical ranges, and retry states.
 - Canvas elements expose accessible names and stable `data-*` diagnostics used
   by browser tests. Preserve or deliberately update those contracts when chart
   behavior changes.
@@ -127,7 +137,7 @@ Non-negotiable product promises:
 - `playwright.config.ts` runs desktop Chromium, mobile Chromium, desktop
   Firefox, and desktop WebKit. It starts or reuses a server on port 3001 unless
   `PLAYWRIGHT_BASE_URL` is provided.
-- The 10 screenshot goldens are Chromium/Darwin-specific and must be treated as
+- The 18 screenshot goldens are Chromium/Darwin-specific and must be treated as
   reviewed artifacts, not regenerated casually.
 - All CAS fixtures must remain synthetic. Never check in a real or merely
   redacted investor statement.
@@ -284,13 +294,13 @@ This section is mandatory for every agent making code changes.
 
 At the time this file was added, the full gate contains:
 
-- 85 passing data tests;
-- aggregate application coverage around 99.26% lines, 86.23% branches, and
-  97.48% functions;
+- 104 passing data tests;
+- aggregate application coverage above the mandatory 97% lines, 80% branches,
+  and 90% functions thresholds;
 - 2 passing rendered-HTML tests after a successful production build;
-- 224 Playwright executions: 203 ordinary passes, 12 expected-failure
-  executions, and 9 intentional project skips, reported by Playwright as
-  `215 passed, 9 skipped` with zero unexpected failures.
+- 272 Playwright executions: 249 ordinary passes, 12 expected-failure
+  executions, and 11 intentional project skips, reported by Playwright as
+  `261 passed, 11 skipped` with zero unexpected failures.
 
 Test counts may grow as behavior grows. A smaller count is suspicious and must
 be explained. The 12 expected-failure executions are three documented product

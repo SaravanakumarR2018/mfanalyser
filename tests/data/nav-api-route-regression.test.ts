@@ -66,7 +66,7 @@ test("history proxy validates the upstream identity and filters its records into
   const result = await withFetch(async (input, init) => {
     const url = input as URL;
     assert.equal(url.origin + url.pathname, "https://api.mfapi.in/mf/1001");
-    assert.equal(url.searchParams.get("startDate"), "2026-01-01");
+    assert.equal(url.searchParams.get("startDate"), "1900-01-01");
     assert.equal(url.searchParams.get("endDate"), "2026-02-02");
     assert.equal(init?.cache, "force-cache");
     assert.ok(init?.signal instanceof AbortSignal);
@@ -74,8 +74,10 @@ test("history proxy validates the upstream identity and filters its records into
       status: "SUCCESS",
       meta: { scheme_code: 1001 },
       data: [
+        { date: "01-01-1990", nav: "2" },
         { date: "01-01-2026", nav: "10" },
         { date: "02-02-2026", nav: 12 },
+        { date: "31-12-1899", nav: 1 },
         { date: "31-12-2025", nav: 9 },
         { date: "03-02-2026", nav: 13 },
         { date: "bad", nav: 99 },
@@ -84,7 +86,7 @@ test("history proxy validates the upstream identity and filters its records into
       ],
     });
   }, () => getNavHistory(new Request(
-    "http://localhost/api/nav-history?sd_id=1001&from_date=2026-01-01&to_date=2026-02-02",
+    "http://localhost/api/nav-history?sd_id=1001&from_date=1900-01-01&to_date=2026-02-02",
   )));
 
   assert.equal(result.status, 200);
@@ -93,8 +95,10 @@ test("history proxy validates the upstream identity and filters its records into
     data: {
       nav_groups: [{
         historical_records: [
+          { date: "1990-01-01", nav: 2 },
           { date: "2026-01-01", nav: 10 },
           { date: "2026-02-02", nav: 12 },
+          { date: "2025-12-31", nav: 9 },
         ],
       }],
     },

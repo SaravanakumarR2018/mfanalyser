@@ -1,4 +1,5 @@
 import type { HistoricalNavPoint, Portfolio, TimelinePoint } from "./cas-parser";
+import type { FundComparisonCandidate } from "./fund-comparison-service";
 import { fullHistoryRange, historyRange, mirrorDateToIso } from "./nav-history-utils";
 import { addDailyPortfolioPoints, normalizePublishedNav } from "./timeline-service";
 
@@ -13,6 +14,15 @@ type NavRecord = {
 const MONTHS: Record<string, string> = {
   Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06",
   Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12",
+};
+
+const isIsoCalendarDate = (value: string) => {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return date.getUTCFullYear() === Number(match[1])
+    && date.getUTCMonth() === Number(match[2]) - 1
+    && date.getUTCDate() === Number(match[3]);
 };
 
 const parseAmfiDate = (value: string) => {
@@ -97,7 +107,7 @@ async function fetchSchemeHistory(
       for (const record of mirrorRecords) {
         const date = mirrorDateToIso(record.date ?? "");
         const nav = Number(record.nav);
-        if (date >= from && date <= to && Number.isFinite(nav) && nav > 0) {
+        if (isIsoCalendarDate(date) && date >= from && date <= to && Number.isFinite(nav) && nav > 0) {
           points.push({ date, nav });
         }
       }
@@ -105,7 +115,7 @@ async function fetchSchemeHistory(
       for (const group of navGroups) {
         for (const record of group.historical_records ?? []) {
           const nav = Number(record.nav);
-          if (!record.date || !/^\d{4}-\d{2}-\d{2}$/.test(record.date) || !Number.isFinite(nav) || nav <= 0) {
+          if (!record.date || !isIsoCalendarDate(record.date) || !Number.isFinite(nav) || nav <= 0) {
             continue;
           }
           points.push({ date: record.date, nav });
@@ -154,6 +164,115 @@ export async function loadFullSchemeNavHistory(
     throw new Error("Historical NAV did not reconcile to the latest official NAV.");
   }
   return history.points;
+}
+
+export type FundComparisonHistoryProgress = {
+  completed: number;
+  total: number;
+};
+
+export type FundComparisonHistoryLoadResult = {
+  historyByKey: Map<string, HistoricalNavPoint[]>;
+  failures: Map<string, string>;
+  completed: number;
+  total: number;
+};
+
+type FundComparisonHistoryTarget = {
+  schemeCode: string;
+  candidates: FundComparisonCandidate[];
+};
+
+const historyMatchesExpectedNav = (
+  points: readonly HistoricalNavPoint[],
+  expectedNav?: number,
+  expectedDate?: string,
+) => {
+  if (expectedNav === undefined && expectedDate === undefined) return true;
+  if (!expectedDate || !isIsoCalendarDate(expectedDate) || !Number.isFinite(expectedNav) || (expectedNav ?? 0) <= 0) {
+    return false;
+  }
+  const expectedPoint = points.find((point) => point.date === expectedDate);
+  if (!expectedPoint) return false;
+  return Math.abs(expectedPoint.nav - expectedNav) <= Math.max(0.000001, expectedNav * 0.0000001);
+};
+
+export async function loadFundComparisonHistories(
+  candidates: readonly FundComparisonCandidate[],
+  valuationDate: string,
+  signal?: AbortSignal,
+  onProgress?: (progress: FundComparisonHistoryProgress) => void,
+): Promise<FundComparisonHistoryLoadResult> {
+  if (signal?.aborted) throw new DOMException("History load cancelled.", "AbortError");
+  const historyByKey = new Map<string, HistoricalNavPoint[]>();
+  const failures = new Map<string, string>();
+  const total = candidates.length;
+  let completed = 0;
+
+  if (!isIsoCalendarDate(valuationDate)) {
+    for (const candidate of candidates) {
+      failures.set(candidate.key, "Full published NAV history is unavailable for this scheme.");
+    }
+    onProgress?.({ completed: total, total });
+    return { historyByKey, failures, completed: total, total };
+  }
+
+  const targetByScheme = new Map<string, FundComparisonHistoryTarget>();
+  for (const candidate of candidates) {
+    if (!candidate.schemeCode || !/^\d{1,12}$/.test(candidate.schemeCode)) {
+      failures.set(candidate.key, "An official AMFI scheme match is unavailable.");
+      completed += 1;
+      continue;
+    }
+    const existing = targetByScheme.get(candidate.schemeCode);
+    if (existing) existing.candidates.push(candidate);
+    else targetByScheme.set(candidate.schemeCode, {
+      schemeCode: candidate.schemeCode,
+      candidates: [candidate],
+    });
+  }
+
+  onProgress?.({ completed, total });
+  const targets = [...targetByScheme.values()];
+  for (let cursor = 0; cursor < targets.length; cursor += HISTORY_CONCURRENCY) {
+    const batch = targets.slice(cursor, cursor + HISTORY_CONCURRENCY);
+    await Promise.all(batch.map(async (target) => {
+      if (signal?.aborted) throw new DOMException("History load cancelled.", "AbortError");
+      try {
+        const history = await fetchSchemeHistory(
+          target.schemeCode,
+          fullHistoryRange(valuationDate),
+          signal,
+        );
+        if (!history.points.length) {
+          throw new Error("Full published NAV history is unavailable for this scheme.");
+        }
+        if (target.candidates.some((candidate) => !historyMatchesExpectedNav(
+          history.points,
+          candidate.expectedNav,
+          candidate.expectedNavDate,
+        ))) {
+          throw new Error("Historical NAV did not reconcile to the latest official NAV.");
+        }
+        for (const candidate of target.candidates) {
+          historyByKey.set(candidate.key, history.points);
+        }
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        const message = error instanceof Error
+          && /reconcile|unavailable for this scheme/i.test(error.message)
+          ? error.message
+          : "Full published NAV history could not be loaded.";
+        for (const candidate of target.candidates) failures.set(candidate.key, message);
+      } finally {
+        completed += target.candidates.length;
+        onProgress?.({ completed: Math.min(completed, total), total });
+      }
+    }));
+    if (cursor + HISTORY_CONCURRENCY < targets.length) await wait(HISTORY_BATCH_PAUSE_MS);
+  }
+
+  return { historyByKey, failures, completed: Math.min(completed, total), total };
 }
 
 type HistoryTarget = {

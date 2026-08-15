@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import PortfolioChart from "./PortfolioChart";
 import NavActivityChart from "./NavActivityChart";
 import FundStackChart from "./FundStackChart";
+import FundComparisonChart from "./FundComparisonChart";
 import {
   demoPortfolio,
   parseCasFile,
@@ -925,6 +926,8 @@ function Dashboard({
         </section>
 
         <FundStackChart portfolio={portfolio} />
+
+        <FundComparisonChart portfolio={portfolio} />
 
         <footer className="dashboard-footer"><Brand /><p>Your statement was processed locally and is not stored by FolioVista.</p><span>For tracking only · Not investment advice</span></footer>
       </div>

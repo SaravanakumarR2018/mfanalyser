@@ -1,9 +1,33 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { expectNoHorizontalOverflow, openDemo, waitForHydration } from "./helpers/app";
+import { expectNoHorizontalOverflow, openDemo, uploadInput, waitForHydration } from "./helpers/app";
+import { installFundComparisonMocks, makeFundComparisonCasPdf } from "./helpers/fund-comparison-fixture";
 
 const blockingViolations = (violations: Awaited<ReturnType<AxeBuilder["analyze"]>>["violations"]) =>
   violations.filter((violation) => violation.impact === "critical");
+
+const violationSummary = (violations: Awaited<ReturnType<AxeBuilder["analyze"]>>["violations"]) =>
+  violations.map((violation) => ({
+    id: violation.id,
+    impact: violation.impact,
+    targets: violation.nodes.map((node) => node.target.join(" ")),
+  }));
+
+async function openFundComparison(page: Parameters<typeof installFundComparisonMocks>[0]) {
+  await installFundComparisonMocks(page);
+  await page.goto("/");
+  await waitForHydration(page);
+  await uploadInput(page).setInputFiles({
+    name: "accessible-fund-comparison.pdf",
+    mimeType: "application/pdf",
+    buffer: makeFundComparisonCasPdf(),
+  });
+  await expect(page.getByRole("heading", { name: "Your funds" })).toBeVisible();
+  const card = page.locator(".fund-comparison-card");
+  await card.scrollIntoViewIfNeeded();
+  await expect(card).toHaveAttribute("data-history-state", "ready");
+  return card;
+}
 
 test.describe("accessibility and responsive behavior", () => {
   test("landing has no critical WCAG A/AA violations", async ({ page }) => {
@@ -94,6 +118,88 @@ test.describe("accessibility and responsive behavior", () => {
     await expand.focus();
     await expand.press("Enter");
     await expect(page.getByRole("button", { name: "Collapse folios for Aurora Small Cap Direct Growth", exact: true })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  test("comparison and its open native-checkbox picker pass axe and restore keyboard focus on Escape", async ({ page }) => {
+    const card = await openFundComparison(page);
+    const closedResults = await new AxeBuilder({ page })
+      .include(".fund-comparison-card")
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze();
+
+    const trigger = card.getByRole("button", { name: "All 4 funds" });
+    await trigger.focus();
+    await trigger.press("Enter");
+    const picker = card.getByRole("dialog", { name: "Choose funds to compare" });
+    await expect(picker).toBeVisible();
+    await expect(picker.getByRole("searchbox", { name: "Search funds to compare" })).toBeFocused();
+    await expect(picker.getByRole("checkbox")).toHaveCount(6);
+    await expect(picker.getByRole("checkbox", { name: "All funds" })).toBeChecked();
+    const openResults = await new AxeBuilder({ page })
+      .include(".fund-comparison-card")
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze();
+
+    await page.keyboard.press("Escape");
+    await expect(picker).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    expect({
+      pickerClosed: violationSummary(closedResults.violations),
+      pickerOpen: violationSummary(openResults.violations),
+    }).toEqual({ pickerClosed: [], pickerOpen: [] });
+  });
+
+  test("comparison chart, picker, and tooltip stay contained at 320, 390, 768, and 1440 pixels", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const card = await openFundComparison(page);
+
+    for (const viewport of [
+      { width: 320, height: 720 },
+      { width: 390, height: 844 },
+      { width: 768, height: 1024 },
+      { width: 1440, height: 1000 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await card.scrollIntoViewIfNeeded();
+      await expectNoHorizontalOverflow(page);
+      const canvas = card.locator('canvas[role="img"]');
+      await expect(canvas).toBeVisible();
+      const stage = card.locator(".fund-comparison-stage");
+      await expect(stage).toBeVisible();
+      await expect(card.getByRole("slider", { name: "Shared vertical minimum" })).toBeVisible();
+      await expect(card.getByRole("slider", { name: "Shared vertical maximum" })).toBeVisible();
+      const stageBox = await stage.boundingBox();
+      expect(stageBox?.x ?? -1).toBeGreaterThanOrEqual(0);
+      expect((stageBox?.x ?? Infinity) + (stageBox?.width ?? Infinity)).toBeLessThanOrEqual(viewport.width + 1);
+      const canvasBox = await canvas.boundingBox();
+      expect(canvasBox?.x ?? -1).toBeGreaterThanOrEqual(0);
+      expect((canvasBox?.x ?? Infinity) + (canvasBox?.width ?? Infinity)).toBeLessThanOrEqual(viewport.width + 1);
+
+      await canvas.focus();
+      await canvas.press("End");
+      const tooltip = card.locator(".fund-comparison-tooltip");
+      await expect(tooltip).toBeVisible();
+      const tooltipBox = await tooltip.boundingBox();
+      expect(tooltipBox?.x ?? -1).toBeGreaterThanOrEqual(0);
+      expect((tooltipBox?.x ?? Infinity) + (tooltipBox?.width ?? Infinity)).toBeLessThanOrEqual(viewport.width + 1);
+      expect(tooltipBox?.y ?? -1).toBeGreaterThanOrEqual(0);
+      expect((tooltipBox?.y ?? Infinity) + (tooltipBox?.height ?? Infinity)).toBeLessThanOrEqual(viewport.height + 1);
+      await canvas.press("Escape");
+
+      const trigger = card.locator(".fund-comparison-picker-trigger");
+      await trigger.click();
+      const picker = card.getByRole("dialog", { name: "Choose funds to compare" });
+      await expect(picker).toBeVisible();
+      const allFundsBox = await picker.getByRole("checkbox", { name: "All funds" }).boundingBox();
+      const firstFundBox = await picker.getByRole("checkbox", { name: /Alpha Flexi Cap/ }).boundingBox();
+      expect(Math.abs((allFundsBox?.x ?? 0) - (firstFundBox?.x ?? Infinity))).toBeLessThanOrEqual(1);
+      const pickerBox = await picker.boundingBox();
+      expect(pickerBox?.x ?? -1).toBeGreaterThanOrEqual(0);
+      expect((pickerBox?.x ?? Infinity) + (pickerBox?.width ?? Infinity)).toBeLessThanOrEqual(viewport.width + 1);
+      expect(pickerBox?.y ?? -1).toBeGreaterThanOrEqual(0);
+      expect((pickerBox?.y ?? Infinity) + (pickerBox?.height ?? Infinity)).toBeLessThanOrEqual(viewport.height + 1);
+      await page.keyboard.press("Escape");
+    }
   });
 
   for (const viewport of [

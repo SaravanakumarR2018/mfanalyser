@@ -9,10 +9,10 @@ This suite treats commit `865aa11` / tag `working-version-11` as the minimum pro
 - `npm run test:ui:desktop` — fast desktop-Chromium feedback.
 - `npm run test:ui:update` — deliberately regenerate visual baselines after reviewing an intentional UI change.
 
-The suite contains 56 scenarios. Across the four configured projects that is
-224 executions: 203 ordinary passes, 12 expected-failure executions for three
-confirmed baseline defects, and 9 intentional project skips. Playwright reports
-the ordinary and expected-failure outcomes together as 215 passed with zero
+The suite contains 68 scenarios. Across the four configured projects that is
+272 executions: 249 ordinary passes, 12 expected-failure executions for three
+confirmed baseline defects, and 11 intentional project skips. Playwright reports
+the ordinary and expected-failure outcomes together as 261 passed with zero
 unexpected failures.
 
 ## Coverage map
@@ -31,16 +31,17 @@ unexpected failures.
 | Secondary content | Closed-fund proceeds/gain, allocation list, concentration ranking, metric explanations |
 | Portfolio chart | Canvas pixels, point metadata, period buttons, zoom, X endpoints, draggable/keyboard window, invested-series toggle, pointer tooltip |
 | Fund stack | Reconciliation tolerance, four-view multiselect, shared Y scale, period-change/cash-flow panel, X/Y sliders, reset, keyboard ranking, canvas pixels |
+| Normalized fund comparison | Real multi-scheme CAS parsing, viewport-deferred histories from 1900 with a pre-2013 observation preserved end to end, independent ₹100 rebasing at every fund's first exact observation inside the selected period/range, custom horizontal-window preservation across fund selections, shared vertical min/max/window drag/keyboard/reset controls, earliest-to-latest full timeline, unavailable schemes, active/closed defaults, searchable native checkboxes with a left-aligned All funds checkbox, single-line pointer tooltips, line focus/dimming/reset, 1Y/3Y/5Y/8Y/10Y/All and range controls, absent legend tiles/investment markers, partial/total failure retry, cached successes, delayed-load selection races, request privacy, axe, responsive containment, and chart/picker/tooltip goldens |
 | Magnifier | Enable/disable state, range control availability, magnification, size, synchronized metadata, pointer drag |
 | Drawer NAV chart | Default invested-period view and an off-by-default compact full-history switch, preserved CAS investment markers, atomic loading transition, retry/fallback, request reuse, period/range controls, observation metadata, rendered pixels, responsive containment, empty transaction state |
 | Accessibility | Axe WCAG A/AA scans, accessible control/canvas names, keyboard activation, modal semantics, slider names/orientation |
 | Responsive | 320, 390, 768, and 1440 px layouts, horizontal-overflow checks, mobile drawer scrolling |
-| Visual | Reviewed landing, summary, metric, portfolio-chart, and stack-chart goldens for desktop and mobile Chromium |
+| Visual | Reviewed landing, summary, metric, portfolio-chart, stack-chart, and normalized-comparison goldens for desktop and mobile Chromium |
 | Independent verifier | Partial-NAV value preservation, missing-warning behavior, password flow, persistence, modal keyboard behavior, concurrent-upload sequencing, and an interactive-readiness smoke budget |
 
 ## Determinism
 
-`helpers/cas-fixture.ts` constructs the CAS PDF in memory. Its summary, units, transaction cash flows, balances, NAVs, and market value reconcile. Latest and historical AMFI responses are intercepted at the browser network boundary. This keeps the parser and application state transitions real while removing external availability and date drift from CI.
+`helpers/cas-fixture.ts` and `helpers/fund-comparison-fixture.ts` construct CAS PDFs in memory. Their summaries, units, transaction cash flows, balances, NAVs, and market values reconcile. The comparison fixture deliberately includes three current matched schemes, one matched closed scheme with an exact 1990 inception observation, one unmatched scheme, four different inception dates, sparse published observations, and same-day purchase/redemption activity that the comparison intentionally does not render. Its pointer checks require the nearest hovered line to become the sole emphasized line until the pointer moves away or reaches another fund. Latest and historical AMFI responses are intercepted at the browser network boundary. This keeps the parser and application state transitions real while removing external availability and date drift from CI.
 
 The visual checks freeze wall-clock time, request reduced motion, disable CSS animations during capture, and compare only stable component regions. Goldens are intentionally Chromium/Darwin-specific; Firefox and WebKit receive the full semantic suite.
 
