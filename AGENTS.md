@@ -171,12 +171,16 @@ Preserve and test every applicable transition:
    background. Existing controls remain usable, progress is reported, stale
    history work is aborted/ignored on reset, and only complete same-day
    portfolio observations are added.
-8. Complete, incomplete, cancelled, and retry/no-op history outcomes retain the
+8. Once daily-history loading settles, the normalized fund comparison begins
+   preloading every eligible scheme's full published history automatically,
+   even while its card remains offscreen. This second stage has its own inline
+   status and must not extend or reuse the daily-history floater.
+9. Complete, incomplete, cancelled, and retry/no-op history outcomes retain the
    correct coverage and error state. Missing observations are skipped, never
    estimated.
-9. Importing another CAS resets dashboard-only state. A full page reload returns
+10. Importing another CAS resets dashboard-only state. A full page reload returns
    to the landing page because no portfolio is persisted.
-10. Demo data bypasses network refresh and is returned by identity.
+11. Demo data bypasses network refresh and is returned by identity.
 
 ## Financial and data invariants
 
@@ -299,15 +303,15 @@ This section is mandatory for every agent making code changes.
 
 ### Expected baseline result
 
-At the time this file was added, the full gate contains:
+The current full gate contains:
 
-- 104 passing data tests;
+- 111 passing data tests;
 - aggregate application coverage above the mandatory 97% lines, 80% branches,
   and 90% functions thresholds;
 - 2 passing rendered-HTML tests after a successful production build;
-- 272 Playwright executions: 249 ordinary passes, 12 expected-failure
+- 284 Playwright executions: 261 ordinary passes, 12 expected-failure
   executions, and 11 intentional project skips, reported by Playwright as
-  `261 passed, 11 skipped` with zero unexpected failures.
+  `273 passed, 11 skipped` with zero unexpected failures.
 
 Test counts may grow as behavior grows. A smaller count is suspicious and must
 be explained. The 12 expected-failure executions are three documented product

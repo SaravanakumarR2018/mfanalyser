@@ -69,6 +69,23 @@ export type FundComparisonScale = {
   ticks: number[];
 };
 
+export type FundComparisonLineState = "resting" | "emphasized" | "dimmed";
+
+export function shouldStartFundComparisonHistoryLoad(
+  navHistoryLoading: boolean | undefined,
+  eligibleFundCount: number,
+) {
+  return navHistoryLoading !== true
+    && Number.isInteger(eligibleFundCount)
+    && eligibleFundCount > 0;
+}
+
+export function fundComparisonLineWidth(state: FundComparisonLineState) {
+  if (state === "emphasized") return 3.2;
+  if (state === "dimmed") return 0.85;
+  return 1.15;
+}
+
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const SCHEME_CODE = /^\d{1,12}$/;
 const MAX_COMPARISON_INDEX = 1_000_000_000_000;

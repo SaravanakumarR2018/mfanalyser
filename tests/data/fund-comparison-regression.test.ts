@@ -6,9 +6,11 @@ import {
   buildFundComparisonCandidates,
   buildFundComparisonModel,
   buildFundComparisonScale,
+  fundComparisonLineWidth,
   fundComparisonTooltipAt,
   preserveFundComparisonDateRange,
   rebaseFundComparisonModel,
+  shouldStartFundComparisonHistoryLoad,
   type FundComparisonCandidate,
 } from "../../app/fund-comparison-service.ts";
 import { loadFundComparisonHistories } from "../../app/nav-service.ts";
@@ -28,6 +30,27 @@ const candidate = (
   active: true,
   closed: false,
   transactions,
+});
+
+test("comparison history waits for daily enrichment, then preloads without a viewport dependency", () => {
+  assert.equal(shouldStartFundComparisonHistoryLoad(true, 30), false);
+  assert.equal(shouldStartFundComparisonHistoryLoad(false, 30), true);
+  assert.equal(shouldStartFundComparisonHistoryLoad(undefined, 30), true);
+  assert.equal(shouldStartFundComparisonHistoryLoad(false, 0), false);
+  assert.equal(shouldStartFundComparisonHistoryLoad(false, -1), false);
+  assert.equal(shouldStartFundComparisonHistoryLoad(false, 1.5), false);
+});
+
+test("comparison lines are thin at rest and only become bold when emphasized", () => {
+  const resting = fundComparisonLineWidth("resting");
+  const emphasized = fundComparisonLineWidth("emphasized");
+  const dimmed = fundComparisonLineWidth("dimmed");
+
+  assert.equal(resting, 1.15);
+  assert.equal(emphasized, 3.2);
+  assert.equal(dimmed, 0.85);
+  assert.ok(dimmed < resting);
+  assert.ok(resting < emphasized);
 });
 
 const withFetch = async <T>(

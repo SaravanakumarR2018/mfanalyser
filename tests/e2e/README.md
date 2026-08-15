@@ -9,6 +9,9 @@ This suite treats commit `865aa11` / tag `working-version-11` as the minimum pro
 - `npm run test:ui:desktop` — fast desktop-Chromium feedback.
 - `npm run test:ui:update` — deliberately regenerate visual baselines after reviewing an intentional UI change.
 
+Local Playwright execution is serialized so repeated full gates do not trip
+macOS headless-browser rendezvous limits; CI retains two-worker parallelism.
+
 The suite contains 71 scenarios. Across the four configured projects that is
 284 executions: 261 ordinary passes, 12 expected-failure executions for three
 confirmed baseline defects, and 11 intentional project skips. Playwright reports
@@ -31,7 +34,7 @@ unexpected failures.
 | Secondary content | Closed-fund proceeds/gain, preserved allocation list, animated category/fund donuts, all-fund concentration ranking, pointer-drag and keyboard scrolling, metric explanations |
 | Portfolio chart | Canvas pixels, point metadata, period buttons, zoom, X endpoints, draggable/keyboard window, invested-series toggle, pointer tooltip |
 | Fund stack | Reconciliation tolerance, four-view multiselect, shared Y scale, period-change/cash-flow panel, X/Y sliders, reset, keyboard ranking, canvas pixels |
-| Normalized fund comparison | Real multi-scheme CAS parsing, viewport-deferred histories from 1900 with a pre-2013 observation preserved end to end, independent ₹100 rebasing at every fund's first exact observation inside the selected period/range, custom horizontal-window preservation across fund selections, shared vertical min/max/window drag/keyboard/reset controls, earliest-to-latest full timeline, unavailable schemes, active/closed defaults, searchable native checkboxes with a left-aligned All funds checkbox, single-line pointer tooltips, line focus/dimming/reset, 1Y/3Y/5Y/8Y/10Y/All and range controls, absent legend tiles/investment markers, partial/total failure retry, cached successes, delayed-load selection races, request privacy, axe, responsive containment, and chart/picker/tooltip goldens |
+| Normalized fund comparison | Real multi-scheme CAS parsing, full histories queued behind floater-backed daily enrichment and then preloaded while the card remains offscreen, separate inline comparison progress, all eligible histories from 1900 with a pre-2013 observation preserved end to end, thin resting lines with bold hover/selection emphasis, independent ₹100 rebasing at every fund's first exact observation inside the selected period/range, custom horizontal-window preservation across fund selections, shared vertical min/max/window drag/keyboard/reset controls, earliest-to-latest full timeline, unavailable schemes, active/closed defaults, searchable native checkboxes with a left-aligned All funds checkbox, single-line pointer tooltips, line focus/dimming/reset, 1Y/3Y/5Y/8Y/10Y/All and range controls, absent legend tiles/investment markers, partial/total failure retry, cached successes, delayed-load selection races, request privacy, axe, responsive containment, and chart/picker/tooltip goldens |
 | Magnifier | Enable/disable state, range control availability, magnification, size, synchronized metadata, pointer drag |
 | Drawer NAV chart | Default invested-period view and an off-by-default compact full-history switch, preserved CAS investment markers, atomic loading transition, retry/fallback, request reuse, period/range controls, observation metadata, rendered pixels, responsive containment, empty transaction state |
 | Accessibility | Axe WCAG A/AA scans, accessible control/canvas names, keyboard activation, modal semantics, slider names/orientation, named donut slices, and closed/open-tooltip contrast |
@@ -50,6 +53,9 @@ The visual checks freeze wall-clock time, request reduced motion, disable CSS an
 The current application moves through: landing → local PDF parsing/progress →
 latest-NAV success, partial success, or fallback → first dashboard render →
 background daily-history enrichment → complete or incomplete history notice.
+After that daily stage settles, full comparison histories preload automatically
+without waiting for the comparison card to approach the viewport; this second
+stage reports only inside the comparison card and never extends the floater.
 Working-version-11 does **not** render a separate CAS-only dashboard before it
 awaits the latest-NAV request; only daily-history enrichment happens after the
 dashboard appears. The delayed-NAV tests preserve this observed behavior so a

@@ -32,9 +32,9 @@ async function openComparisonDashboard(
   return cardFor(page);
 }
 
-async function loadDeferredComparison(card: ReturnType<typeof cardFor>) {
-  await card.scrollIntoViewIfNeeded();
+async function waitForPreloadedComparison(card: ReturnType<typeof cardFor>) {
   await expect(card).toHaveAttribute("data-history-state", "ready");
+  await card.scrollIntoViewIfNeeded();
   return card.locator('canvas[role="img"]');
 }
 
@@ -55,8 +55,13 @@ async function setRangeInputValue(
 }
 
 test.describe("full-history normalized fund comparison", () => {
-  test("defers private full-history requests until the viewport and renders every fund from its own inception", async ({ page }) => {
+  test("queues full histories behind daily enrichment, then preloads offscreen from each fund inception", async ({ page }) => {
     const assertNoErrors = await installFailureGuards(page);
+    let releaseDaily!: () => void;
+    let releaseComparison!: () => void;
+    const dailyGate = new Promise<void>((resolve) => { releaseDaily = resolve; });
+    const comparisonGate = new Promise<void>((resolve) => { releaseComparison = resolve; });
+    const lifecycle: string[] = [];
     const fullHistoryUrls: string[] = [];
     const requests: Array<{ method: string; url: string; postData: string | null }> = [];
     page.on("request", (request) => requests.push({
@@ -65,17 +70,48 @@ test.describe("full-history normalized fund comparison", () => {
       postData: request.postData(),
     }));
     const card = await openComparisonDashboard(page, async (route, key, isFullHistory) => {
-      if (isFullHistory) fullHistoryUrls.push(route.request().url());
+      if (isFullHistory) {
+        lifecycle.push(`comparison:${key}`);
+        fullHistoryUrls.push(route.request().url());
+        await comparisonGate;
+      } else {
+        lifecycle.push(`daily-start:${key}`);
+        await dailyGate;
+      }
       await fulfillComparisonHistory(route, key);
+      if (!isFullHistory) lifecycle.push(`daily-complete:${key}`);
     });
 
     await expect(card).toHaveAttribute("data-total-funds", "5");
     await expect(card).toHaveAttribute("data-available-funds", "4");
     await expect(card).toHaveAttribute("data-selected-funds", "4");
-    await expect(card).toHaveAttribute("data-history-state", "deferred");
+    await expect(card).toHaveAttribute("data-history-state", "queued");
+    await expect(card).toContainText("Comparison preload queued");
+    await expect(page.locator(".history-progress-toast")).toBeVisible();
+    await expect.poll(() => lifecycle.filter((event) => event.startsWith("daily-start:")).length).toBe(4);
+    expect(await card.evaluate((element) => element.getBoundingClientRect().top > window.innerHeight)).toBe(true);
     expect(fullHistoryUrls).toEqual([]);
 
-    const canvas = await loadDeferredComparison(card);
+    releaseDaily();
+    await expect(card).toHaveAttribute("data-history-state", "loading");
+    await expect(card.locator(".fund-comparison-summary")).toContainText("Loading full NAV histories");
+    await expect(page.locator(".history-progress-toast")).toHaveAttribute(
+      "aria-label",
+      "Daily NAV history 100% loaded",
+    );
+    await expect(page.locator(".history-progress-toast")).not.toContainText("full NAV histories");
+    expect(await card.evaluate((element) => element.getBoundingClientRect().top > window.innerHeight)).toBe(true);
+    const firstComparison = lifecycle.findIndex((event) => event.startsWith("comparison:"));
+    const lastDailyCompletion = lifecycle.reduce((last, event, index) => (
+      event.startsWith("daily-complete:") ? index : last
+    ), -1);
+    expect(lastDailyCompletion).toBeGreaterThanOrEqual(0);
+    expect(firstComparison).toBeGreaterThan(lastDailyCompletion);
+
+    releaseComparison();
+    await expect(card).toHaveAttribute("data-history-state", "ready");
+    await card.scrollIntoViewIfNeeded();
+    const canvas = card.locator('canvas[role="img"]');
     await expect(card).toHaveAttribute("data-loaded-funds", "4");
     await expect(card).toHaveAttribute("data-failed-funds", "0");
     await expect(card.locator(".fund-comparison-summary")).toContainText("Full published plan history from 1 Jan 1990");
@@ -114,7 +150,7 @@ test.describe("full-history normalized fund comparison", () => {
 
   test("left-aligned picker search preserves selection and its all-funds checkbox controls every fund", async ({ page }) => {
     const card = await openComparisonDashboard(page);
-    const canvas = await loadDeferredComparison(card);
+    const canvas = await waitForPreloadedComparison(card);
     const trigger = card.getByRole("button", { name: "All 4 funds" });
     const cardBox = await card.boundingBox();
     const summaryBox = await card.locator(".fund-comparison-summary").boundingBox();
@@ -164,7 +200,11 @@ test.describe("full-history normalized fund comparison", () => {
 
   test("pointer hover shows only the nearby fund while click and keyboard focus stay reversible", async ({ page }) => {
     const card = await openComparisonDashboard(page);
-    const canvas = await loadDeferredComparison(card);
+    const canvas = await waitForPreloadedComparison(card);
+    await expect(canvas).toHaveAttribute("data-resting-line-width", "1.15");
+    await expect(canvas).toHaveAttribute("data-emphasized-line-width", "3.2");
+    await expect(canvas).toHaveAttribute("data-dimmed-line-width", "0.85");
+    await expect(canvas).toHaveAttribute("data-active-line-width", "1.15");
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
     const first = new Date("1990-01-01T00:00:00Z").getTime();
@@ -181,6 +221,7 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(canvas).toHaveAttribute("data-emphasized-fund", "scheme:100001");
     await expect(canvas).toHaveAttribute("data-emphasis-mode", "hover");
     await expect(canvas).toHaveAttribute("data-dimmed-funds", "3");
+    await expect(canvas).toHaveAttribute("data-active-line-width", "3.2");
     await expect(canvas).toHaveAttribute("data-hover-date", "2024-08-01");
     await expect(canvas).toHaveAttribute("data-tooltip-fund-count", "1");
     const tooltip = card.locator(".fund-comparison-tooltip");
@@ -204,6 +245,7 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(canvas).toHaveAttribute("data-emphasized-fund", "");
     await expect(canvas).toHaveAttribute("data-emphasis-mode", "none");
     await expect(canvas).toHaveAttribute("data-dimmed-funds", "0");
+    await expect(canvas).toHaveAttribute("data-active-line-width", "1.15");
     await page.mouse.move((box?.x ?? 0) + x, (box?.y ?? 0) + yFor(160));
     await expect(canvas).toHaveAttribute("data-hover-fund", "scheme:100003");
 
@@ -211,6 +253,7 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100003");
     await expect(canvas).toHaveAttribute("data-emphasized-fund", "scheme:100003");
     await expect(canvas).toHaveAttribute("data-emphasis-mode", "focus");
+    await expect(canvas).toHaveAttribute("data-active-line-width", "3.2");
     await page.mouse.move((box?.x ?? 0) + x, (box?.y ?? 0) + yFor(180));
     await expect(canvas).toHaveAttribute("data-hover-fund", "");
     await expect(canvas).toHaveAttribute("data-tooltip-fund-count", "0");
@@ -279,7 +322,7 @@ test.describe("full-history normalized fund comparison", () => {
 
   test("1Y, 3Y, 5Y, 8Y, 10Y, All, and every range control update exact endpoints", async ({ page }) => {
     const card = await openComparisonDashboard(page);
-    const canvas = await loadDeferredComparison(card);
+    const canvas = await waitForPreloadedComparison(card);
 
     for (const [period, start] of [
       ["1Y", "2025-08-14"],
@@ -365,7 +408,7 @@ test.describe("full-history normalized fund comparison", () => {
 
   test("a custom horizontal window survives one or more fund selection changes", async ({ page }) => {
     const card = await openComparisonDashboard(page);
-    const canvas = await loadDeferredComparison(card);
+    const canvas = await waitForPreloadedComparison(card);
     await card.getByRole("button", { name: "3Y", exact: true }).click();
     const window = card.getByRole("slider", { name: "Move visible fund comparison window" });
     await window.focus();
@@ -395,7 +438,7 @@ test.describe("full-history normalized fund comparison", () => {
 
   test("shared vertical slider supports min, max, keyboard, pointer drag, and Full Y reset", async ({ page }) => {
     const card = await openComparisonDashboard(page);
-    const canvas = await loadDeferredComparison(card);
+    const canvas = await waitForPreloadedComparison(card);
     const reset = card.getByRole("button", { name: "Reset shared vertical value range" });
     const minimum = card.getByRole("slider", { name: "Shared vertical minimum" });
     const maximum = card.getByRole("slider", { name: "Shared vertical maximum" });

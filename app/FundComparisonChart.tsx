@@ -19,9 +19,11 @@ import {
   buildFundComparisonCandidates,
   buildFundComparisonModel,
   buildFundComparisonScale,
+  fundComparisonLineWidth,
   fundComparisonTooltipAt,
   preserveFundComparisonDateRange,
   rebaseFundComparisonModel,
+  shouldStartFundComparisonHistoryLoad,
   type FundComparisonCandidate,
 } from "./fund-comparison-service";
 import { stackFundColor } from "./FundStackPanel";
@@ -33,7 +35,7 @@ import VerticalScaleControl from "./VerticalScaleControl";
 import { scaleForVerticalRange, VERTICAL_RANGE_MAX } from "./vertical-range";
 
 type ComparisonPeriod = 12 | 36 | 60 | 96 | 120 | "all" | null;
-type LoadPhase = "deferred" | "loading" | "ready" | "partial" | "error";
+type LoadPhase = "queued" | "loading" | "ready" | "partial" | "error";
 
 type DrawnSeries = {
   key: string;
@@ -108,7 +110,6 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   const pickerId = useId();
   const noteId = useId();
   const liveId = useId();
-  const cardRef = useRef<HTMLElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -140,9 +141,8 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   );
   const [historyByKey, setHistoryByKey] = useState<Map<string, HistoricalNavPoint[]>>(new Map());
   const [failedKeys, setFailedKeys] = useState<Set<string>>(new Set());
-  const [loadPhase, setLoadPhase] = useState<LoadPhase>("deferred");
+  const [loadPhase, setLoadPhase] = useState<LoadPhase>("queued");
   const [loadProgress, setLoadProgress] = useState({ completed: 0, total: eligible.length });
-  const [nearViewport, setNearViewport] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [focusedFundKey, setFocusedFundKey] = useState<string | null>(null);
@@ -233,6 +233,10 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   }, [candidates, query]);
   const activeCandidates = filteredCandidates.filter((candidate) => candidate.active);
   const closedCandidates = filteredCandidates.filter((candidate) => candidate.closed && !candidate.active);
+  const historyLoadReady = shouldStartFundComparisonHistoryLoad(
+    portfolio.navHistoryLoading,
+    eligible.length,
+  );
 
   const requestHistories = useCallback(async (targets: FundComparisonCandidate[]) => {
     if (!targets.length) return;
@@ -292,7 +296,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     setSelectedKeys(new Set(eligible.map((candidate) => candidate.key)));
     setHistoryByKey(new Map());
     setFailedKeys(new Set());
-    setLoadPhase("deferred");
+    setLoadPhase("queued");
     setLoadProgress({ completed: 0, total: eligible.length });
     setFocusedFundKey(null);
     setHoverDate(null);
@@ -303,30 +307,10 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   }, [eligible, eligibleSignature]);
 
   useEffect(() => {
-    const card = cardRef.current;
-    if (!card || nearViewport) return;
-    if (typeof IntersectionObserver === "undefined") {
-      const timer = globalThis.setTimeout(() => setNearViewport(true), 0);
-      return () => globalThis.clearTimeout(timer);
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setNearViewport(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "320px 0px" },
-    );
-    observer.observe(card);
-    return () => observer.disconnect();
-  }, [nearViewport]);
-
-  useEffect(() => {
-    if (!nearViewport || loadTriggeredRef.current || !eligible.length) return;
+    if (!historyLoadReady || loadTriggeredRef.current) return;
     loadTriggeredRef.current = true;
     void requestHistories(eligible);
-  }, [eligible, nearViewport, requestHistories]);
+  }, [eligible, historyLoadReady, requestHistories]);
 
   useEffect(() => () => {
     requestSequenceRef.current += 1;
@@ -493,7 +477,9 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
       });
       context.strokeStyle = colorFor(series.key);
       context.globalAlpha = dimmed ? 0.12 : emphasizedFundKey === series.key ? 1 : 0.82;
-      context.lineWidth = emphasizedFundKey === series.key ? 3.2 : 2;
+      context.lineWidth = fundComparisonLineWidth(
+        dimmed ? "dimmed" : emphasizedFundKey === series.key ? "emphasized" : "resting",
+      );
       context.lineJoin = "round";
       context.lineCap = "round";
       context.stroke();
@@ -719,7 +705,6 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
 
   return (
     <section
-      ref={cardRef}
       className="fund-comparison-card"
       aria-labelledby={headingId}
       data-total-funds={candidates.length}
@@ -753,8 +738,8 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
           <span>
             {!eligible.length
               ? <><strong>Published comparison unavailable.</strong> No current or closed fund has an official scheme match.</>
-              : loadPhase === "deferred"
-                ? <><strong>Full published NAV history.</strong> Loading begins when this chart approaches the viewport.</>
+              : loadPhase === "queued"
+                ? <><strong>Comparison preload queued.</strong> It starts automatically after daily NAV history finishes.</>
                 : loadPhase === "loading"
                   ? <><strong>Loading full NAV histories.</strong> {Math.min(loadProgress.completed, loadProgress.total)} of {loadProgress.total} processed.</>
                   : loadPhase === "partial"
@@ -873,6 +858,10 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                 data-emphasized-fund={emphasizedFundKey ?? ""}
                 data-emphasis-mode={emphasisMode}
                 data-dimmed-funds={emphasizedFundKey ? Math.max(0, visibleModel.series.length - 1) : 0}
+                data-resting-line-width={fundComparisonLineWidth("resting")}
+                data-emphasized-line-width={fundComparisonLineWidth("emphasized")}
+                data-dimmed-line-width={fundComparisonLineWidth("dimmed")}
+                data-active-line-width={fundComparisonLineWidth(emphasizedFundKey ? "emphasized" : "resting")}
                 data-visible-start={visibleStart}
                 data-visible-end={visibleEnd}
                 data-axis-min={verticalScale.min}
@@ -963,8 +952,8 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
             </div>
           )}
         </>
-      ) : loadPhase === "deferred" ? (
-        <div className="fund-comparison-empty"><div><strong>Full history, when you reach it</strong>This comparison loads only as it approaches the viewport.</div></div>
+      ) : loadPhase === "queued" ? (
+        <div className="fund-comparison-empty"><div><strong>Comparison preload queued</strong>Full fund histories begin automatically after the daily NAV loading stage.</div></div>
       ) : (
         <div className="fund-comparison-empty"><div><strong>No published NAV history</strong>The selected funds do not have an official history available for this comparison.{failedKeys.size ? <><br /><button type="button" onClick={retryFailed}>Retry histories</button></> : null}</div></div>
       )}
