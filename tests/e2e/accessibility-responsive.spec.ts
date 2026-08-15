@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { expectNoHorizontalOverflow, openDemo, uploadInput, waitForHydration } from "./helpers/app";
 import { installFundComparisonMocks, makeFundComparisonCasPdf } from "./helpers/fund-comparison-fixture";
 
@@ -27,6 +28,44 @@ async function openFundComparison(page: Parameters<typeof installFundComparisonM
   await card.scrollIntoViewIfNeeded();
   await expect(card).toHaveAttribute("data-history-state", "ready");
   return card;
+}
+
+async function expectEveryTooltipOutsideDonut(
+  page: Page,
+  donut: Locator,
+  viewport: { width: number; height: number },
+) {
+  await donut.scrollIntoViewIfNeeded();
+  const slices = await donut.getByRole("button").all();
+  for (const slice of slices) {
+    // Focus keeps every slice stable while the sweep scrolls and resizes; representative
+    // pointer-hover behavior for all three donuts is covered by dashboard.spec.ts.
+    await slice.focus();
+    await expect(slice).toHaveAttribute("aria-describedby", /.+/);
+    const tooltipId = await slice.getAttribute("aria-describedby");
+    expect(tooltipId).not.toBeNull();
+    const tooltip = page.locator(`[id="${tooltipId}"]`);
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).not.toHaveAttribute("data-placement", "pending");
+    await expect.poll(async () => {
+      const [donutBox, tooltipBox] = await Promise.all([donut.boundingBox(), tooltip.boundingBox()]);
+      if (!donutBox || !tooltipBox) return "missing geometry";
+      const overlapWidth = Math.max(0,
+        Math.min(donutBox.x + donutBox.width, tooltipBox.x + tooltipBox.width)
+        - Math.max(donutBox.x, tooltipBox.x));
+      const overlapHeight = Math.max(0,
+        Math.min(donutBox.y + donutBox.height, tooltipBox.y + tooltipBox.height)
+        - Math.max(donutBox.y, tooltipBox.y));
+      const overlap = overlapWidth * overlapHeight;
+      const insideViewport = tooltipBox.x >= 0
+        && tooltipBox.y >= 0
+        && tooltipBox.x + tooltipBox.width <= viewport.width
+        && tooltipBox.y + tooltipBox.height <= viewport.height;
+      return overlap === 0 && insideViewport
+        ? "ok"
+        : JSON.stringify({ donutBox, tooltipBox, overlap, viewport });
+    }, { message: `${viewport.width}px tooltip must stay outside its donut and inside the viewport` }).toBe("ok");
+  }
 }
 
 test.describe("accessibility and responsive behavior", () => {
@@ -199,6 +238,51 @@ test.describe("accessibility and responsive behavior", () => {
       expect(pickerBox?.y ?? -1).toBeGreaterThanOrEqual(0);
       expect((pickerBox?.y ?? Infinity) + (pickerBox?.height ?? Infinity)).toBeLessThanOrEqual(viewport.height + 1);
       await page.keyboard.press("Escape");
+    }
+  });
+
+  test("allocation donuts, tooltips, and the concentration scroller stay contained at every target width", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await openDemo(page);
+    const insightGrid = page.locator(".insight-grid");
+    await page.locator(".hero-donut").getByRole("button", { name: /Small cap allocation/ }).hover();
+    const summaryTooltipAccessibility = await new AxeBuilder({ page })
+      .include(".donut-tooltip")
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze();
+    expect(violationSummary(summaryTooltipAccessibility.violations)).toEqual([]);
+    const accessibility = await new AxeBuilder({ page })
+      .include(".insight-grid")
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze();
+    expect(violationSummary(accessibility.violations)).toEqual([]);
+    await page.locator(".concentration-donut").getByRole("button", { name: /Aurora Small Cap/ }).hover();
+    const openTooltipAccessibility = await new AxeBuilder({ page })
+      .include(".donut-tooltip")
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze();
+    expect(violationSummary(openTooltipAccessibility.violations)).toEqual([]);
+
+    for (const viewport of [
+      { width: 320, height: 720 },
+      { width: 390, height: 844 },
+      { width: 768, height: 1024 },
+      { width: 1440, height: 1000 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await insightGrid.scrollIntoViewIfNeeded();
+      await expectNoHorizontalOverflow(page);
+      for (const selector of [".hero-donut", ".allocation-donut", ".concentration-donut", ".top-list"]) {
+        const element = page.locator(selector);
+        await expect(element).toBeVisible();
+        const box = await element.boundingBox();
+        expect(box?.x ?? -1).toBeGreaterThanOrEqual(0);
+        expect((box?.x ?? Infinity) + (box?.width ?? Infinity)).toBeLessThanOrEqual(viewport.width + 1);
+      }
+
+      for (const selector of [".hero-donut", ".allocation-donut", ".concentration-donut"]) {
+        await expectEveryTooltipOutsideDonut(page, page.locator(selector), viewport);
+      }
     }
   });
 

@@ -9,10 +9,10 @@ This suite treats commit `865aa11` / tag `working-version-11` as the minimum pro
 - `npm run test:ui:desktop` — fast desktop-Chromium feedback.
 - `npm run test:ui:update` — deliberately regenerate visual baselines after reviewing an intentional UI change.
 
-The suite contains 68 scenarios. Across the four configured projects that is
-272 executions: 249 ordinary passes, 12 expected-failure executions for three
+The suite contains 71 scenarios. Across the four configured projects that is
+284 executions: 261 ordinary passes, 12 expected-failure executions for three
 confirmed baseline defects, and 11 intentional project skips. Playwright reports
-the ordinary and expected-failure outcomes together as 261 passed with zero
+the ordinary and expected-failure outcomes together as 273 passed with zero
 unexpected failures.
 
 ## Coverage map
@@ -25,18 +25,18 @@ unexpected failures.
 | NAV lifecycle | Delayed latest NAV, successful live valuation, scheme mismatch, endpoint failure, daily-history enrichment, history mismatch/retries, exact observation counts, stacked history, stale-request abort, floating progress-bar pointer enter/traverse/leave behavior |
 | Privacy | Browser request audit proves CAS bytes are never posted or requested by URL; only GET/HEAD requests occur during analysis; reload and storage audits prove the portfolio is absent from cookies, Web Storage, IndexedDB, Cache Storage, and service workers |
 | Re-entry | Import another CAS, background-request cancellation, state preservation during enrichment, demo rerun, full reload/no persistence |
-| Summary | Exact and compact values, invested/gain/returns, fund/folio counts, largest allocation, valuation source and dates |
+| Summary | Exact and compact values, invested/gain/returns, fund/folio counts, largest allocation, valuation source and dates, plus immediate category-slice tooltips and reversible animated selection |
 | Holdings | Search/no-results, all sortable financial columns and `aria-sort`, mouse/keyboard row activation, folio expansion, fund/folio drawers |
 | Transactions | Long 25-row CAS, initial 20-row batch, explicit load-more, full history and earliest-date completion |
-| Secondary content | Closed-fund proceeds/gain, allocation list, concentration ranking, metric explanations |
+| Secondary content | Closed-fund proceeds/gain, preserved allocation list, animated category/fund donuts, all-fund concentration ranking, pointer-drag and keyboard scrolling, metric explanations |
 | Portfolio chart | Canvas pixels, point metadata, period buttons, zoom, X endpoints, draggable/keyboard window, invested-series toggle, pointer tooltip |
 | Fund stack | Reconciliation tolerance, four-view multiselect, shared Y scale, period-change/cash-flow panel, X/Y sliders, reset, keyboard ranking, canvas pixels |
 | Normalized fund comparison | Real multi-scheme CAS parsing, viewport-deferred histories from 1900 with a pre-2013 observation preserved end to end, independent ₹100 rebasing at every fund's first exact observation inside the selected period/range, custom horizontal-window preservation across fund selections, shared vertical min/max/window drag/keyboard/reset controls, earliest-to-latest full timeline, unavailable schemes, active/closed defaults, searchable native checkboxes with a left-aligned All funds checkbox, single-line pointer tooltips, line focus/dimming/reset, 1Y/3Y/5Y/8Y/10Y/All and range controls, absent legend tiles/investment markers, partial/total failure retry, cached successes, delayed-load selection races, request privacy, axe, responsive containment, and chart/picker/tooltip goldens |
 | Magnifier | Enable/disable state, range control availability, magnification, size, synchronized metadata, pointer drag |
 | Drawer NAV chart | Default invested-period view and an off-by-default compact full-history switch, preserved CAS investment markers, atomic loading transition, retry/fallback, request reuse, period/range controls, observation metadata, rendered pixels, responsive containment, empty transaction state |
-| Accessibility | Axe WCAG A/AA scans, accessible control/canvas names, keyboard activation, modal semantics, slider names/orientation |
-| Responsive | 320, 390, 768, and 1440 px layouts, horizontal-overflow checks, mobile drawer scrolling |
-| Visual | Reviewed landing, summary, metric, portfolio-chart, stack-chart, and normalized-comparison goldens for desktop and mobile Chromium |
+| Accessibility | Axe WCAG A/AA scans, accessible control/canvas names, keyboard activation, modal semantics, slider names/orientation, named donut slices, and closed/open-tooltip contrast |
+| Responsive | 320, 390, 768, and 1440 px layouts, horizontal-overflow checks, every allocation/concentration slice tooltip fully inside the viewport with zero donut overlap, mobile drawer scrolling |
+| Visual | Reviewed landing, summary, metric, portfolio-chart, stack-chart, allocation/concentration, selected-slice tooltip, and normalized-comparison goldens for desktop and mobile Chromium |
 | Independent verifier | Partial-NAV value preservation, missing-warning behavior, password flow, persistence, modal keyboard behavior, concurrent-upload sequencing, and an interactive-readiness smoke budget |
 
 ## Determinism

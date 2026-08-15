@@ -76,6 +76,9 @@ Non-negotiable product promises:
   single-fund comparison tooltips without estimating missing observations.
 - `app/chart-scale.ts`, `app/chart-lens.ts`, `app/range-window.ts`, and
   `app/vertical-range.ts` contain pure chart geometry and range calculations.
+- `app/allocation-model.ts` owns deterministic allocation percentages, donut
+  arc geometry, slice offsets, and viewport-safe outside-tooltip placement
+  without mutating portfolio inputs.
 - `app/fund-sort.ts` and `app/formatters.ts` contain deterministic sorting and
   Indian-rupee formatting helpers.
 
@@ -94,6 +97,10 @@ Non-negotiable product promises:
   searchable native-checkbox picker, normalized multi-fund lines, exact-date
   tooltips, line focus, keyboard inspection, preserved horizontal and shared
   vertical ranges, and retry states.
+- `app/InteractiveDonut.tsx` and `app/DragScrollRegion.tsx` provide the shared
+  accessible allocation/concentration slice interactions, collision-free
+  portal tooltips, and the pointer- and keyboard-scrollable all-fund ranking
+  surface.
 - Canvas elements expose accessible names and stable `data-*` diagnostics used
   by browser tests. Preserve or deliberately update those contracts when chart
   behavior changes.
@@ -137,7 +144,7 @@ Non-negotiable product promises:
 - `playwright.config.ts` runs desktop Chromium, mobile Chromium, desktop
   Firefox, and desktop WebKit. It starts or reuses a server on port 3001 unless
   `PLAYWRIGHT_BASE_URL` is provided.
-- The 18 screenshot goldens are Chromium/Darwin-specific and must be treated as
+- The 22 screenshot goldens are Chromium/Darwin-specific and must be treated as
   reviewed artifacts, not regenerated casually.
 - All CAS fixtures must remain synthetic. Never check in a real or merely
   redacted investor statement.

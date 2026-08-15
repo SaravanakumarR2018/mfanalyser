@@ -32,6 +32,7 @@ does not.
 | Fund NAV comparison | Order-independent active/closed scheme deduplication, bounded full-history loading for all 30 schemes from 1900 with exact 1990 observations retained, partial failure/cancellation, per-fund inception and selected-range rebasing to 100, calendar-window preservation across selection changes, shared vertical-scale/window math, full earliest-to-latest union timeline, exact single-fund hover lookup, derived-value finite guards, no interpolation or forward-fill |
 | Portfolio/fund calculations | Absolute return, XIRR gain/loss/unavailable cases, active-folio completeness, closed-fund cash flows |
 | Chart/model calculations | Empty/constant scale, non-finite inputs, fund stacks, closed funds, contribution reconciliation, deterministic sorting and immutability |
+| Allocation visualization | Exact portfolio shares, invalid/non-positive filtering, immutable inputs, finite SVG donut paths, deterministic radial selection offsets, and viewport-safe tooltip placement with zero donut overlap |
 | Server proxies | Latest NAV pass-through/cache contract; history query validation, upstream identity validation, record filtering, cache contract, safe 502 errors |
 
 ## Baseline issues found (production code intentionally unchanged)

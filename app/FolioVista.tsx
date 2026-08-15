@@ -5,6 +5,8 @@ import PortfolioChart from "./PortfolioChart";
 import NavActivityChart from "./NavActivityChart";
 import FundStackChart from "./FundStackChart";
 import FundComparisonChart from "./FundComparisonChart";
+import DragScrollRegion from "./DragScrollRegion";
+import InteractiveDonut from "./InteractiveDonut";
 import {
   demoPortfolio,
   parseCasFile,
@@ -724,14 +726,33 @@ function Dashboard({
     return [...grouped.entries()].sort((a, b) => b[1] - a[1]);
   }, [portfolio]);
 
-  const conic = useMemo(() => {
-    const shares = allocations.map(([, value]) => (value / portfolio.currentValue) * 100);
-    return shares.map((share, index) => {
-      const start = shares.slice(0, index).reduce((total, prior) => total + prior, 0);
-      const segment = `${palette[index % palette.length]} ${start}% ${start + share}%`;
-      return segment;
-    }).join(", ");
-  }, [allocations, portfolio.currentValue]);
+  const categoryDonutItems = useMemo(
+    () => allocations.map(([category, value], index) => ({
+      key: `category:${category}`,
+      label: `${category} allocation`,
+      value,
+      color: palette[index % palette.length],
+    })),
+    [allocations],
+  );
+  const concentratedFunds = useMemo(
+    () => [...portfolio.funds]
+      .filter((fund) => Number.isFinite(fund.currentValue) && fund.currentValue > 0)
+      .sort((left, right) => right.currentValue - left.currentValue),
+    [portfolio.funds],
+  );
+  const fundDonutItems = useMemo(
+    () => concentratedFunds.map((fund) => ({
+      key: fund.key,
+      label: fund.name,
+      value: fund.currentValue,
+      color: fundColors.get(fund.key) ?? palette[0],
+    })),
+    [concentratedFunds, fundColors],
+  );
+  const portfolioPercentage = (value: number) => portfolio.currentValue > 0
+    ? value / portfolio.currentValue * 100
+    : 0;
 
   const fundsWithAnnualizedReturn = useMemo(
     () => portfolio.funds.map((fund) => ({
@@ -783,8 +804,15 @@ function Dashboard({
             <small>{portfolio.valuationSource === "amfi" ? "Official AMFI NAV" : "CAS statement value"} · {formatDate(portfolio.valuationDate)} · CAS units as of {formatDate(portfolio.statementDate)}</small>
           </div>
           <div className="summary-allocation">
-            <div className="hero-donut" style={{ background: `conic-gradient(${conic})` }}><span><small>{portfolio.funds.length}</small>funds</span></div>
-            <div><p>LARGEST ALLOCATION</p><strong>{allocations[0]?.[0]}</strong><span>{((allocations[0]?.[1] ?? 0) / portfolio.currentValue * 100).toFixed(1)}% of portfolio</span></div>
+            <InteractiveDonut
+              className="hero-donut"
+              items={categoryDonutItems}
+              ariaLabel="Portfolio category allocation"
+              tooltipSuffix="of portfolio"
+              dark
+              center={<><small>{portfolio.funds.length}</small><span>funds</span></>}
+            />
+            <div><p>LARGEST ALLOCATION</p><strong>{allocations[0]?.[0]}</strong><span>{portfolioPercentage(allocations[0]?.[1] ?? 0).toFixed(1)}% of portfolio</span></div>
           </div>
         </section>
 
@@ -911,16 +939,43 @@ function Dashboard({
           <article className="allocation-card">
             <div><p className="eyebrow">Where it sits</p><h2>Allocation</h2></div>
             <div className="allocation-content">
-              <div className="allocation-donut" style={{ background: `conic-gradient(${conic})` }}><span><strong>100%</strong><small>invested</small></span></div>
+              <InteractiveDonut
+                className="allocation-donut"
+                items={categoryDonutItems}
+                ariaLabel="Allocation by fund category"
+                tooltipSuffix="of portfolio"
+                center={<><strong>100%</strong><small>invested</small></>}
+              />
               <div className="allocation-list">
-                {allocations.slice(0, 6).map(([category, value], index) => <p key={category}><i style={{ background: palette[index % palette.length] }} /><span>{category}</span><strong>{(value / portfolio.currentValue * 100).toFixed(1)}%</strong></p>)}
+                {allocations.map(([category, value], index) => <p key={category}><i style={{ background: palette[index % palette.length] }} /><span>{category}</span><strong>{portfolioPercentage(value).toFixed(1)}%</strong></p>)}
               </div>
             </div>
           </article>
           <article className="top-funds-card">
             <p className="eyebrow">Concentration check</p><h2>Top holdings</h2>
-            <div className="top-list">
-              {portfolio.funds.slice(0, 4).map((fund, index) => <div key={fund.key}><span>{String(index + 1).padStart(2, "0")}</span><p><strong>{fund.name}</strong><i><b style={{ width: `${fund.currentValue / portfolio.funds[0].currentValue * 100}%` }} /></i></p><em>{(fund.currentValue / portfolio.currentValue * 100).toFixed(1)}%</em></div>)}
+            <div className="top-funds-content">
+              <InteractiveDonut
+                className="concentration-donut"
+                items={fundDonutItems}
+                ariaLabel="Portfolio concentration by fund"
+                tooltipSuffix="of portfolio"
+                center={<><strong>{concentratedFunds.length}</strong><small>all funds</small></>}
+              />
+              <DragScrollRegion className="top-list" ariaLabel="All fund concentration rankings">
+                {concentratedFunds.map((fund, index) => (
+                  <div role="listitem" key={fund.key} data-fund-key={fund.key}>
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    <p>
+                      <strong title={fund.name}>{fund.name}</strong>
+                      <i><b style={{
+                        width: `${fund.currentValue / Math.max(1, concentratedFunds[0]?.currentValue ?? 1) * 100}%`,
+                        background: fundColors.get(fund.key) ?? palette[0],
+                      }} /></i>
+                    </p>
+                    <em>{portfolioPercentage(fund.currentValue).toFixed(1)}%</em>
+                  </div>
+                ))}
+              </DragScrollRegion>
             </div>
           </article>
         </section>

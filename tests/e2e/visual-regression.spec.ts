@@ -35,6 +35,16 @@ test.describe("stable visual regions", () => {
     await expect(page.locator(".fund-stack-card")).toHaveScreenshot("fund-stack-chart.png", {
       animations: "disabled",
     });
+    await expect(page.locator(".insight-grid")).toHaveScreenshot("allocation-insights.png", {
+      animations: "disabled",
+      stylePath: "tests/e2e/helpers/visual-snapshot.css",
+    });
+    await page.locator(".concentration-donut .donut-slice").first().click();
+    await expect(page.locator(".donut-tooltip")).toBeVisible();
+    await expect(page.locator(".top-funds-card")).toHaveScreenshot("concentration-selected.png", {
+      animations: "disabled",
+      stylePath: "tests/e2e/helpers/visual-snapshot.css",
+    });
   });
 
   test("normalized fund comparison card", async ({ page }) => {

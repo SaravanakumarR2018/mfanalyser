@@ -133,7 +133,90 @@ test.describe("dashboard information architecture", () => {
     await expect(page.getByRole("heading", { name: "Allocation" })).toBeVisible();
     await expect(page.locator(".allocation-list p")).toHaveCount(6);
     await expect(page.getByRole("heading", { name: "Top holdings" })).toBeVisible();
-    await expect(page.locator(".top-list > div")).toHaveCount(4);
-    await expect(page.locator(".top-list > div").first()).toContainText("Aurora Small Cap Direct Growth");
+    await expect(page.locator(".top-list .drag-scroll-content > div")).toHaveCount(6);
+    await expect(page.locator(".top-list .drag-scroll-content > div").first()).toContainText("Aurora Small Cap Direct Growth");
+  });
+
+  test("allocation slices show immediate tooltips and settle into a reversible selected state", async ({ page }, testInfo) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    const summaryDonut = page.locator(".hero-donut");
+    const smallCap = summaryDonut.getByRole("button", { name: /Small cap allocation: 26\.9% of portfolio/ });
+    const flexiCap = summaryDonut.getByRole("button", { name: /Flexi cap allocation: 21\.3% of portfolio/ });
+
+    await smallCap.hover();
+    await expect(summaryDonut).toHaveAttribute("data-active-slice", "category:Small cap");
+    await expect(page.getByRole("tooltip")).toContainText("Small cap allocation26.9% of portfolio");
+    const animatedStyle = await smallCap.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { animationName: style.animationName, animationDuration: style.animationDuration };
+    });
+    if (testInfo.project.name !== "mobile-chromium") {
+      expect(animatedStyle.animationName).toContain("donut-slice-hover");
+      expect(animatedStyle.animationDuration).not.toBe("0s");
+    }
+    await smallCap.click();
+    await expect(smallCap).toHaveAttribute("aria-pressed", "true");
+    await expect(summaryDonut).toHaveAttribute("data-selected-slice", "category:Small cap");
+    if (testInfo.project.name !== "mobile-chromium") {
+      expect(await smallCap.evaluate((element) => getComputedStyle(element).animationName)).toContain("donut-slice-pop");
+    }
+    await expect.poll(() => flexiCap.evaluate((element) => Number(getComputedStyle(element).opacity))).toBeLessThan(0.5);
+    await flexiCap.hover();
+    await expect(summaryDonut).toHaveAttribute("data-active-slice", "category:Flexi cap");
+    await expect(page.getByRole("tooltip")).toContainText("Flexi cap allocation21.3% of portfolio");
+    await page.locator(".summary-main h1").hover();
+    await expect(summaryDonut).toHaveAttribute("data-active-slice", "category:Small cap");
+    await expect(page.getByRole("tooltip")).toContainText("Selected");
+
+    await flexiCap.focus();
+    await flexiCap.press("Enter");
+    await expect(flexiCap).toHaveAttribute("aria-pressed", "true");
+    await expect(smallCap).toHaveAttribute("aria-pressed", "false");
+    await flexiCap.press("Escape");
+    await expect(summaryDonut).toHaveAttribute("data-selected-slice", "");
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+
+    const allocationDonut = page.locator(".allocation-donut");
+    await allocationDonut.getByRole("button", { name: /Mid cap allocation: 9\.4% of portfolio/ }).hover();
+    await expect(page.getByRole("tooltip")).toContainText("Mid cap allocation9.4% of portfolio");
+
+    const concentrationDonut = page.locator(".concentration-donut");
+    await concentrationDonut.getByRole("button", { name: /Aurora Small Cap Direct Growth: 26\.9% of portfolio/ }).click();
+    await expect(concentrationDonut).toHaveAttribute("data-selected-slice", "INF000A00001");
+    await expect(page.getByRole("tooltip")).toContainText("Aurora Small Cap Direct Growth26.9% of portfolioSelected");
+  });
+
+  test("all fund rankings remain present in a pointer- and keyboard-scrollable window", async ({ page }) => {
+    const list = page.getByRole("region", { name: "All fund concentration rankings" });
+    await list.scrollIntoViewIfNeeded();
+    await expect(list.getByRole("listitem")).toHaveCount(6);
+    await expect(list.getByRole("listitem").last()).toContainText("Cedar Mid Cap Direct Growth");
+    const dimensions = await list.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      scrollTop: element.scrollTop,
+    }));
+    expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.clientHeight);
+    expect(dimensions.scrollTop).toBe(0);
+
+    const box = await list.boundingBox();
+    expect(box).not.toBeNull();
+    const x = (box?.x ?? 0) + (box?.width ?? 0) / 2;
+    const startY = (box?.y ?? 0) + (box?.height ?? 0) - 18;
+    await page.mouse.move(x, startY);
+    await page.mouse.down();
+    await expect(list).toHaveAttribute("data-dragging", "true");
+    await page.mouse.move(x, startY - 95, { steps: 5 });
+    await page.mouse.up();
+    await expect(list).toHaveAttribute("data-dragging", "false");
+    expect(await list.evaluate((element) => element.scrollTop)).toBeGreaterThan(40);
+
+    await list.evaluate((element) => { element.scrollTop = 0; });
+    await list.focus();
+    await list.press("ArrowDown");
+    await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    const percentages = await list.locator("em").allTextContents();
+    const total = percentages.reduce((sum, value) => sum + Number.parseFloat(value), 0);
+    expect(total).toBeCloseTo(100, 0);
   });
 });
