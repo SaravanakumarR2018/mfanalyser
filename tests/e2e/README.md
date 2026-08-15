@@ -9,10 +9,10 @@ This suite treats commit `865aa11` / tag `working-version-11` as the minimum pro
 - `npm run test:ui:desktop` — fast desktop-Chromium feedback.
 - `npm run test:ui:update` — deliberately regenerate visual baselines after reviewing an intentional UI change.
 
-The suite contains 53 scenarios. Across the four configured projects that is
-212 executions: 191 ordinary passes, 12 expected-failure executions for three
+The suite contains 54 scenarios. Across the four configured projects that is
+216 executions: 195 ordinary passes, 12 expected-failure executions for three
 confirmed baseline defects, and 9 intentional project skips. Playwright reports
-the ordinary and expected-failure outcomes together as 203 passed with zero
+the ordinary and expected-failure outcomes together as 207 passed with zero
 unexpected failures.
 
 ## Coverage map
@@ -22,7 +22,7 @@ unexpected failures.
 | Landing | Title, privacy promises, navigation anchors, preview, chooser, drag state, drop validation, non-PDF, oversized PDF, malformed PDF, processing progress |
 | Real CAS integration | A generated standards-compliant PDF is loaded by pdf.js, text-extracted, parsed, reconciled, converted into holdings/transactions/timeline data, and rendered |
 | Protected CAS | A generated encrypted PDF prompts locally, rejects a wrong password without leaving the page, and renders after the correct password |
-| NAV lifecycle | Delayed latest NAV, successful live valuation, scheme mismatch, endpoint failure, daily-history enrichment, history mismatch/retries, exact observation counts, stacked history, stale-request abort |
+| NAV lifecycle | Delayed latest NAV, successful live valuation, scheme mismatch, endpoint failure, daily-history enrichment, history mismatch/retries, exact observation counts, stacked history, stale-request abort, floating progress-bar pointer enter/traverse/leave behavior |
 | Privacy | Browser request audit proves CAS bytes are never posted or requested by URL; only GET/HEAD requests occur during analysis; reload and storage audits prove the portfolio is absent from cookies, Web Storage, IndexedDB, Cache Storage, and service workers |
 | Re-entry | Import another CAS, background-request cancellation, state preservation during enrichment, demo rerun, full reload/no persistence |
 | Summary | Exact and compact values, invested/gain/returns, fund/folio counts, largest allocation, valuation source and dates |

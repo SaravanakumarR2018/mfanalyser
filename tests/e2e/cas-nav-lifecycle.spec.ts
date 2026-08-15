@@ -56,6 +56,35 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     expect(request.searchParams.get("to_date")).toBe("2026-08-14");
   });
 
+  test("floating history bar expands while the pointer crosses it and collapses after leaving", async ({ page }) => {
+    await mockLatestNav(page);
+    await mockDailyHistory(page, { delayMs: 3_000 });
+    await page.goto("/");
+    await uploadCas(page);
+
+    const progress = page.getByRole("status", { name: /Daily NAV history \d+% loaded/ });
+    const details = progress.locator(".history-progress-details");
+    await expect(progress).toBeVisible();
+    await expect(progress).toContainText("Loading daily NAVs");
+    await expect.poll(() => details.evaluate((element) => getComputedStyle(element).opacity)).toBe("0");
+
+    const bounds = await progress.boundingBox();
+    expect(bounds).not.toBeNull();
+    if (!bounds) return;
+
+    await page.mouse.move(bounds.x - 24, bounds.y + bounds.height / 2);
+    await page.mouse.move(bounds.x + 8, bounds.y + bounds.height / 2, { steps: 5 });
+    await expect.poll(() => details.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+    await expect(details).toContainText("Current portfolio values are ready");
+
+    await page.mouse.move(bounds.x + bounds.width - 8, bounds.y + bounds.height / 2, { steps: 12 });
+    await expect.poll(() => details.evaluate((element) => getComputedStyle(element).opacity)).toBe("1");
+
+    await page.mouse.move(1, 1, { steps: 8 });
+    await expect.poll(() => details.evaluate((element) => getComputedStyle(element).opacity)).toBe("0");
+    await expect.poll(() => details.evaluate((element) => getComputedStyle(element).maxHeight)).toBe("0px");
+  });
+
   test("keeps statement values when the latest NAV endpoint fails", async ({ page }) => {
     let historyRequests = 0;
     await mockLatestNav(page, { status: 503, body: "temporarily unavailable" });
