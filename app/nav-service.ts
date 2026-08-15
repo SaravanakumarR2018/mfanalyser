@@ -1,5 +1,5 @@
 import type { HistoricalNavPoint, Portfolio, TimelinePoint } from "./cas-parser";
-import { historyRange, mirrorDateToIso } from "./nav-history-utils";
+import { fullHistoryRange, historyRange, mirrorDateToIso } from "./nav-history-utils";
 import { addDailyPortfolioPoints, normalizePublishedNav } from "./timeline-service";
 
 type NavRecord = {
@@ -56,11 +56,10 @@ const wait = (milliseconds: number) => new Promise((resolve) => globalThis.setTi
 
 async function fetchSchemeHistory(
   schemeCode: string,
-  requestedFrom: string,
-  requestedTo: string,
+  range: [string, string],
   parentSignal?: AbortSignal,
 ) {
-  const [from, to] = historyRange(requestedFrom, requestedTo);
+  const [from, to] = range;
   const params = new URLSearchParams({
     query_type: "historical_period",
     from_date: from,
@@ -124,6 +123,37 @@ async function fetchSchemeHistory(
     }
   }
   throw lastError instanceof Error ? lastError : new Error("AMFI history could not be loaded.");
+}
+
+export async function loadFullSchemeNavHistory(
+  schemeCode: string,
+  valuationDate: string,
+  expectedNav?: number,
+  expectedDate?: string,
+  signal?: AbortSignal,
+): Promise<HistoricalNavPoint[]> {
+  if (!/^\d{1,12}$/.test(schemeCode) || !/^\d{4}-\d{2}-\d{2}$/.test(valuationDate)) {
+    throw new Error("Full published NAV history is unavailable for this scheme.");
+  }
+  const history = await fetchSchemeHistory(
+    schemeCode,
+    fullHistoryRange(valuationDate),
+    signal,
+  );
+  if (!history.points.length) {
+    throw new Error("Full published NAV history is unavailable for this scheme.");
+  }
+  const expectedPoint = expectedDate
+    ? history.points.find((point) => point.date === expectedDate)
+    : undefined;
+  if (
+    expectedPoint
+    && expectedNav
+    && Math.abs(expectedPoint.nav - expectedNav) > Math.max(0.000001, expectedNav * 0.0000001)
+  ) {
+    throw new Error("Historical NAV did not reconcile to the latest official NAV.");
+  }
+  return history.points;
 }
 
 type HistoryTarget = {
@@ -194,7 +224,11 @@ async function loadDailyHistories(
     await Promise.all(batch.map(async (target) => {
       if (signal?.aborted) throw new DOMException("History load cancelled.", "AbortError");
       try {
-        const history = await fetchSchemeHistory(target.schemeCode, target.firstDate, valuationDate, signal);
+        const history = await fetchSchemeHistory(
+          target.schemeCode,
+          historyRange(target.firstDate, valuationDate),
+          signal,
+        );
         const expectedPoint = target.expectedDate
           ? history.points.find((point) => point.date === target.expectedDate)
           : undefined;

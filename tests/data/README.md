@@ -26,9 +26,9 @@ does not.
 | Latest NAV parsing | Header/malformed rows, both AMFI ISIN columns, duplicate-date precedence, invalid NAV/date filtering |
 | Latest NAV application | Full and partial matches, mixed publication dates, stale data, zero matches, malformed/non-OK response, closed-fund enrichment, folio propagation |
 | Latest NAV reruns | Immutable input and single replaced live endpoint (no duplicate point) |
-| Daily history orchestration | Both API payload shapes, full-range request, concurrency progress, shared-scheme deduplication, Retry-After, missing scheme codes, endpoint reconciliation, cancellation, completed rerun no-op |
+| Daily history orchestration | Both API payload shapes, invested-period and on-demand full-scheme requests, concurrency progress, shared-scheme deduplication, Retry-After, missing scheme codes, endpoint reconciliation, cancellation, completed rerun no-op |
 | Daily valuation | Exact units by date and folio, no estimation for missing same-day NAV, no history when closing balances cannot reconcile, exact/live endpoint precedence |
-| Transactions and NAV chart | Same-day aggregation, purchases vs redemptions, official vs transaction NAV provenance, latest marker, invalid input filtering |
+| Transactions and NAV chart | Same-day aggregation, purchases vs redemptions, official vs transaction NAV provenance, latest marker, earliest-published full-history range, invalid input filtering |
 | Portfolio/fund calculations | Absolute return, XIRR gain/loss/unavailable cases, active-folio completeness, closed-fund cash flows |
 | Chart/model calculations | Empty/constant scale, non-finite inputs, fund stacks, closed funds, contribution reconciliation, deterministic sorting and immutability |
 | Server proxies | Latest NAV pass-through/cache contract; history query validation, upstream identity validation, record filtering, cache contract, safe 502 errors |

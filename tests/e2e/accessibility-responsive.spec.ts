@@ -78,7 +78,16 @@ test.describe("accessibility and responsive behavior", () => {
     const row = page.locator(".fund-group .fund-row").first();
     await row.focus();
     await row.press(" ");
-    await expect(page.getByRole("dialog", { name: "Aurora Small Cap Direct Growth" })).toBeVisible();
+    const dialog = page.getByRole("dialog", { name: "Aurora Small Cap Direct Growth" });
+    await expect(dialog).toBeVisible();
+    const fullHistoryToggle = dialog.getByRole("button", { name: "Show full fund history" });
+    await expect(fullHistoryToggle).toHaveAttribute("aria-pressed", "false");
+    await expect(fullHistoryToggle).toBeDisabled();
+    const drawerResults = await new AxeBuilder({ page })
+      .include(".fund-drawer")
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze();
+    expect(blockingViolations(drawerResults.violations)).toEqual([]);
     await page.getByRole("button", { name: "Close fund details" }).click();
 
     const expand = page.getByRole("button", { name: "Expand folios for Aurora Small Cap Direct Growth", exact: true });

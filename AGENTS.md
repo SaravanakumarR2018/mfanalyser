@@ -284,13 +284,13 @@ This section is mandatory for every agent making code changes.
 
 At the time this file was added, the full gate contains:
 
-- 83 passing data tests;
+- 85 passing data tests;
 - aggregate application coverage around 99.26% lines, 86.23% branches, and
   97.48% functions;
 - 2 passing rendered-HTML tests after a successful production build;
-- 216 Playwright executions: 195 ordinary passes, 12 expected-failure
+- 224 Playwright executions: 203 ordinary passes, 12 expected-failure
   executions, and 9 intentional project skips, reported by Playwright as
-  `207 passed, 9 skipped` with zero unexpected failures.
+  `215 passed, 9 skipped` with zero unexpected failures.
 
 Test counts may grow as behavior grows. A smaller count is suspicious and must
 be explained. The 12 expected-failure executions are three documented product

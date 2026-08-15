@@ -9,10 +9,10 @@ This suite treats commit `865aa11` / tag `working-version-11` as the minimum pro
 - `npm run test:ui:desktop` — fast desktop-Chromium feedback.
 - `npm run test:ui:update` — deliberately regenerate visual baselines after reviewing an intentional UI change.
 
-The suite contains 54 scenarios. Across the four configured projects that is
-216 executions: 195 ordinary passes, 12 expected-failure executions for three
+The suite contains 56 scenarios. Across the four configured projects that is
+224 executions: 203 ordinary passes, 12 expected-failure executions for three
 confirmed baseline defects, and 9 intentional project skips. Playwright reports
-the ordinary and expected-failure outcomes together as 207 passed with zero
+the ordinary and expected-failure outcomes together as 215 passed with zero
 unexpected failures.
 
 ## Coverage map
@@ -32,7 +32,7 @@ unexpected failures.
 | Portfolio chart | Canvas pixels, point metadata, period buttons, zoom, X endpoints, draggable/keyboard window, invested-series toggle, pointer tooltip |
 | Fund stack | Reconciliation tolerance, four-view multiselect, shared Y scale, period-change/cash-flow panel, X/Y sliders, reset, keyboard ranking, canvas pixels |
 | Magnifier | Enable/disable state, range control availability, magnification, size, synchronized metadata, pointer drag |
-| Drawer NAV chart | Period selection, observation metadata, rendered pixels, empty transaction state |
+| Drawer NAV chart | Default invested-period view and an off-by-default compact full-history switch, preserved CAS investment markers, atomic loading transition, retry/fallback, request reuse, period/range controls, observation metadata, rendered pixels, responsive containment, empty transaction state |
 | Accessibility | Axe WCAG A/AA scans, accessible control/canvas names, keyboard activation, modal semantics, slider names/orientation |
 | Responsive | 320, 390, 768, and 1440 px layouts, horizontal-overflow checks, mobile drawer scrolling |
 | Visual | Reviewed landing, summary, metric, portfolio-chart, and stack-chart goldens for desktop and mobile Chromium |
@@ -52,8 +52,18 @@ background daily-history enrichment → complete or incomplete history notice.
 Working-version-11 does **not** render a separate CAS-only dashboard before it
 awaits the latest-NAV request; only daily-history enrichment happens after the
 dashboard appears. The delayed-NAV tests preserve this observed behavior so a
-future intentional extra stage is visible in review. History failures also have
-no standalone retry action today; retrying requires a new import.
+future intentional extra stage is visible in review. Portfolio-wide background
+history failures still have no standalone retry action today; retrying those
+requires a new import.
+
+Inside a matched fund or folio drawer, the NAV chart defaults to the investor's
+CAS period. Turning on the compact **Full fund history** switch makes one read-only, cancellable
+request for that public scheme's history from 1900 through the current NAV date.
+The existing chart remains rendered during loading or failure; a successful
+response switches atomically to the earliest published observation returned,
+while the same CAS purchase markers, tooltips, periods, and range controls remain
+available. A failed full-history request has an inline retry and never changes
+portfolio valuation or stored state.
 
 ## Known working-version-11 product defects and risks
 

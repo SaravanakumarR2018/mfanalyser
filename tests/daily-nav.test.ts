@@ -34,7 +34,7 @@ import {
   type FundStackPoint,
 } from "../app/fund-stack-service.ts";
 import { formatInr } from "../app/formatters.ts";
-import { historyRange, mirrorDateToIso } from "../app/nav-history-utils.ts";
+import { fullHistoryRange, historyRange, mirrorDateToIso } from "../app/nav-history-utils.ts";
 import { shiftRangeWindow } from "../app/range-window.ts";
 import {
   MIN_VERTICAL_RANGE,
@@ -795,6 +795,7 @@ test("a combined point preserves official daily NAV provenance separately from C
 test("history uses one full-range request and never precedes published availability", () => {
   assert.deepEqual(historyRange("2008-04-01", "2026-08-07"), ["2010-01-01", "2026-08-07"]);
   assert.deepEqual(historyRange("2022-04-01", "2026-08-07"), ["2022-04-01", "2026-08-07"]);
+  assert.deepEqual(fullHistoryRange("2026-08-07"), ["1900-01-01", "2026-08-07"]);
   assert.equal(mirrorDateToIso("07-08-2026"), "2026-08-07");
   assert.equal(mirrorDateToIso("2026-08-07"), "");
 });

@@ -519,6 +519,7 @@ function HoldingDrawer({
   onClose,
   transactionTitle,
   valueLabel,
+  schemeCode,
 }: {
   title: string;
   eyebrow: string;
@@ -527,6 +528,7 @@ function HoldingDrawer({
   onClose: () => void;
   transactionTitle: string;
   valueLabel: string;
+  schemeCode?: string;
 }) {
   const titleId = useId();
   const gain = holding.currentValue - holding.invested;
@@ -580,6 +582,7 @@ function HoldingDrawer({
           nav={holding.nav}
           navDate={holding.navDate}
           liveNav={holding.liveNav}
+          schemeCode={schemeCode}
         />
         <CompleteTransactionHistory
           key={`${title}-${subtitle}-${holding.transactions.length}`}
@@ -601,6 +604,7 @@ function FundDrawer({ fund, onClose }: { fund: FundHolding; onClose: () => void 
       onClose={onClose}
       transactionTitle="Statement transactions"
       valueLabel="Fund value"
+      schemeCode={fund.schemeCode}
     />
   );
 }
@@ -615,6 +619,7 @@ function FolioDrawer({ fund, folio, onClose }: { fund: FundHolding; folio: Folio
       onClose={onClose}
       transactionTitle="Folio transactions"
       valueLabel="Folio value"
+      schemeCode={fund.schemeCode}
     />
   );
 }

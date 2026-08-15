@@ -137,6 +137,22 @@ export const dailyHistoryPayload = ({
   ],
 });
 
+export const fullDailyHistoryPayload = ({
+  finalNav = 15,
+}: { finalNav?: number } = {}) => ({
+  status: "SUCCESS",
+  meta: { scheme_code: TEST_SCHEME_CODE },
+  data: [
+    { date: "15-05-2004", nav: "6.4000" },
+    { date: "02-06-2008", nav: "7.1500" },
+    { date: "03-09-2012", nav: "8.0500" },
+    { date: "04-01-2016", nav: "8.8000" },
+    { date: "06-04-2020", nav: "7.9000" },
+    { date: "01-07-2024", nav: "9.5000" },
+    ...dailyHistoryPayload({ finalNav }).data,
+  ],
+});
+
 export async function mockLatestNav(page: Page, options: {
   status?: number;
   body?: string;

@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import type { FundTransaction, HistoricalNavPoint } from "./cas-parser";
 import { formatInr } from "./formatters";
 import { buildNavPoints, type NavActivityPoint } from "./nav-activity-service";
+import { loadFullSchemeNavHistory } from "./nav-service";
 import { useRangeWindowDrag } from "./useRangeWindowDrag";
 
 type NavActivityChartProps = {
@@ -13,6 +14,16 @@ type NavActivityChartProps = {
   nav: number;
   navDate: string;
   liveNav?: boolean;
+  schemeCode?: string;
+};
+
+type NavHistoryScope = "journey" | "full";
+
+type FullHistoryResult = {
+  key: string;
+  loading?: boolean;
+  points?: HistoricalNavPoint[];
+  error?: string;
 };
 
 const formatDate = (date: string) =>
@@ -25,13 +36,38 @@ const compactDate = (date: string) =>
 
 const formatMoney = formatInr;
 
-export default function NavActivityChart({ transactions, navHistory, nav, navDate, liveNav }: NavActivityChartProps) {
+export default function NavActivityChart({
+  transactions,
+  navHistory,
+  nav,
+  navDate,
+  liveNav,
+  schemeCode,
+}: NavActivityChartProps) {
   const titleId = useId();
+  const scopeStatusId = useId();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
+  const fullHistoryRequest = useRef<AbortController | null>(null);
+  const [historyScope, setHistoryScope] = useState<NavHistoryScope>("journey");
+  const [fullHistoryResult, setFullHistoryResult] = useState<FullHistoryResult>();
+  const historyKey = `${schemeCode ?? "unmatched"}:${navDate}`;
+  const currentFullHistory = fullHistoryResult?.key === historyKey ? fullHistoryResult : undefined;
+  const firstTransactionDate = useMemo(
+    () => transactions.map((transaction) => transaction.date).filter(Boolean).sort()[0],
+    [transactions],
+  );
+  const journeyHistory = useMemo(
+    () => navHistory?.filter((point) => !firstTransactionDate || point.date >= firstTransactionDate),
+    [firstTransactionDate, navHistory],
+  );
+  const displayedHistory = historyScope === "full" && currentFullHistory?.points
+    ? currentFullHistory.points
+    : journeyHistory;
+  const displayedScope = historyScope === "full" && currentFullHistory?.points ? "full" : "journey";
   const allPoints = useMemo(
-    () => buildNavPoints(transactions, navHistory, nav, navDate),
-    [nav, navDate, transactions, navHistory],
+    () => buildNavPoints(transactions, displayedHistory, nav, navDate),
+    [displayedHistory, nav, navDate, transactions],
   );
   const [period, setPeriod] = useState<12 | 36 | "all" | null>("all");
   const [range, setRange] = useState<[number, number]>([0, Math.max(1, allPoints.length - 1)]);
@@ -45,6 +81,8 @@ export default function NavActivityChart({ transactions, navHistory, nav, navDat
     totalPoints: allPoints.length,
     onMoveStart: clearSelectedPeriod,
   });
+
+  useEffect(() => () => fullHistoryRequest.current?.abort(), [historyKey]);
 
   useEffect(() => {
     const prior = previousPoints.current;
@@ -84,6 +122,50 @@ export default function NavActivityChart({ transactions, navHistory, nav, navDat
       (point) => new Date(`${point.date}T00:00:00Z`) >= cutoff,
     );
     setRange([Math.max(0, firstInPeriod), allPoints.length - 1]);
+  };
+
+  const resetVisibleHistory = () => {
+    setPeriod("all");
+    setRange([0, Math.max(1, allPoints.length - 1)]);
+    setHovered(null);
+    setTooltipStyle(undefined);
+  };
+
+  const requestFullHistory = async () => {
+    if (!schemeCode || currentFullHistory?.loading) return;
+    fullHistoryRequest.current?.abort();
+    const controller = new AbortController();
+    fullHistoryRequest.current = controller;
+    setFullHistoryResult({ key: historyKey, loading: true });
+    try {
+      const points = await loadFullSchemeNavHistory(
+        schemeCode,
+        navDate,
+        liveNav ? nav : undefined,
+        liveNav ? navDate : undefined,
+        controller.signal,
+      );
+      if (!controller.signal.aborted) {
+        setFullHistoryResult({ key: historyKey, points });
+      }
+    } catch {
+      if (!controller.signal.aborted) {
+        setFullHistoryResult({
+          key: historyKey,
+          error: "Full published NAV history could not be loaded. Your current view is unchanged.",
+        });
+      }
+    } finally {
+      if (fullHistoryRequest.current === controller) fullHistoryRequest.current = null;
+    }
+  };
+
+  const selectHistoryScope = (scope: NavHistoryScope) => {
+    setHistoryScope(scope);
+    resetVisibleHistory();
+    if (scope === "full" && !currentFullHistory?.points && !currentFullHistory?.loading) {
+      void requestFullHistory();
+    }
   };
 
   const draw = useCallback(() => {
@@ -276,7 +358,40 @@ export default function NavActivityChart({ transactions, navHistory, nav, navDat
       <div className="nav-activity-legend">
         <span><i className="nav-line-key" />Actual daily NAV</span>
         <span><i className="investment-key" />CAS investment</span>
+        <button
+          type="button"
+          className={`chart-series-toggle nav-history-toggle${historyScope === "full" ? " active" : ""}`}
+          aria-pressed={historyScope === "full"}
+          aria-label={`${historyScope === "full" ? "Hide" : "Show"} full fund history`}
+          aria-describedby={historyScope === "full" ? scopeStatusId : undefined}
+          disabled={!schemeCode}
+          title={schemeCode
+            ? `${historyScope === "full" ? "Hide" : "Show"} full fund history`
+            : "Available after an official AMFI scheme match"}
+          onClick={() => selectHistoryScope(historyScope === "full" ? "journey" : "full")}
+        >
+          <i className="nav-full-history-key" aria-hidden="true" />
+          <b>Full fund history</b>
+          <em aria-hidden="true"><i /></em>
+        </button>
       </div>
+      {historyScope === "full" && (
+        <p
+          id={scopeStatusId}
+          className={`nav-scope-status${currentFullHistory?.error && historyScope === "full" ? " error" : ""}`}
+          role="status"
+          aria-live="polite"
+          aria-busy={historyScope === "full" && Boolean(currentFullHistory?.loading)}
+        >
+          {historyScope === "full" && currentFullHistory?.loading ? (
+            <><i className="nav-scope-spinner" aria-hidden="true" />Loading full published history · current chart stays visible</>
+          ) : historyScope === "full" && currentFullHistory?.error ? (
+            <><span>{currentFullHistory.error}</span><button type="button" onClick={() => void requestFullHistory()}>Retry</button></>
+          ) : displayedScope === "full" && currentFullHistory?.points ? (
+            <>Full history · earliest published NAV {formatDate(currentFullHistory.points[0].date)} · {currentFullHistory.points.length.toLocaleString("en-IN")} observations</>
+          ) : null}
+        </p>
+      )}
       {points.length ? (
         <div
           className="nav-activity-shell"
@@ -290,6 +405,9 @@ export default function NavActivityChart({ transactions, navHistory, nav, navDat
           <canvas
             ref={canvasRef}
             role="img"
+            data-history-scope={displayedScope}
+            data-requested-history-scope={historyScope}
+            data-series-start={allPoints[0]?.date}
             data-total-points={allPoints.length}
             data-visible-points={points.length}
             data-daily-points={allPoints.filter((point) => point.daily).length}
@@ -373,7 +491,7 @@ export default function NavActivityChart({ transactions, navHistory, nav, navDat
           </div>
         </div>
       )}
-      <p className="nav-activity-note">The line follows every actual AMFI NAV publication date. Green diamonds retain exact CAS purchase dates and invested amounts. Missing dates are skipped; connecting lines do not create NAV observations.</p>
+      <p className="nav-activity-note">{displayedScope === "full" ? "Full fund history starts at the earliest published NAV returned for this scheme. " : "Your journey starts with the first investment recorded in the CAS. "}The line follows actual AMFI NAV publication dates. Green diamonds retain exact CAS purchase dates and invested amounts. Missing dates are skipped; connecting lines do not create NAV observations.</p>
     </section>
   );
 }

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { demoPortfolio, type Portfolio } from "../../app/cas-parser.ts";
 import {
+  loadFullSchemeNavHistory,
   parseAmfiNavText,
   refreshWithDailyHistory,
   refreshWithLatestNav,
@@ -193,6 +194,60 @@ test("repeating the same latest NAV refresh replaces rather than duplicates the 
     return twiceResult;
   });
   assert.equal(twice.timeline.filter((point) => point.date === "2026-02-02").length, 1);
+});
+
+test("full scheme history loads the earliest published series on demand and reconciles its live endpoint", async () => {
+  let calls = 0;
+  const points = await withFetch(async (input, init) => {
+    calls += 1;
+    const url = new URL(String(input), "http://localhost");
+    assert.equal(url.pathname, "/api/nav-history");
+    assert.equal(url.searchParams.get("query_type"), "historical_period");
+    assert.equal(url.searchParams.get("from_date"), "1900-01-01");
+    assert.equal(url.searchParams.get("to_date"), "2026-02-02");
+    assert.equal(url.searchParams.get("sd_id"), "1001");
+    assert.equal(init?.cache, "no-store");
+    assert.ok(init?.signal instanceof AbortSignal);
+    return Response.json({
+      status: "SUCCESS",
+      meta: { scheme_code: "1001" },
+      data: [
+        { date: "02-02-2026", nav: "12.0000" },
+        { date: "15-05-2004", nav: "10.2500" },
+        { date: "01-01-1900", nav: "0" },
+      ],
+    });
+  }, () => loadFullSchemeNavHistory("1001", "2026-02-02", 12, "2026-02-02"));
+
+  assert.equal(calls, 1);
+  assert.deepEqual(points, [
+    { date: "2004-05-15", nav: 10.25 },
+    { date: "2026-02-02", nav: 12 },
+  ]);
+});
+
+test("full scheme history rejects unsafe identity inputs and a live NAV mismatch", async () => {
+  let calls = 0;
+  await assert.rejects(
+    () => withFetch(async () => {
+      calls += 1;
+      throw new Error("must not fetch");
+    }, () => loadFullSchemeNavHistory("scheme-1001", "2026-02-02")),
+    /unavailable/,
+  );
+  assert.equal(calls, 0);
+
+  await assert.rejects(
+    () => withFetch(async () => Response.json({
+      status: "SUCCESS",
+      meta: { scheme_code: "1001" },
+      data: [
+        { date: "02-02-2026", nav: "11.9990" },
+        { date: "15-05-2004", nav: "10.2500" },
+      ],
+    }), () => loadFullSchemeNavHistory("1001", "2026-02-02", 12, "2026-02-02")),
+    /did not reconcile/,
+  );
 });
 
 const livePortfolio = (): Portfolio => {

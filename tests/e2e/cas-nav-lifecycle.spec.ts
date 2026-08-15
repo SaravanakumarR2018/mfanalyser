@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
-import { openDemo, uploadCas } from "./helpers/app";
+import { installFailureGuards, openDemo, uploadCas } from "./helpers/app";
 import {
   dailyHistoryPayload,
+  fullDailyHistoryPayload,
   latestNavText,
   makeCasPdf,
   mockDailyHistory,
@@ -83,6 +84,120 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     await page.mouse.move(1, 1, { steps: 8 });
     await expect.poll(() => details.evaluate((element) => getComputedStyle(element).opacity)).toBe("0");
     await expect.poll(() => details.evaluate((element) => getComputedStyle(element).maxHeight)).toBe("0px");
+  });
+
+  test("switches smoothly between the invested period and full fund NAV history", async ({ page }) => {
+    const assertNoErrors = await installFailureGuards(page);
+    let fullHistoryRequests = 0;
+    let releaseFullHistory!: () => void;
+    const fullHistoryGate = new Promise<void>((resolve) => { releaseFullHistory = resolve; });
+    await mockLatestNav(page);
+    await page.route("**/api/nav-history?**", async (route) => {
+      const request = new URL(route.request().url());
+      const fullHistory = request.searchParams.get("from_date") === "1900-01-01";
+      if (fullHistory) {
+        fullHistoryRequests += 1;
+        await fullHistoryGate;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(fullHistory ? fullDailyHistoryPayload() : dailyHistoryPayload()),
+      });
+    });
+    await page.goto("/");
+    await uploadCas(page);
+    await expect(page.locator(".reconcile-bar")).toContainText("1/1 daily histories");
+    await page.locator(".fund-group .fund-row").first().click();
+
+    const dialog = page.getByRole("dialog", { name: "Testhouse Flexi Cap Direct Growth" });
+    const navCard = dialog.locator(".nav-activity-card");
+    const canvas = navCard.locator('canvas[role="img"]');
+    const scopeStatus = navCard.getByRole("status");
+    const fullHistoryToggle = navCard.getByRole("button", { name: "Show full fund history" });
+    await expect(fullHistoryToggle).toHaveAttribute("aria-pressed", "false");
+    await expect(canvas).toHaveAttribute("data-history-scope", "journey");
+    await expect(canvas).toHaveAttribute("data-series-start", "2025-01-01");
+    await expect(canvas).toHaveAttribute("data-total-points", "6");
+    await expect(canvas).toHaveAttribute("data-investment-points", "3");
+    await expect(scopeStatus).toHaveCount(0);
+    const beforeBounds = await canvas.boundingBox();
+
+    await fullHistoryToggle.click();
+    await expect(navCard.getByRole("button", { name: "Hide full fund history" })).toHaveAttribute("aria-pressed", "true");
+    await expect(scopeStatus).toContainText("Loading full published history");
+    await expect(canvas).toHaveAttribute("data-requested-history-scope", "full");
+    await expect(canvas).toHaveAttribute("data-history-scope", "journey");
+    await expect(canvas).toHaveAttribute("data-total-points", "6");
+    expect(fullHistoryRequests).toBe(1);
+
+    releaseFullHistory();
+    await expect(scopeStatus).toContainText("Full history · earliest published NAV 15 May 2004 · 12 observations");
+    await expect(canvas).toHaveAttribute("data-history-scope", "full");
+    await expect(canvas).toHaveAttribute("data-series-start", "2004-05-15");
+    await expect(canvas).toHaveAttribute("data-total-points", "12");
+    await expect(canvas).toHaveAttribute("data-investment-points", "3");
+    await expect(canvas).toHaveAttribute("aria-label", /15 May 2004 to 14 Aug 2026/);
+    const afterBounds = await canvas.boundingBox();
+    expect(afterBounds?.width).toBeCloseTo(beforeBounds?.width ?? 0, 0);
+    expect(afterBounds?.height).toBeCloseTo(beforeBounds?.height ?? 0, 0);
+
+    await navCard.getByRole("button", { name: "3Y", exact: true }).click();
+    expect(Number(await canvas.getAttribute("data-visible-points"))).toBeLessThan(12);
+    await navCard.getByRole("button", { name: "All", exact: true }).click();
+    await expect(canvas).toHaveAttribute("data-visible-points", "12");
+    await canvas.hover({ position: { x: Math.max(1, (afterBounds?.width ?? 100) * 0.86), y: 150 } });
+    await expect(navCard.locator(".nav-activity-tooltip")).toContainText("NAV");
+
+    await navCard.getByRole("button", { name: "Hide full fund history" }).click();
+    await expect(canvas).toHaveAttribute("data-history-scope", "journey");
+    await expect(canvas).toHaveAttribute("data-total-points", "6");
+    await expect(navCard.getByRole("button", { name: "Show full fund history" })).toHaveAttribute("aria-pressed", "false");
+    await navCard.getByRole("button", { name: "Show full fund history" }).click();
+    await expect(canvas).toHaveAttribute("data-history-scope", "full");
+    expect(fullHistoryRequests).toBe(1);
+    expect(await navCard.evaluate((element) => {
+      const card = element.getBoundingClientRect();
+      return [...element.querySelectorAll(".nav-activity-legend, .nav-activity-shell, .nav-range-control")]
+        .reduce((overflow, child) => {
+          const bounds = child.getBoundingClientRect();
+          return Math.max(overflow, bounds.right - card.right, card.left - bounds.left);
+        }, 0);
+    })).toBeLessThanOrEqual(1);
+    assertNoErrors();
+  });
+
+  test("keeps the current NAV chart visible when full history fails and supports retry", async ({ page }) => {
+    let fullHistoryAttempts = 0;
+    await mockLatestNav(page);
+    await page.route("**/api/nav-history?**", async (route) => {
+      const request = new URL(route.request().url());
+      if (request.searchParams.get("from_date") !== "1900-01-01") {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(dailyHistoryPayload()) });
+        return;
+      }
+      fullHistoryAttempts += 1;
+      await route.fulfill(fullHistoryAttempts <= 3
+        ? { status: 503, contentType: "application/json", body: JSON.stringify({ error: "unavailable" }) }
+        : { status: 200, contentType: "application/json", body: JSON.stringify(fullDailyHistoryPayload()) });
+    });
+    await page.goto("/");
+    await uploadCas(page);
+    await expect(page.locator(".reconcile-bar")).toContainText("1/1 daily histories");
+    await page.locator(".fund-group .fund-row").first().click();
+
+    const navCard = page.getByRole("dialog", { name: "Testhouse Flexi Cap Direct Growth" }).locator(".nav-activity-card");
+    const canvas = navCard.locator('canvas[role="img"]');
+    await navCard.getByRole("button", { name: "Show full fund history" }).click();
+    await expect(navCard.getByRole("status")).toContainText("Your current view is unchanged");
+    await expect(canvas).toHaveAttribute("data-history-scope", "journey");
+    await expect(canvas).toHaveAttribute("data-total-points", "6");
+    expect(fullHistoryAttempts).toBe(3);
+
+    await navCard.getByRole("button", { name: "Retry", exact: true }).click();
+    await expect(canvas).toHaveAttribute("data-history-scope", "full");
+    await expect(canvas).toHaveAttribute("data-series-start", "2004-05-15");
+    expect(fullHistoryAttempts).toBe(4);
   });
 
   test("keeps statement values when the latest NAV endpoint fails", async ({ page }) => {

@@ -92,6 +92,9 @@ test.describe("dashboard information architecture", () => {
     await expect(dialog.locator(".drawer-grid")).toContainText("₹5,40,000");
     await expect(dialog.getByRole("heading", { name: "Invested vs value" })).toBeVisible();
     await expect(dialog.getByRole("heading", { name: "NAV & investments" })).toBeVisible();
+    const fullHistoryToggle = dialog.getByRole("button", { name: "Show full fund history" });
+    await expect(fullHistoryToggle).toHaveAttribute("aria-pressed", "false");
+    await expect(fullHistoryToggle).toBeDisabled();
     await expect(dialog.getByText("Transaction rows were not available for this holding.")).toBeVisible();
 
     await dialog.getByRole("button", { name: "Close fund details" }).click();
