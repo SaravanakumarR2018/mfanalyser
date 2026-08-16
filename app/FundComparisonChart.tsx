@@ -9,7 +9,6 @@ import {
   useState,
 } from "react";
 import type {
-  CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
@@ -26,6 +25,10 @@ import {
   shouldStartFundComparisonHistoryLoad,
   type FundComparisonCandidate,
 } from "./fund-comparison-service";
+import {
+  placeFundComparisonTooltip,
+  type FundComparisonTooltipLayout,
+} from "./fund-comparison-tooltip";
 import { stackFundColor } from "./FundStackPanel";
 import { formatInr } from "./formatters";
 import { loadFundComparisonHistories } from "./nav-service";
@@ -71,6 +74,10 @@ const indexedMoney = (value: number) => `₹${value.toLocaleString("en-IN", {
 })}`;
 
 const toTime = (date: string) => new Date(`${date}T00:00:00Z`).getTime();
+
+const comparisonChartGeometry = (compact: boolean) => compact
+  ? { height: 409, top: 84, bottom: 83 }
+  : { height: 422, top: 75, bottom: 75 };
 
 const distanceToSegment = (
   x: number,
@@ -121,6 +128,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   const loadTriggeredRef = useRef(false);
   const drawnSeriesRef = useRef<DrawnSeries[]>([]);
   const plotGeometryRef = useRef<PlotGeometry | null>(null);
+  const tooltipLayoutRef = useRef<FundComparisonTooltipLayout>();
 
   const candidates = useMemo(() => buildFundComparisonCandidates(portfolio), [portfolio]);
   const eligible = useMemo(
@@ -151,7 +159,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   const [verticalRange, setVerticalRange] = useState<IndexRange>([0, VERTICAL_RANGE_MAX]);
   const [hoverDate, setHoverDate] = useState<string | null>(null);
   const [hoveredFundKey, setHoveredFundKey] = useState<string | null>(null);
-  const [tooltipStyle, setTooltipStyle] = useState<CSSProperties>();
+  const [tooltipLayout, setTooltipLayout] = useState<FundComparisonTooltipLayout>();
   const [keyboardAnnouncement, setKeyboardAnnouncement] = useState("");
   useEffect(() => {
     if (!allFundsCheckboxRef.current) return;
@@ -176,10 +184,10 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     totalPoints: model.dates.length,
     onMoveStart: () => {
       setPeriod(null);
-      setFocusedFundKey(null);
       setHoverDate(null);
       setHoveredFundKey(null);
-      setTooltipStyle(undefined);
+      tooltipLayoutRef.current = undefined;
+      setTooltipLayout(undefined);
     },
   });
 
@@ -301,7 +309,8 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     setFocusedFundKey(null);
     setHoverDate(null);
     setHoveredFundKey(null);
-    setTooltipStyle(undefined);
+    tooltipLayoutRef.current = undefined;
+    setTooltipLayout(undefined);
     setPeriod("all");
     setVerticalRange([0, VERTICAL_RANGE_MAX]);
   }, [eligible, eligibleSignature]);
@@ -347,7 +356,8 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     setFocusedFundKey(null);
     setHoverDate(null);
     setHoveredFundKey(null);
-    setTooltipStyle(undefined);
+    tooltipLayoutRef.current = undefined;
+    setTooltipLayout(undefined);
     if (nextPeriod === "all" || model.dates.length < 2) {
       setRange([0, Math.max(0, model.dates.length - 1)]);
       return;
@@ -382,7 +392,8 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
       }
       setHoverDate(null);
       setHoveredFundKey(null);
-      setTooltipStyle(undefined);
+      tooltipLayoutRef.current = undefined;
+      setTooltipLayout(undefined);
     }, 0);
     return () => globalThis.clearTimeout(timer);
   }, [model.dates, period]);
@@ -396,7 +407,8 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
       return;
     }
     const width = shell.clientWidth;
-    const height = width <= 480 ? 310 : 340;
+    const chartGeometry = comparisonChartGeometry(window.innerWidth <= 768);
+    const height = chartGeometry.height;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.max(1, Math.round(width * dpr));
     canvas.height = Math.round(height * dpr);
@@ -407,7 +419,14 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     context.scale(dpr, dpr);
     context.clearRect(0, 0, width, height);
 
-    const padding = { left: width < 520 ? 12 : 55, right: 18, top: 29, bottom: 39 };
+    const padding = {
+      left: width < 520 ? 12 : 55,
+      right: 18,
+      top: chartGeometry.top,
+      bottom: chartGeometry.bottom,
+    };
+    canvas.dataset.plotTop = String(padding.top);
+    canvas.dataset.plotBottom = String(padding.bottom);
     const chartWidth = Math.max(1, width - padding.left - padding.right);
     const chartHeight = Math.max(1, height - padding.top - padding.bottom);
     const firstTime = toTime(visibleStart);
@@ -510,6 +529,16 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
       if (row?.available && row.indexedValue !== undefined) {
         const x = xForDate(row.date);
         const y = yForValue(row.indexedValue);
+        context.save();
+        context.beginPath();
+        context.moveTo(x, padding.top);
+        context.lineTo(x, height - padding.bottom);
+        context.strokeStyle = colorFor(row.key);
+        context.globalAlpha = activeFocusedFundKey === row.key ? 0.34 : 0.22;
+        context.lineWidth = 1;
+        context.setLineDash([3, 4]);
+        context.stroke();
+        context.restore();
         context.beginPath();
         context.arc(x, y, activeFocusedFundKey === row.key ? 5.5 : 4.5, 0, Math.PI * 2);
         context.fillStyle = "#FDFCF7";
@@ -531,7 +560,8 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   const clearHover = useCallback(() => {
     setHoverDate(null);
     setHoveredFundKey(null);
-    setTooltipStyle(undefined);
+    tooltipLayoutRef.current = undefined;
+    setTooltipLayout(undefined);
   }, []);
 
   const inspectFundAtClientX = useCallback((fundKey: string, clientX: number, keyboard = false) => {
@@ -543,21 +573,29 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     const point = drawn.points.reduce((nearest, candidate) =>
       Math.abs(candidate.x - localX) < Math.abs(nearest.x - localX) ? candidate : nearest,
     drawn.points[0]);
-    const tooltipWidth = Math.min(226, Math.max(190, bounds.width - 16));
-    const tooltipHeight = 132;
-    const preferredLeft = point.x < bounds.width / 2
-      ? point.x + 12
-      : point.x - tooltipWidth - 12;
-    const preferredTop = point.y < bounds.height / 2
-      ? point.y + 12
-      : point.y - tooltipHeight - 12;
+    const plot = plotGeometryRef.current;
+    if (!plot) return;
+    const compact = bounds.width < 520;
+    const layout = placeFundComparisonTooltip({
+      anchor: point,
+      tooltip: {
+        width: Math.min(compact ? 204 : 240, Math.max(1, bounds.width - 12)),
+        height: compact ? 72 : 64,
+      },
+      canvas: { width: bounds.width, height: plot.height },
+      plot: {
+        left: plot.left,
+        right: bounds.width - plot.right,
+        top: plot.top,
+        bottom: plot.height - plot.bottom,
+      },
+      series: drawnSeriesRef.current.map((series) => series.points),
+      previous: tooltipLayoutRef.current,
+    });
     setHoveredFundKey(fundKey);
     setHoverDate(point.date);
-    setTooltipStyle({
-      left: `${Math.max(8, Math.min(bounds.width - tooltipWidth - 8, preferredLeft))}px`,
-      top: `${Math.max(8, Math.min(bounds.height - tooltipHeight - 8, preferredTop))}px`,
-      width: `${tooltipWidth}px`,
-    });
+    tooltipLayoutRef.current = layout;
+    setTooltipLayout(layout);
     if (keyboard) {
       const row = fundComparisonTooltipAt(visibleModel, point.date, fundKey)[0];
       if (row?.nav !== undefined && row.indexedValue !== undefined) {
@@ -570,12 +608,30 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     const bounds = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - bounds.left;
     const y = event.clientY - bounds.top;
-    const candidates = activeFocusedFundKey
-      ? drawnSeriesRef.current.filter((series) => series.key === activeFocusedFundKey)
-      : drawnSeriesRef.current;
+    const plot = plotGeometryRef.current;
+    const insidePlot = plot
+      && x >= plot.left
+      && x <= bounds.width - plot.right
+      && y >= plot.top
+      && y <= plot.height - plot.bottom;
+    if (!insidePlot) {
+      clearHover();
+      return;
+    }
+    if (activeFocusedFundKey) {
+      const focused = drawnSeriesRef.current.find((series) => series.key === activeFocusedFundKey);
+      const firstPoint = focused?.points[0];
+      const lastPoint = focused?.points.at(-1);
+      if (!focused || !firstPoint || !lastPoint || x < firstPoint.x || x > lastPoint.x) {
+        clearHover();
+        return;
+      }
+      inspectFundAtClientX(focused.key, event.clientX);
+      return;
+    }
     let nearest: DrawnSeries | undefined;
     let nearestDistance = 12;
-    for (const series of candidates) {
+    for (const series of drawnSeriesRef.current) {
       const distance = distanceToSeries(x, y, series.points);
       if (distance <= nearestDistance) {
         nearest = series;
@@ -853,6 +909,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                 data-visible-series-start-dates={visibleModel.series.map((series) => series.points[0]?.date).filter(Boolean).join(",")}
                 data-series-baselines={visibleModel.series.map((series) => series.points[0]?.indexedValue).filter((value) => value !== undefined).join(",")}
                 data-visible-funds={visibleModel.series.length}
+                data-locked-fund={focusedFundKey ?? ""}
                 data-focused-fund={activeFocusedFundKey ?? ""}
                 data-hover-fund={hoveredFundKey ?? ""}
                 data-emphasized-fund={emphasizedFundKey ?? ""}
@@ -869,15 +926,29 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                 data-vertical-lower={verticalRange[0]}
                 data-vertical-upper={verticalRange[1]}
                 data-hover-date={hoverDate ?? ""}
+                data-guide-date={tooltipRow ? hoverDate ?? "" : ""}
+                data-guide-visible={tooltipRow ? "true" : "false"}
+                data-pointer-track-mode={tooltipRow
+                  ? activeFocusedFundKey ? "focused-timeline" : "line-hover"
+                  : "none"}
                 data-tooltip-fund-count={tooltipRow ? 1 : 0}
                 onPointerMove={onCanvasPointerMove}
                 onClick={onCanvasClick}
                 onKeyDown={onCanvasKeyDown}
               />
-              {hoverDate && tooltipStyle && tooltipRow?.nav !== undefined && tooltipRow.indexedValue !== undefined && (
+              {hoverDate && tooltipLayout && tooltipRow?.nav !== undefined && tooltipRow.indexedValue !== undefined && (
                 <div
                   className="fund-comparison-tooltip"
-                  style={tooltipStyle}
+                  data-placement={tooltipLayout.placement}
+                  data-anchor-x={tooltipLayout.anchorX.toFixed(2)}
+                  data-anchor-y={tooltipLayout.anchorY.toFixed(2)}
+                  data-layout-left={tooltipLayout.left.toFixed(2)}
+                  data-layout-top={tooltipLayout.top.toFixed(2)}
+                  style={{
+                    width: `${tooltipLayout.width}px`,
+                    height: `${tooltipLayout.height}px`,
+                    transform: `translate3d(${tooltipLayout.left}px, ${tooltipLayout.top}px, 0)`,
+                  }}
                   onPointerMove={(event) => event.stopPropagation()}
                 >
                   <header>
@@ -926,10 +997,10 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                   value={range[0]}
                   onChange={(event) => {
                     setPeriod(null);
-                    setFocusedFundKey(null);
                     setHoverDate(null);
                     setHoveredFundKey(null);
-                    setTooltipStyle(undefined);
+                    tooltipLayoutRef.current = undefined;
+                    setTooltipLayout(undefined);
                     setRange([Math.min(Number(event.target.value), range[1] - 1), range[1]]);
                   }}
                 />
@@ -941,10 +1012,10 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                   value={range[1]}
                   onChange={(event) => {
                     setPeriod(null);
-                    setFocusedFundKey(null);
                     setHoverDate(null);
                     setHoveredFundKey(null);
-                    setTooltipStyle(undefined);
+                    tooltipLayoutRef.current = undefined;
+                    setTooltipLayout(undefined);
                     setRange([range[0], Math.max(Number(event.target.value), range[0] + 1)]);
                   }}
                 />

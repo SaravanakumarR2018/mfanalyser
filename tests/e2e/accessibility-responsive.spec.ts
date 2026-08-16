@@ -218,11 +218,27 @@ test.describe("accessibility and responsive behavior", () => {
       await canvas.press("End");
       const tooltip = card.locator(".fund-comparison-tooltip");
       await expect(tooltip).toBeVisible();
+      await expect(tooltip).toHaveAttribute("data-placement", /^(near-|rail-)/);
       const tooltipBox = await tooltip.boundingBox();
+      const plotTop = Number(await canvas.getAttribute("data-plot-top"));
+      const plotBottom = Number(await canvas.getAttribute("data-plot-bottom"));
+      const anchorX = Number(await tooltip.getAttribute("data-anchor-x"));
+      const anchorY = Number(await tooltip.getAttribute("data-anchor-y"));
+      const placement = await tooltip.getAttribute("data-placement");
       expect(tooltipBox?.x ?? -1).toBeGreaterThanOrEqual(0);
       expect((tooltipBox?.x ?? Infinity) + (tooltipBox?.width ?? Infinity)).toBeLessThanOrEqual(viewport.width + 1);
       expect(tooltipBox?.y ?? -1).toBeGreaterThanOrEqual(0);
       expect((tooltipBox?.y ?? Infinity) + (tooltipBox?.height ?? Infinity)).toBeLessThanOrEqual(viewport.height + 1);
+      const localLeft = (tooltipBox?.x ?? 0) - (canvasBox?.x ?? 0);
+      const localTop = (tooltipBox?.y ?? 0) - (canvasBox?.y ?? 0);
+      const localRight = localLeft + (tooltipBox?.width ?? 0);
+      const localBottom = localTop + (tooltipBox?.height ?? 0);
+      expect(anchorX >= localLeft - 5 && anchorX <= localRight + 5
+        && anchorY >= localTop - 5 && anchorY <= localBottom + 5).toBe(false);
+      if (placement === "rail-top") expect(localBottom).toBeLessThanOrEqual(plotTop - 4);
+      if (placement === "rail-bottom") {
+        expect(localTop).toBeGreaterThanOrEqual((canvasBox?.height ?? 0) - plotBottom + 4);
+      }
       await canvas.press("Escape");
 
       const trigger = card.locator(".fund-comparison-picker-trigger");
@@ -246,6 +262,7 @@ test.describe("accessibility and responsive behavior", () => {
     await openDemo(page);
     const insightGrid = page.locator(".insight-grid");
     await page.locator(".hero-donut").getByRole("button", { name: /Small cap allocation/ }).hover();
+    await expect(page.getByRole("tooltip")).toBeVisible();
     const summaryTooltipAccessibility = await new AxeBuilder({ page })
       .include(".donut-tooltip")
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
@@ -257,6 +274,7 @@ test.describe("accessibility and responsive behavior", () => {
       .analyze();
     expect(violationSummary(accessibility.violations)).toEqual([]);
     await page.locator(".concentration-donut").getByRole("button", { name: /Aurora Small Cap/ }).hover();
+    await expect(page.getByRole("tooltip")).toBeVisible();
     const openTooltipAccessibility = await new AxeBuilder({ page })
       .include(".donut-tooltip")
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])

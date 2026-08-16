@@ -6,40 +6,10 @@ import { makeEncryptedCasPdf } from "./helpers/encrypted-cas";
 import { makeTwoFundCasPdf, PARTIAL_FIRST_ISIN } from "./helpers/verifier-fixtures";
 
 test.describe("independent critical-path verification", () => {
-  test("password-protected CAS prompts, rejects a wrong password safely, and unlocks locally", async ({ page }) => {
-    const requests: Array<{ method: string; postData: string | null }> = [];
-    page.on("request", (request) => requests.push({ method: request.method(), postData: request.postData() }));
-    await mockLatestNav(page, { status: 503 });
-    await page.goto("/");
-    await waitForHydration(page);
-    await uploadInput(page).setInputFiles({
-      name: "protected-regression-cas.pdf",
-      mimeType: "application/pdf",
-      buffer: makeEncryptedCasPdf(),
-    });
-
-    const password = page.getByLabel("PDF password");
-    await expect(page.getByRole("heading", { name: "Enter the PDF password" })).toBeVisible();
-    await expect(password).toHaveAttribute("type", "password");
-    await expect(page.getByRole("button", { name: "Unlock & analyse" })).toBeDisabled();
-
-    await password.fill("wrong-password");
-    await password.press("Enter");
-    await expect(page.getByRole("heading", { name: "Enter the PDF password" })).toBeVisible();
-    await expect(password).toHaveValue("wrong-password");
-
-    await password.fill("folio123");
-    await password.press("Enter");
-    await expect(page.getByRole("heading", { name: "Your funds" })).toBeVisible();
-    await expect(page.locator(".summary-exact-value")).toHaveText("₹12,000.00");
-    expect(requests.filter((request) => !["GET", "HEAD"].includes(request.method))).toEqual([]);
-    expect(requests.some((request) => request.postData?.includes("Consolidated Account Statement"))).toBe(false);
-  });
-
   test("analysis leaves browser persistence stores empty", async ({ page }) => {
     await mockLatestNav(page);
     await mockDailyHistory(page);
-    await page.goto("/");
+    await page.goto("/", { waitUntil: "domcontentloaded" });
     await waitForHydration(page);
     await uploadInput(page).setInputFiles({
       name: "privacy-regression-cas.pdf",
@@ -151,5 +121,37 @@ test.describe("independent critical-path verification", () => {
     expect(elapsed).toBeLessThan(8_000);
     await expect(page.locator('.chart-card canvas[role="img"]').first()).toHaveAttribute("data-visible-points", "58");
     assertNoErrors();
+  });
+
+  // Keep the encrypted-PDF case last: WebKit may retain its PDF worker until
+  // the project worker exits after a long serialized cross-browser run.
+  test("password-protected CAS prompts, rejects a wrong password safely, and unlocks locally", async ({ page }) => {
+    const requests: Array<{ method: string; postData: string | null }> = [];
+    page.on("request", (request) => requests.push({ method: request.method(), postData: request.postData() }));
+    await mockLatestNav(page, { status: 503 });
+    await page.goto("/");
+    await waitForHydration(page);
+    await uploadInput(page).setInputFiles({
+      name: "protected-regression-cas.pdf",
+      mimeType: "application/pdf",
+      buffer: makeEncryptedCasPdf(),
+    });
+
+    const password = page.getByLabel("PDF password");
+    await expect(page.getByRole("heading", { name: "Enter the PDF password" })).toBeVisible();
+    await expect(password).toHaveAttribute("type", "password");
+    await expect(page.getByRole("button", { name: "Unlock & analyse" })).toBeDisabled();
+
+    await password.fill("wrong-password");
+    await password.press("Enter");
+    await expect(page.getByRole("heading", { name: "Enter the PDF password" })).toBeVisible();
+    await expect(password).toHaveValue("wrong-password");
+
+    await password.fill("folio123");
+    await password.press("Enter");
+    await expect(page.getByRole("heading", { name: "Your funds" })).toBeVisible();
+    await expect(page.locator(".summary-exact-value")).toHaveText("₹12,000.00");
+    expect(requests.filter((request) => !["GET", "HEAD"].includes(request.method))).toEqual([]);
+    expect(requests.some((request) => request.postData?.includes("Consolidated Account Statement"))).toBe(false);
   });
 });

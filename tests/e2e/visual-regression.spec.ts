@@ -76,7 +76,10 @@ test.describe("stable visual regions", () => {
     const target = new Date("2024-08-01T00:00:00Z").getTime();
     const left = (comparisonBox?.width ?? 600) < 520 ? 12 : 55;
     const x = left + (target - first) / (last - first) * ((comparisonBox?.width ?? 600) - left - 18);
-    const y = 29 + (256.8 - 180) / (256.8 - 83.2) * ((comparisonBox?.height ?? 340) - 29 - 39);
+    const plotTop = Number(await comparisonCanvas.getAttribute("data-plot-top"));
+    const plotBottom = Number(await comparisonCanvas.getAttribute("data-plot-bottom"));
+    const y = plotTop
+      + (256.8 - 180) / (256.8 - 83.2) * ((comparisonBox?.height ?? 404) - plotTop - plotBottom);
     await page.mouse.move((comparisonBox?.x ?? 0) + x, (comparisonBox?.y ?? 0) + y);
     await expect(comparisonCanvas).toHaveAttribute("data-emphasized-fund", "scheme:100001");
     await expect(comparisonCanvas).toHaveAttribute("data-emphasis-mode", "hover");

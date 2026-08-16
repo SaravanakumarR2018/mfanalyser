@@ -305,7 +305,7 @@ This section is mandatory for every agent making code changes.
 
 The current full gate contains:
 
-- 111 passing data tests;
+- 112 passing data tests;
 - aggregate application coverage above the mandatory 97% lines, 80% branches,
   and 90% functions thresholds;
 - 2 passing rendered-HTML tests after a successful production build;

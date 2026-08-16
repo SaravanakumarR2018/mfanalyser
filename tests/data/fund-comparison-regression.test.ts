@@ -13,6 +13,7 @@ import {
   shouldStartFundComparisonHistoryLoad,
   type FundComparisonCandidate,
 } from "../../app/fund-comparison-service.ts";
+import { placeFundComparisonTooltip } from "../../app/fund-comparison-tooltip.ts";
 import { loadFundComparisonHistories } from "../../app/nav-service.ts";
 import { scaleForVerticalRange } from "../../app/vertical-range.ts";
 import { activeFund, casPortfolio, closedFund, transaction } from "./helpers.ts";
@@ -51,6 +52,66 @@ test("comparison lines are thin at rest and only become bold when emphasized", (
   assert.equal(dimmed, 0.85);
   assert.ok(dimmed < resting);
   assert.ok(resting < emphasized);
+});
+
+test("comparison tooltip follows its point, avoids every line, and uses the nearest safe rail", () => {
+  const nearby = placeFundComparisonTooltip({
+    anchor: { x: 200, y: 150 },
+    tooltip: { width: 140, height: 50 },
+    canvas: { width: 600, height: 300 },
+    plot: { left: 50, right: 580, top: 50, bottom: 240 },
+    series: [[{ x: 60, y: 150 }, { x: 540, y: 150 }]],
+  });
+  assert.equal(nearby.placement, "near-above");
+  assert.equal(nearby.left, 130);
+  assert.equal(nearby.top, 88);
+  assert.equal(nearby.anchorX, 200);
+  assert.equal(nearby.anchorY, 150);
+
+  const continued = placeFundComparisonTooltip({
+    anchor: { x: 210, y: 140 },
+    tooltip: { width: 140, height: 50 },
+    canvas: { width: 600, height: 300 },
+    plot: { left: 50, right: 580, top: 50, bottom: 240 },
+    series: [[{ x: 60, y: 140 }, { x: 540, y: 140 }]],
+    previous: nearby,
+  });
+  assert.equal(continued.placement, nearby.placement);
+  assert.equal(continued.left - continued.anchorX, nearby.left - nearby.anchorX);
+  assert.equal(continued.top - continued.anchorY, nearby.top - nearby.anchorY);
+
+  const denseSeries = [
+    ...Array.from({ length: 39 }, (_, index) => [
+      { x: 50, y: 50 + index * 5 },
+      { x: 580, y: 50 + index * 5 },
+    ]),
+    ...Array.from({ length: 107 }, (_, index) => [
+      { x: 50 + index * 5, y: 50 },
+      { x: 50 + index * 5, y: 240 },
+    ]),
+  ];
+  const fallback = placeFundComparisonTooltip({
+    anchor: { x: 420, y: 220 },
+    tooltip: { width: 140, height: 60 },
+    canvas: { width: 600, height: 312 },
+    plot: { left: 50, right: 580, top: 70, bottom: 240 },
+    series: denseSeries,
+  });
+  assert.equal(fallback.placement, "rail-bottom");
+  assert.ok(fallback.top >= 245);
+  assert.ok(fallback.left >= 6);
+  assert.ok(fallback.left + fallback.width <= 594);
+
+  const clamped = placeFundComparisonTooltip({
+    anchor: { x: Number.POSITIVE_INFINITY, y: Number.NaN },
+    tooltip: { width: Number.POSITIVE_INFINITY, height: -10 },
+    canvas: { width: 120, height: 100 },
+    plot: { left: 10, right: 110, top: 20, bottom: 80 },
+    series: [],
+  });
+  assert.ok(Number.isFinite(clamped.left));
+  assert.ok(Number.isFinite(clamped.top));
+  assert.ok(clamped.width > 0 && clamped.height > 0);
 });
 
 const withFetch = async <T>(

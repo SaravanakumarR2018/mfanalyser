@@ -142,8 +142,12 @@ test.describe("dashboard information architecture", () => {
     const summaryDonut = page.locator(".hero-donut");
     const smallCap = summaryDonut.getByRole("button", { name: /Small cap allocation: 26\.9% of portfolio/ });
     const flexiCap = summaryDonut.getByRole("button", { name: /Flexi cap allocation: 21\.3% of portfolio/ });
+    const revealSlice = async (slice: typeof smallCap) => {
+      if (testInfo.project.name === "mobile-chromium") await slice.focus();
+      else await slice.hover();
+    };
 
-    await smallCap.hover();
+    await revealSlice(smallCap);
     await expect(summaryDonut).toHaveAttribute("data-active-slice", "category:Small cap");
     await expect(page.getByRole("tooltip")).toContainText("Small cap allocation26.9% of portfolio");
     const animatedStyle = await smallCap.evaluate((element) => {
@@ -161,10 +165,11 @@ test.describe("dashboard information architecture", () => {
       expect(await smallCap.evaluate((element) => getComputedStyle(element).animationName)).toContain("donut-slice-pop");
     }
     await expect.poll(() => flexiCap.evaluate((element) => Number(getComputedStyle(element).opacity))).toBeLessThan(0.5);
-    await flexiCap.hover();
+    await revealSlice(flexiCap);
     await expect(summaryDonut).toHaveAttribute("data-active-slice", "category:Flexi cap");
     await expect(page.getByRole("tooltip")).toContainText("Flexi cap allocation21.3% of portfolio");
-    await page.locator(".summary-main h1").hover();
+    if (testInfo.project.name === "mobile-chromium") await flexiCap.blur();
+    else await page.locator(".summary-main h1").hover();
     await expect(summaryDonut).toHaveAttribute("data-active-slice", "category:Small cap");
     await expect(page.getByRole("tooltip")).toContainText("Selected");
 
@@ -177,7 +182,7 @@ test.describe("dashboard information architecture", () => {
     await expect(page.getByRole("tooltip")).toHaveCount(0);
 
     const allocationDonut = page.locator(".allocation-donut");
-    await allocationDonut.getByRole("button", { name: /Mid cap allocation: 9\.4% of portfolio/ }).hover();
+    await revealSlice(allocationDonut.getByRole("button", { name: /Mid cap allocation: 9\.4% of portfolio/ }));
     await expect(page.getByRole("tooltip")).toContainText("Mid cap allocation9.4% of portfolio");
 
     const concentrationDonut = page.locator(".concentration-donut");

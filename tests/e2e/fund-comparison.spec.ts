@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 
 import {
   expectCanvasHasInk,
@@ -15,6 +15,48 @@ import {
 } from "./helpers/fund-comparison-fixture";
 
 const cardFor = (page: Page) => page.locator(".fund-comparison-card");
+
+async function expectTooltipTracksPointWithoutCoveringIt(canvas: Locator, tooltip: Locator) {
+  await expect(tooltip).toHaveAttribute("data-placement", /^(near-|rail-)/);
+  const [canvasBox, tooltipBox, plotTopText, plotBottomText, anchorXText, anchorYText, placement] = await Promise.all([
+    canvas.boundingBox(),
+    tooltip.boundingBox(),
+    canvas.getAttribute("data-plot-top"),
+    canvas.getAttribute("data-plot-bottom"),
+    tooltip.getAttribute("data-anchor-x"),
+    tooltip.getAttribute("data-anchor-y"),
+    tooltip.getAttribute("data-placement"),
+  ]);
+  expect(canvasBox).not.toBeNull();
+  expect(tooltipBox).not.toBeNull();
+  const plotTop = Number(plotTopText);
+  const plotBottom = Number(plotBottomText);
+  const anchorX = Number(anchorXText);
+  const anchorY = Number(anchorYText);
+  expect(Number.isFinite(plotTop)).toBe(true);
+  expect(Number.isFinite(plotBottom)).toBe(true);
+  expect(Number.isFinite(anchorX)).toBe(true);
+  expect(Number.isFinite(anchorY)).toBe(true);
+  const localLeft = (tooltipBox?.x ?? 0) - (canvasBox?.x ?? 0);
+  const localTop = (tooltipBox?.y ?? 0) - (canvasBox?.y ?? 0);
+  const localRight = localLeft + (tooltipBox?.width ?? 0);
+  const localBottom = localTop + (tooltipBox?.height ?? 0);
+  expect(localLeft).toBeGreaterThanOrEqual(0);
+  expect(localTop).toBeGreaterThanOrEqual(0);
+  expect(localRight).toBeLessThanOrEqual((canvasBox?.width ?? 0) + 1);
+  expect(localBottom).toBeLessThanOrEqual((canvasBox?.height ?? 0) + 1);
+  expect(anchorX >= localLeft - 5 && anchorX <= localRight + 5
+    && anchorY >= localTop - 5 && anchorY <= localBottom + 5).toBe(false);
+  if (placement?.startsWith("near-")) {
+    const dx = anchorX < localLeft ? localLeft - anchorX : anchorX > localRight ? anchorX - localRight : 0;
+    const dy = anchorY < localTop ? localTop - anchorY : anchorY > localBottom ? anchorY - localBottom : 0;
+    expect(Math.hypot(dx, dy)).toBeLessThanOrEqual(150);
+  } else if (placement === "rail-top") {
+    expect(localBottom).toBeLessThanOrEqual(plotTop - 4);
+  } else {
+    expect(localTop).toBeGreaterThanOrEqual((canvasBox?.height ?? 0) - plotBottom + 4);
+  }
+}
 
 async function openComparisonDashboard(
   page: Page,
@@ -198,7 +240,8 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(card.getByRole("button", { name: "1 of 4 funds" })).toBeFocused();
   });
 
-  test("pointer hover shows only the nearby fund while click and keyboard focus stay reversible", async ({ page }) => {
+  test("pointer hover uses nearby lines while a selected fund tracks freely across its timeline", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     const card = await openComparisonDashboard(page);
     const canvas = await waitForPreloadedComparison(card);
     await expect(canvas).toHaveAttribute("data-resting-line-width", "1.15");
@@ -207,14 +250,25 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(canvas).toHaveAttribute("data-active-line-width", "1.15");
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
+    const plotTop = Number(await canvas.getAttribute("data-plot-top"));
+    const plotBottom = Number(await canvas.getAttribute("data-plot-bottom"));
+    expect(Number.isFinite(plotTop)).toBe(true);
+    expect(Number.isFinite(plotBottom)).toBe(true);
     const first = new Date("1990-01-01T00:00:00Z").getTime();
     const last = new Date("2026-08-14T00:00:00Z").getTime();
     const target = new Date("2024-08-01T00:00:00Z").getTime();
+    const betweenTargets = new Date("2024-10-01T00:00:00Z").getTime();
+    const laterTarget = new Date("2025-08-14T00:00:00Z").getTime();
+    const beforeGammaInception = new Date("2020-01-02T00:00:00Z").getTime();
     const left = (box?.width ?? 600) < 520 ? 12 : 55;
     const x = left + (target - first) / (last - first) * ((box?.width ?? 600) - left - 18);
+    const betweenX = left + (betweenTargets - first) / (last - first) * ((box?.width ?? 600) - left - 18);
+    const laterX = left + (laterTarget - first) / (last - first) * ((box?.width ?? 600) - left - 18);
+    const beforeGammaX = left + (beforeGammaInception - first) / (last - first) * ((box?.width ?? 600) - left - 18);
     const low = 83.2;
     const high = 256.8;
-    const yFor = (value: number) => 29 + (high - value) / (high - low) * ((box?.height ?? 340) - 29 - 39);
+    const yFor = (value: number) => plotTop
+      + (high - value) / (high - low) * ((box?.height ?? 404) - plotTop - plotBottom);
 
     await page.mouse.move((box?.x ?? 0) + x, (box?.y ?? 0) + yFor(180));
     await expect(canvas).toHaveAttribute("data-hover-fund", "scheme:100001");
@@ -224,12 +278,26 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(canvas).toHaveAttribute("data-active-line-width", "3.2");
     await expect(canvas).toHaveAttribute("data-hover-date", "2024-08-01");
     await expect(canvas).toHaveAttribute("data-tooltip-fund-count", "1");
+    await expect(canvas).toHaveAttribute("data-guide-date", "2024-08-01");
+    await expect(canvas).toHaveAttribute("data-guide-visible", "true");
+    await expect(canvas).toHaveAttribute("data-pointer-track-mode", "line-hover");
     const tooltip = card.locator(".fund-comparison-tooltip");
     await expect(tooltip).toContainText("Alpha Flexi Cap");
     await expect(tooltip).toContainText("NAV₹18.0000");
     await expect(tooltip).toContainText("₹100 value₹180.00");
     await expect(tooltip).not.toContainText("Beta Mid Cap");
-    expect((await tooltip.boundingBox())?.width ?? Infinity).toBeLessThanOrEqual(230);
+    await expect.poll(() => tooltip.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return `${style.transitionProperty}:${style.transitionDuration}`;
+    })).toBe("transform:0.07s");
+    expect((await tooltip.boundingBox())?.width ?? Infinity).toBeLessThanOrEqual(324);
+    await expectTooltipTracksPointWithoutCoveringIt(canvas, tooltip);
+    const alphaLayout = await tooltip.evaluate((element) => ({
+      anchorY: Number(element.getAttribute("data-anchor-y")),
+      left: element.getAttribute("data-layout-left"),
+      placement: element.getAttribute("data-placement"),
+      top: element.getAttribute("data-layout-top"),
+    }));
 
     await page.mouse.move((box?.x ?? 0) + x, (box?.y ?? 0) + yFor(160));
     await expect(canvas).toHaveAttribute("data-hover-fund", "scheme:100003");
@@ -239,6 +307,17 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(tooltip).toContainText("NAV₹8.0000");
     await expect(tooltip).toContainText("₹100 value₹160.00");
     await expect(tooltip).not.toContainText("Alpha Flexi Cap");
+    await expectTooltipTracksPointWithoutCoveringIt(canvas, tooltip);
+    const gammaLayout = await tooltip.evaluate((element) => ({
+      anchorY: Number(element.getAttribute("data-anchor-y")),
+      left: element.getAttribute("data-layout-left"),
+      placement: element.getAttribute("data-placement"),
+      top: element.getAttribute("data-layout-top"),
+    }));
+    expect(Math.abs(gammaLayout.anchorY - alphaLayout.anchorY)).toBeGreaterThan(10);
+    expect(gammaLayout.left !== alphaLayout.left
+      || gammaLayout.top !== alphaLayout.top
+      || gammaLayout.placement !== alphaLayout.placement).toBe(true);
 
     await page.mouse.move((box?.x ?? 0) + 3, (box?.y ?? 0) + 3);
     await expect(canvas).toHaveAttribute("data-hover-fund", "");
@@ -246,6 +325,8 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(canvas).toHaveAttribute("data-emphasis-mode", "none");
     await expect(canvas).toHaveAttribute("data-dimmed-funds", "0");
     await expect(canvas).toHaveAttribute("data-active-line-width", "1.15");
+    await expect(canvas).toHaveAttribute("data-guide-visible", "false");
+    await expect(canvas).toHaveAttribute("data-pointer-track-mode", "none");
     await page.mouse.move((box?.x ?? 0) + x, (box?.y ?? 0) + yFor(160));
     await expect(canvas).toHaveAttribute("data-hover-fund", "scheme:100003");
 
@@ -255,10 +336,59 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(canvas).toHaveAttribute("data-emphasis-mode", "focus");
     await expect(canvas).toHaveAttribute("data-active-line-width", "3.2");
     await page.mouse.move((box?.x ?? 0) + x, (box?.y ?? 0) + yFor(180));
-    await expect(canvas).toHaveAttribute("data-hover-fund", "");
-    await expect(canvas).toHaveAttribute("data-tooltip-fund-count", "0");
+    await expect(canvas).toHaveAttribute("data-hover-fund", "scheme:100003");
+    await expect(canvas).toHaveAttribute("data-hover-date", "2024-08-01");
+    await expect(canvas).toHaveAttribute("data-tooltip-fund-count", "1");
+    await expect(canvas).toHaveAttribute("data-guide-date", "2024-08-01");
+    await expect(canvas).toHaveAttribute("data-guide-visible", "true");
+    await expect(canvas).toHaveAttribute("data-pointer-track-mode", "focused-timeline");
+    await expect(tooltip).toContainText("Gamma Small Cap");
+    await expect(tooltip).toContainText("NAV₹8.0000");
+    const focusedAnchorX = Number(await tooltip.getAttribute("data-anchor-x"));
+    await page.mouse.move((box?.x ?? 0) + x, (box?.y ?? 0) + plotTop + 5);
+    await expect(canvas).toHaveAttribute("data-hover-fund", "scheme:100003");
+    await expect(canvas).toHaveAttribute("data-tooltip-fund-count", "1");
+    await expect(canvas).toHaveAttribute("data-pointer-track-mode", "focused-timeline");
+    await page.mouse.move((box?.x ?? 0) + betweenX, (box?.y ?? 0) + plotTop + 5);
+    await expect(canvas).toHaveAttribute("data-hover-fund", "scheme:100003");
+    await expect(canvas).toHaveAttribute("data-hover-date", "2024-08-01");
+    await expect(canvas).toHaveAttribute("data-guide-date", "2024-08-01");
+    await expect(tooltip).toContainText("NAV₹8.0000");
+    await page.mouse.move((box?.x ?? 0) + laterX, (box?.y ?? 0) + plotTop + 5);
+    await expect(canvas).toHaveAttribute("data-hover-fund", "scheme:100003");
+    await expect(canvas).toHaveAttribute("data-hover-date", "2025-08-14");
+    await expect(canvas).toHaveAttribute("data-guide-date", "2025-08-14");
+    await expect(tooltip).toContainText("Gamma Small Cap");
+    await expect(tooltip).toContainText("NAV₹10.0000");
+    await expect(tooltip).toContainText("₹100 value₹200.00");
+    await expectTooltipTracksPointWithoutCoveringIt(canvas, tooltip);
+    expect(Math.abs(Number(await tooltip.getAttribute("data-anchor-x")) - focusedAnchorX)).toBeGreaterThan(5);
+    const focusedRelativeOffset = await tooltip.evaluate((element) => ({
+      x: Number(element.getAttribute("data-layout-left")) - Number(element.getAttribute("data-anchor-x")),
+      y: Number(element.getAttribute("data-layout-top")) - Number(element.getAttribute("data-anchor-y")),
+    }));
+    await page.mouse.move((box?.x ?? 0) + x, (box?.y ?? 0) + plotTop + 5);
+    await expect(canvas).toHaveAttribute("data-hover-date", "2024-08-01");
+    const returnedRelativeOffset = await tooltip.evaluate((element) => ({
+      x: Number(element.getAttribute("data-layout-left")) - Number(element.getAttribute("data-anchor-x")),
+      y: Number(element.getAttribute("data-layout-top")) - Number(element.getAttribute("data-anchor-y")),
+    }));
+    expect(returnedRelativeOffset.x).toBeCloseTo(focusedRelativeOffset.x, 6);
+    expect(returnedRelativeOffset.y).toBeCloseTo(focusedRelativeOffset.y, 6);
     await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100003");
     await expect(canvas).toHaveAttribute("data-emphasized-fund", "scheme:100003");
+
+    await page.mouse.move((box?.x ?? 0) + beforeGammaX, (box?.y ?? 0) + plotTop + 5);
+    await expect(canvas).toHaveAttribute("data-hover-fund", "");
+    await expect(canvas).toHaveAttribute("data-guide-visible", "false");
+    await expect(canvas).toHaveAttribute("data-pointer-track-mode", "none");
+    await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100003");
+    await expect(canvas).toHaveAttribute("data-emphasized-fund", "scheme:100003");
+    await expect(canvas).toHaveAttribute("data-emphasis-mode", "focus");
+    await page.mouse.move((box?.x ?? 0) + laterX, (box?.y ?? 0) + 3);
+    await expect(canvas).toHaveAttribute("data-hover-fund", "");
+    await expect(canvas).toHaveAttribute("data-guide-visible", "false");
+    await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100003");
 
     await canvas.click({ position: { x, y: yFor(180) } });
     await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100001");
@@ -397,24 +527,39 @@ test.describe("full-history normalized fund comparison", () => {
     await canvas.press("ArrowDown");
     await canvas.press("ArrowDown");
     await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100003");
+    await expect(canvas).toHaveAttribute("data-locked-fund", "scheme:100003");
     await end.focus();
-    for (let step = 0; step < 5; step += 1) await end.press("ArrowLeft");
+    await end.press("ArrowLeft");
+    await expect(canvas).toHaveAttribute("data-visible-end", "2025-08-14");
+    await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100003");
+    await expect(canvas).toHaveAttribute("data-locked-fund", "scheme:100003");
+    for (let step = 0; step < 4; step += 1) await end.press("ArrowLeft");
     await expect(canvas).toHaveAttribute("data-visible-end", "2021-01-04");
     await expect(canvas).toHaveAttribute("data-visible-funds", "3");
     await expect(canvas).toHaveAttribute("data-focused-fund", "");
+    await expect(canvas).toHaveAttribute("data-locked-fund", "scheme:100003");
     await expect(canvas).toHaveAttribute("data-hover-fund", "");
     await expect(canvas).toHaveAttribute("data-series-baselines", "100,100,100");
+    for (let step = 0; step < 5; step += 1) await end.press("ArrowRight");
+    await expect(canvas).toHaveAttribute("data-visible-end", "2026-08-14");
+    await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100003");
+    await expect(canvas).toHaveAttribute("data-emphasis-mode", "focus");
   });
 
-  test("a custom horizontal window survives one or more fund selection changes", async ({ page }) => {
+  test("a custom horizontal window and its locked fund survive range and selection changes", async ({ page }) => {
     const card = await openComparisonDashboard(page);
     const canvas = await waitForPreloadedComparison(card);
     await card.getByRole("button", { name: "3Y", exact: true }).click();
+    await canvas.focus();
+    await canvas.press("ArrowDown");
+    await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100001");
     const window = card.getByRole("slider", { name: "Move visible fund comparison window" });
     await window.focus();
     await window.press("ArrowLeft");
     await expect(canvas).toHaveAttribute("data-visible-start", "2023-06-15");
     await expect(canvas).toHaveAttribute("data-visible-end", "2025-08-14");
+    await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100001");
+    await expect(canvas).toHaveAttribute("data-locked-fund", "scheme:100001");
 
     await card.getByRole("button", { name: "All 4 funds" }).click();
     const picker = card.getByRole("dialog", { name: "Choose funds to compare" });
@@ -425,6 +570,7 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(canvas).toHaveAttribute("data-visible-end", "2025-08-14");
     await expect(canvas).toHaveAttribute("data-visible-funds", "2");
     await expect(canvas).toHaveAttribute("data-series-baselines", "100,100");
+    await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100001");
     await expect(card.getByRole("button", { name: "3Y", exact: true })).not.toHaveClass(/active/);
     await expect(card.getByRole("button", { name: "All", exact: true })).not.toHaveClass(/active/);
 
@@ -434,6 +580,7 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(canvas).toHaveAttribute("data-visible-end", "2025-08-14");
     await expect(canvas).toHaveAttribute("data-visible-funds", "3");
     await expect(canvas).toHaveAttribute("data-series-baselines", "100,100,100");
+    await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100001");
   });
 
   test("shared vertical slider supports min, max, keyboard, pointer drag, and Full Y reset", async ({ page }) => {

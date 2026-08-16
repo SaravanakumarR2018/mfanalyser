@@ -48,6 +48,9 @@ export default defineConfig({
     },
     {
       name: "desktop-webkit",
+      // A long serialized local run can exhaust one WebKit page process before
+      // navigation begins. Retry once in a fresh worker; CI already retries twice.
+      retries: process.env.CI ? 2 : 1,
       use: { ...devices["Desktop Safari"] },
     },
   ],
