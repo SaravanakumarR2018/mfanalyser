@@ -163,6 +163,12 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(canvas).toHaveAttribute("data-series-baselines", "100,100,100,100");
     await expect(canvas).toHaveAttribute("data-visible-start", "1990-01-01");
     await expect(canvas).toHaveAttribute("data-visible-funds", "4");
+    await expect(canvas).toHaveAttribute("data-y-axis-sides", "left,right");
+    await expect(canvas).toHaveAttribute(
+      "data-y-axis-ticks",
+      "₹256.8 +156.8%|₹213.4 +113.4%|₹170 +70%|₹126.6 +26.6%|₹83.2 −16.8%",
+    );
+    await expect(canvas).toHaveAttribute("aria-label", /Both Y axes show the same indexed rupee values and signed percentage change from ₹100/);
     await expect(card.locator(".fund-comparison-note")).toContainText("Direct-plan records commonly begin in January 2013");
     await expect(canvas).not.toHaveAttribute("data-investment-points", /.+/);
     await expect(card.locator(".fund-comparison-legend")).toHaveCount(0);
@@ -252,19 +258,24 @@ test.describe("full-history normalized fund comparison", () => {
     expect(box).not.toBeNull();
     const plotTop = Number(await canvas.getAttribute("data-plot-top"));
     const plotBottom = Number(await canvas.getAttribute("data-plot-bottom"));
+    const plotLeft = Number(await canvas.getAttribute("data-plot-left"));
+    const plotRight = Number(await canvas.getAttribute("data-plot-right"));
     expect(Number.isFinite(plotTop)).toBe(true);
     expect(Number.isFinite(plotBottom)).toBe(true);
+    expect(Number.isFinite(plotLeft)).toBe(true);
+    expect(Number.isFinite(plotRight)).toBe(true);
+    expect(plotLeft).toBeGreaterThanOrEqual(40);
+    expect(Math.abs(plotLeft - ((box?.width ?? 0) - plotRight))).toBeLessThanOrEqual(1);
     const first = new Date("1990-01-01T00:00:00Z").getTime();
     const last = new Date("2026-08-14T00:00:00Z").getTime();
     const target = new Date("2024-08-01T00:00:00Z").getTime();
     const betweenTargets = new Date("2024-10-01T00:00:00Z").getTime();
     const laterTarget = new Date("2025-08-14T00:00:00Z").getTime();
     const beforeGammaInception = new Date("2020-01-02T00:00:00Z").getTime();
-    const left = (box?.width ?? 600) < 520 ? 12 : 55;
-    const x = left + (target - first) / (last - first) * ((box?.width ?? 600) - left - 18);
-    const betweenX = left + (betweenTargets - first) / (last - first) * ((box?.width ?? 600) - left - 18);
-    const laterX = left + (laterTarget - first) / (last - first) * ((box?.width ?? 600) - left - 18);
-    const beforeGammaX = left + (beforeGammaInception - first) / (last - first) * ((box?.width ?? 600) - left - 18);
+    const x = plotLeft + (target - first) / (last - first) * (plotRight - plotLeft);
+    const betweenX = plotLeft + (betweenTargets - first) / (last - first) * (plotRight - plotLeft);
+    const laterX = plotLeft + (laterTarget - first) / (last - first) * (plotRight - plotLeft);
+    const beforeGammaX = plotLeft + (beforeGammaInception - first) / (last - first) * (plotRight - plotLeft);
     const low = 83.2;
     const high = 256.8;
     const yFor = (value: number) => plotTop

@@ -15,6 +15,7 @@ import type {
 } from "react";
 import type { HistoricalNavPoint, Portfolio } from "./cas-parser";
 import {
+  buildFundComparisonAxisTicks,
   buildFundComparisonCandidates,
   buildFundComparisonModel,
   buildFundComparisonScale,
@@ -72,6 +73,21 @@ const indexedMoney = (value: number) => `₹${value.toLocaleString("en-IN", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 })}`;
+
+const compactAxisNumber = (value: number) => Math.abs(value) >= 10_000
+  ? new Intl.NumberFormat("en-IN", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value)
+  : value.toLocaleString("en-IN", { maximumFractionDigits: 1 });
+
+const axisMoneyLabel = (value: number) => `₹${compactAxisNumber(value)}`;
+
+const axisPercentageLabel = (value: number) => {
+  const displayValue = Math.abs(value) < 0.05 ? 0 : value;
+  const sign = displayValue > 0 ? "+" : displayValue < 0 ? "−" : "";
+  return `${sign}${compactAxisNumber(Math.abs(displayValue))}%`;
+};
 
 const toTime = (date: string) => new Date(`${date}T00:00:00Z`).getTime();
 
@@ -210,6 +226,10 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   const verticalScale = useMemo(
     () => scaleForVerticalRange(baseVerticalScale, verticalRange),
     [baseVerticalScale, verticalRange],
+  );
+  const axisTicks = useMemo(
+    () => buildFundComparisonAxisTicks(verticalScale),
+    [verticalScale],
   );
   const activeFocusedFundKey = focusedFundKey
     && selectedKeys.has(focusedFundKey)
@@ -419,12 +439,15 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     context.scale(dpr, dpr);
     context.clearRect(0, 0, width, height);
 
+    const horizontalAxisPadding = width < 520 ? 43 : 60;
     const padding = {
-      left: width < 520 ? 12 : 55,
-      right: 18,
+      left: horizontalAxisPadding,
+      right: horizontalAxisPadding,
       top: chartGeometry.top,
       bottom: chartGeometry.bottom,
     };
+    canvas.dataset.plotLeft = String(padding.left);
+    canvas.dataset.plotRight = String(width - padding.right);
     canvas.dataset.plotTop = String(padding.top);
     canvas.dataset.plotBottom = String(padding.bottom);
     const chartWidth = Math.max(1, width - padding.left - padding.right);
@@ -449,11 +472,9 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
       high,
     };
 
-    context.font = "9px Arial, sans-serif";
     context.textBaseline = "middle";
-    for (let line = 0; line <= 4; line += 1) {
-      const y = padding.top + chartHeight / 4 * line;
-      const value = high - valueSpan / 4 * line;
+    axisTicks.forEach(({ value, percentageChange }) => {
+      const y = yForValue(value);
       context.beginPath();
       context.moveTo(padding.left, y);
       context.lineTo(width - padding.right, y);
@@ -464,12 +485,22 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
       context.lineWidth = 1;
       context.stroke();
       context.setLineDash([]);
-      if (width >= 520) {
-        context.fillStyle = "#7D8A83";
-        context.textAlign = "right";
-        context.fillText(`₹${value.toFixed(value >= 1000 ? 0 : 1)}`, padding.left - 8, y);
+      const labelOffset = width < 520 ? 5 : 8;
+      const moneyLabel = axisMoneyLabel(value);
+      const percentageLabel = axisPercentageLabel(percentageChange);
+      for (const side of ["left", "right"] as const) {
+        const x = side === "left"
+          ? padding.left - labelOffset
+          : width - padding.right + labelOffset;
+        context.textAlign = side === "left" ? "right" : "left";
+        context.fillStyle = "#53635B";
+        context.font = `${width < 520 ? 7.2 : 8.3}px Arial, sans-serif`;
+        context.fillText(moneyLabel, x, y - 5);
+        context.fillStyle = Math.abs(percentageChange) < 0.05 ? "#087A4B" : "#738078";
+        context.font = `600 ${width < 520 ? 6.5 : 7.4}px Arial, sans-serif`;
+        context.fillText(percentageLabel, x, y + 5);
       }
-    }
+    });
 
     const baselineY = yForValue(100);
     context.beginPath();
@@ -514,6 +545,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     drawnSeriesRef.current = geometries;
 
     const labelCount = width < 520 ? 3 : 5;
+    context.font = "9px Arial, sans-serif";
     context.fillStyle = "#7D8A83";
     context.textAlign = "center";
     for (let label = 0; label < labelCount; label += 1) {
@@ -548,7 +580,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
         context.stroke();
       }
     }
-  }, [activeFocusedFundKey, colorFor, emphasizedFundKey, hoverDate, hoveredFundKey, verticalScale, visibleDates, visibleEnd, visibleModel, visibleStart]);
+  }, [activeFocusedFundKey, axisTicks, colorFor, emphasizedFundKey, hoverDate, hoveredFundKey, verticalScale, visibleDates, visibleEnd, visibleModel, visibleStart]);
 
   useEffect(() => {
     draw();
@@ -726,7 +758,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
       : `${candidates.length} in CAS · none available`
     : `${selectedKeys.size} of ${eligible.length} funds`;
   const canvasLabel = model.baselineDate && visibleStart && visibleEnd
-    ? `Fund NAV comparison for ${visibleModel.series.length} funds visible in the selected range. Each line is rebased to 100 at that fund's first actual published NAV within the visible range. Full history begins ${fullDate(model.baselineDate)} and the visible range is ${fullDate(visibleStart)} to ${fullDate(visibleEnd)}. Use up and down arrows to focus a fund, left and right arrows to inspect its published dates, and Escape to show all lines.`
+    ? `Fund NAV comparison for ${visibleModel.series.length} funds visible in the selected range. Each line is rebased to 100 at that fund's first actual published NAV within the visible range. Both Y axes show the same indexed rupee values and signed percentage change from ₹100. Full history begins ${fullDate(model.baselineDate)} and the visible range is ${fullDate(visibleStart)} to ${fullDate(visibleEnd)}. Use up and down arrows to focus a fund, left and right arrows to inspect its published dates, and Escape to show all lines.`
     : "Fund NAV comparison awaiting exact published history.";
 
   const renderOptions = (items: FundComparisonCandidate[], label: string) => items.length ? (
@@ -923,6 +955,8 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                 data-visible-end={visibleEnd}
                 data-axis-min={verticalScale.min}
                 data-axis-max={verticalScale.max}
+                data-y-axis-sides="left,right"
+                data-y-axis-ticks={axisTicks.map((tick) => `${axisMoneyLabel(tick.value)} ${axisPercentageLabel(tick.percentageChange)}`).join("|")}
                 data-vertical-lower={verticalRange[0]}
                 data-vertical-upper={verticalRange[1]}
                 data-hover-date={hoverDate ?? ""}

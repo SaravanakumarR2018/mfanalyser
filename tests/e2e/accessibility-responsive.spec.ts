@@ -213,6 +213,12 @@ test.describe("accessibility and responsive behavior", () => {
       const canvasBox = await canvas.boundingBox();
       expect(canvasBox?.x ?? -1).toBeGreaterThanOrEqual(0);
       expect((canvasBox?.x ?? Infinity) + (canvasBox?.width ?? Infinity)).toBeLessThanOrEqual(viewport.width + 1);
+      await expect(canvas).toHaveAttribute("data-y-axis-sides", "left,right");
+      await expect(canvas).toHaveAttribute("data-y-axis-ticks", /₹256\.8 \+156\.8%.*₹83\.2 −16\.8%/);
+      const plotLeft = Number(await canvas.getAttribute("data-plot-left"));
+      const plotRight = Number(await canvas.getAttribute("data-plot-right"));
+      expect(plotLeft).toBeGreaterThanOrEqual(40);
+      expect(Math.abs(plotLeft - ((canvasBox?.width ?? 0) - plotRight))).toBeLessThanOrEqual(1);
 
       await canvas.focus();
       await canvas.press("End");

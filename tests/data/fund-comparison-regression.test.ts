@@ -3,6 +3,7 @@ import test from "node:test";
 
 import type { FundTransaction, HistoricalNavPoint } from "../../app/cas-parser.ts";
 import {
+  buildFundComparisonAxisTicks,
   buildFundComparisonCandidates,
   buildFundComparisonModel,
   buildFundComparisonScale,
@@ -353,6 +354,28 @@ test("comparison scale supports the same shared vertical min, max, and window ma
     minIndex: 100,
     maxIndex: 100,
   }).min, 98);
+});
+
+test("comparison Y-axis ticks pair every indexed rupee value with its signed change from ₹100", () => {
+  const rounded = buildFundComparisonAxisTicks({ min: 83.2, max: 256.8 }).map((tick) => ({
+    value: Number(tick.value.toFixed(1)),
+    percentageChange: Number(tick.percentageChange.toFixed(1)),
+  }));
+  assert.deepEqual(rounded, [
+    { value: 256.8, percentageChange: 156.8 },
+    { value: 213.4, percentageChange: 113.4 },
+    { value: 170, percentageChange: 70 },
+    { value: 126.6, percentageChange: 26.6 },
+    { value: 83.2, percentageChange: -16.8 },
+  ]);
+  assert.deepEqual(buildFundComparisonAxisTicks({ min: 98, max: 102 }, 2), [
+    { value: 102, percentageChange: 2 },
+    { value: 100, percentageChange: 0 },
+    { value: 98, percentageChange: -2 },
+  ]);
+  assert.deepEqual(buildFundComparisonAxisTicks({ min: 100, max: 100 }), []);
+  assert.deepEqual(buildFundComparisonAxisTicks({ min: 0, max: Number.POSITIVE_INFINITY }), []);
+  assert.deepEqual(buildFundComparisonAxisTicks({ min: 0, max: 10 }, 0), []);
 });
 
 test("custom comparison windows preserve calendar bounds when selected funds change union dates", () => {

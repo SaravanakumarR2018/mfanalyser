@@ -69,6 +69,11 @@ export type FundComparisonScale = {
   ticks: number[];
 };
 
+export type FundComparisonAxisTick = {
+  value: number;
+  percentageChange: number;
+};
+
 export type FundComparisonLineState = "resting" | "emphasized" | "dimmed";
 
 export function shouldStartFundComparisonHistoryLoad(
@@ -386,6 +391,30 @@ export function buildFundComparisonScale(
     step,
     ticks: Array.from({ length: 5 }, (_, index) => min + step * index),
   };
+}
+
+/**
+ * Returns top-to-bottom Y-axis ticks for the normalized comparison. Because
+ * every series starts at ₹100, its indexed value maps directly to the same
+ * signed percentage change from that baseline (for example, ₹150 is +50%).
+ */
+export function buildFundComparisonAxisTicks(
+  scale: Pick<FundComparisonScale, "min" | "max">,
+  divisions = 4,
+): FundComparisonAxisTick[] {
+  if (
+    !Number.isFinite(scale.min)
+    || !Number.isFinite(scale.max)
+    || scale.max <= scale.min
+    || !Number.isInteger(divisions)
+    || divisions < 1
+    || divisions > 20
+  ) return [];
+  const span = scale.max - scale.min;
+  return Array.from({ length: divisions + 1 }, (_, index) => {
+    const value = scale.max - span * index / divisions;
+    return { value, percentageChange: value - 100 };
+  });
 }
 
 /**
