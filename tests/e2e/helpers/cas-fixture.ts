@@ -173,7 +173,7 @@ export async function mockDailyHistory(page: Page, options: {
   body?: unknown;
   delayMs?: number;
 } = {}) {
-  await page.route("**/api/nav-history?**", async (route) => {
+  await page.route("https://api.mfapi.in/mf/**", async (route) => {
     if (options.delayMs) await new Promise((resolve) => setTimeout(resolve, options.delayMs));
     await route.fulfill({
       status: options.status ?? 200,
