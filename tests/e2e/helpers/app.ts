@@ -61,10 +61,7 @@ export async function installFailureGuards(page: Page) {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
   page.on("console", (message) => {
-    const faviconOnly = message.type() === "error"
-      && message.location().url.endsWith("/favicon.ico")
-      && /Failed to load resource/i.test(message.text());
-    if (message.type() === "error" && !faviconOnly) errors.push(`console.error: ${message.text()}`);
+    if (message.type() === "error") errors.push(`console.error: ${message.text()}`);
   });
   return () => expect(errors, "browser must not emit uncaught errors").toEqual([]);
 }

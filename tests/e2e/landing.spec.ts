@@ -25,6 +25,17 @@ test.describe("landing and local upload boundary", () => {
     assertNoErrors();
   });
 
+  test("publishes the FolioVista brand mark as the browser icon", async ({ page }) => {
+    const assertNoErrors = await installFailureGuards(page);
+    await page.goto("/");
+
+    await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "/favicon.svg");
+    await expect(page.locator('link[rel="icon"]')).toHaveAttribute("type", "image/svg+xml");
+    await expect(page.locator('link[rel="shortcut icon"]')).toHaveAttribute("href", "/favicon.svg");
+
+    assertNoErrors();
+  });
+
   test("navigation anchors and analyse action remain functional", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name === "mobile-chromium", "The compact mobile header intentionally hides desktop navigation.");
     await page.goto("/");
