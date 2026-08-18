@@ -549,7 +549,7 @@ test("bulk comparison history loading deduplicates schemes and returns partial s
     assert.deepEqual([...url.searchParams.keys()].sort(), ["endDate", "startDate"]);
     assert.equal(url.searchParams.get("startDate"), "1900-01-01");
     assert.equal(url.searchParams.get("endDate"), "2026-02-02");
-    assert.equal(init?.cache, "no-store");
+    assert.equal(init?.cache, "default");
     assert.ok(init?.signal instanceof AbortSignal);
     if (url.pathname.endsWith("/1002")) {
       return Response.json({ data: { nav_groups: [{ historical_records: [] }] } });
@@ -580,7 +580,7 @@ test("bulk comparison history loading deduplicates schemes and returns partial s
   assert.deepEqual({ completed: result.completed, total: result.total }, { completed: 4, total: 4 });
 });
 
-test("bulk comparison history rejects an inconsistent live endpoint without affecting another scheme", async () => {
+test("bulk comparison history repairs a lagging endpoint but rejects inconsistent or missing past observations", async () => {
   const mismatched = candidate("mismatch", "1001");
   mismatched.expectedNav = 12;
   mismatched.expectedNavDate = "2026-02-02";
@@ -614,8 +614,24 @@ test("bulk comparison history rejects an inconsistent live endpoint without affe
     meta: { scheme_code: "1003" },
     data: [{ date: "01-02-2026", nav: 12 }],
   }), () => loadFundComparisonHistories([missingEndpoint], "2026-02-02"));
-  assert.match(missingResult.failures.get("missing-endpoint") ?? "", /did not reconcile/);
-  assert.equal(missingResult.historyByKey.has("missing-endpoint"), false);
+  assert.equal(missingResult.failures.size, 0);
+  assert.deepEqual(missingResult.historyByKey.get("missing-endpoint"), [
+    { date: "2026-02-01", nav: 12 },
+    { date: "2026-02-02", nav: 12 },
+  ]);
+
+  const missingPastPoint = candidate("missing-past-point", "1004");
+  missingPastPoint.expectedNav = 12;
+  missingPastPoint.expectedNavDate = "2026-02-01";
+  const missingPastResult = await withFetch(async () => Response.json({
+    meta: { scheme_code: "1004" },
+    data: [
+      { date: "02-02-2026", nav: 13 },
+      { date: "31-01-2026", nav: 11 },
+    ],
+  }), () => loadFundComparisonHistories([missingPastPoint], "2026-02-02"));
+  assert.match(missingPastResult.failures.get("missing-past-point") ?? "", /did not reconcile/);
+  assert.equal(missingPastResult.historyByKey.has("missing-past-point"), false);
 });
 
 test("bulk comparison history rejects impossible upstream calendar dates", async () => {

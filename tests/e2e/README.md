@@ -12,10 +12,10 @@ This suite treats commit `865aa11` / tag `working-version-11` as the minimum pro
 Local Playwright execution is serialized so repeated full gates do not trip
 macOS headless-browser rendezvous limits; CI retains two-worker parallelism.
 
-The suite contains 71 scenarios. Across the four configured projects that is
-284 executions: 261 ordinary passes, 12 expected-failure executions for three
+The suite contains 72 scenarios. Across the four configured projects that is
+288 executions: 265 ordinary passes, 12 expected-failure executions for three
 confirmed baseline defects, and 11 intentional project skips. Playwright reports
-the ordinary and expected-failure outcomes together as 273 passed with zero
+the ordinary and expected-failure outcomes together as 277 passed with zero
 unexpected failures.
 
 ## Coverage map
