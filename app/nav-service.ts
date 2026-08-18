@@ -70,12 +70,9 @@ async function fetchSchemeHistory(
   parentSignal?: AbortSignal,
 ) {
   const [from, to] = range;
-  const params = new URLSearchParams({
-    query_type: "historical_period",
-    from_date: from,
-    to_date: to,
-    sd_id: schemeCode,
-  });
+  const upstream = new URL(`https://api.mfapi.in/mf/${encodeURIComponent(schemeCode)}`);
+  upstream.searchParams.set("startDate", from);
+  upstream.searchParams.set("endDate", to);
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (parentSignal?.aborted) throw new DOMException("History load cancelled.", "AbortError");
@@ -84,7 +81,7 @@ async function fetchSchemeHistory(
     const abort = () => controller.abort();
     parentSignal?.addEventListener("abort", abort, { once: true });
     try {
-      const response = await fetch(`/api/nav-history?${params}`, {
+      const response = await fetch(upstream, {
         cache: "no-store",
         signal: controller.signal,
       });

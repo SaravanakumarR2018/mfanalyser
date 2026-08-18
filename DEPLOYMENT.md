@@ -14,8 +14,8 @@ Production updates are intentionally manual and approval-gated:
 3. Commit the exact reviewed revision and record the commit SHA.
 4. Ask the owner for explicit production approval, naming that commit SHA.
 5. Only after approval, deploy that exact commit to the existing Sites project.
-6. Verify the public URL and the read-only `/api/nav` and `/api/nav-history`
-   routes, then report the deployed commit and URL.
+6. Verify the public URL, the read-only `/api/nav` route, and direct browser
+   history access to `api.mfapi.in`, then report the deployed commit and URL.
 
 Approval applies only to the named commit. Further edits require a new test run,
 commit, and approval. A preview, test run, pull request, or merge is not itself
