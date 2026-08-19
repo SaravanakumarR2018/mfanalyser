@@ -35,6 +35,7 @@ unexpected failures.
 | Portfolio chart | Canvas pixels, point metadata, period buttons, zoom, X endpoints, draggable/keyboard window, invested-series toggle, pointer tooltip |
 | Fund stack | Reconciliation tolerance, four-view multiselect, shared Y scale, period-change/cash-flow panel, X/Y sliders, reset, keyboard ranking, canvas pixels |
 | Normalized fund comparison | Real multi-scheme CAS parsing, full histories queued behind floater-backed daily enrichment and then preloaded while the card remains offscreen, separate inline comparison progress, all eligible histories from 1900 with a pre-2013 observation preserved end to end, thin resting lines with bold hover/selection emphasis, independent ₹100 rebasing at every fund's first exact observation inside the selected period/range, mirrored left/right Y axes showing indexed rupees and signed percentage change from ₹100, custom horizontal-window and locked-fund preservation across range/selection changes, shared vertical min/max/window drag/keyboard/reset controls, earliest-to-latest full timeline, unavailable schemes, active/closed defaults, searchable native checkboxes with a left-aligned All funds checkbox, nearby-line pointer discovery plus free vertical plot tracking for a selected fund with an exact-date guide/marker/single-fund tooltip that follows its point smoothly with placement hysteresis, switches sides to avoid every line, and falls back to the nearest safe chart edge, line focus/dimming/reset, 1Y/3Y/5Y/8Y/10Y/All and range controls, absent legend tiles/investment markers, partial/total failure retry, cached successes, delayed-load selection races, request privacy, axe, responsive containment, and chart/picker/tooltip goldens |
+| India inflation context | Near-viewport browser-only World Bank request, exact latest-30 observation rendering, public-request privacy, highlights, keyboard year inspection, responsive containment, failure isolation, and retry |
 | Magnifier | Enable/disable state, range control availability, magnification, size, synchronized metadata, pointer drag |
 | Drawer NAV chart | Default invested-period view and an off-by-default compact full-history switch, preserved CAS investment markers, atomic loading transition, retry/fallback, request reuse, period/range controls, observation metadata, rendered pixels, responsive containment, empty transaction state |
 | Accessibility | Axe WCAG A/AA scans, accessible control/canvas names, keyboard activation, modal semantics, slider names/orientation, named donut slices, and closed/open-tooltip contrast |
@@ -74,17 +75,18 @@ portfolio valuation or stored state.
 
 ## Known working-version-11 product defects and risks
 
-These remaining findings are recorded rather than changed by the favicon fix:
+These are recorded rather than fixed because this activity is test-only:
 
 1. The holdings structure uses `role="table"` but its data rows use `role="button"` and also contain an expand button. Axe reports the critical `aria-required-children` violation; the scan permits only that known critical ID and fails on every other critical violation.
-2. Fund/folio dialogs declare `aria-modal`, but opening does not transfer focus, Escape does not close them, and focus is not trapped/restored. This is a keyboard/screen-reader usability defect.
-3. A completed background request marks the toast “Daily NAVs ready” even when all history attempts were incomplete; the valuation notice later reports the incomplete data correctly.
-4. When only some schemes receive latest NAVs, the live notice does not expose `liveUpdateError`, so mixed coverage is easy to miss and the portfolio endpoint can combine dates.
-5. Allocation percentage rendering divides by `portfolio.currentValue`; a valid zero-value/closed-only portfolio can render `NaN%`.
-6. `prefers-reduced-motion` disables CSS motion, but the portfolio canvas still runs its JavaScript 720 ms interpolation.
-7. The upload drop target remains active while an analysis is busy, so a second drop can start a competing import before the first finishes.
+2. The app requests `/favicon.ico`, which returns 404 even though `public/favicon.svg` exists. The browser-error guard ignores only that exact resource error and still fails on every other console/page error.
+3. Fund/folio dialogs declare `aria-modal`, but opening does not transfer focus, Escape does not close them, and focus is not trapped/restored. This is a keyboard/screen-reader usability defect.
+4. A completed background request marks the toast “Daily NAVs ready” even when all history attempts were incomplete; the valuation notice later reports the incomplete data correctly.
+5. When only some schemes receive latest NAVs, the live notice does not expose `liveUpdateError`, so mixed coverage is easy to miss and the portfolio endpoint can combine dates.
+6. Allocation percentage rendering divides by `portfolio.currentValue`; a valid zero-value/closed-only portfolio can render `NaN%`.
+7. `prefers-reduced-motion` disables CSS motion, but the portfolio canvas still runs its JavaScript 720 ms interpolation.
+8. The upload drop target remains active while an analysis is busy, so a second drop can start a competing import before the first finishes.
 
-Defects 2, 4, and 7 also have explicit `test.fail` contracts in
+Defects 3, 5, and 8 also have explicit `test.fail` contracts in
 `verifier-critical.spec.ts`. They run on all four browser projects: the gate
 fails if they regress differently, and will report an unexpected pass when the
 production defect is fixed so the expectation can be promoted to a normal
