@@ -305,6 +305,10 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
             setLoadProgress(progress);
           }
         },
+        (key, points) => {
+          if (requestSequenceRef.current !== sequence || controller.signal.aborted) return;
+          setHistoryByKey((current) => new Map(current).set(key, points));
+        },
       );
       if (requestSequenceRef.current !== sequence || controller.signal.aborted) return;
       setHistoryByKey((current) => {
@@ -341,10 +345,11 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     setHoveredFundKey(null);
     tooltipLayoutRef.current = undefined;
     setTooltipLayout(undefined);
-    setSelectedKeys(new Set(allIndiaEligible.map(({ key }) => key)));
-    const missingHistories = allIndiaEligible.filter(({ key }) => !historyByKey.has(key));
+    const indiaOnlyEligible = allIndiaEligible.filter(({ key }) => !portfolioKeys.has(key));
+    setSelectedKeys((current) => new Set([...current, ...indiaOnlyEligible.map(({ key }) => key)]));
+    const missingHistories = indiaOnlyEligible.filter(({ key }) => !historyByKey.has(key));
     if (missingHistories.length) void requestHistories(missingHistories);
-  }, [historyByKey, requestHistories]);
+  }, [historyByKey, portfolioKeys, requestHistories]);
 
   const enableCatalog = useCallback(async () => {
     setCatalogEnabled(true);
@@ -951,7 +956,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                     setSelectedKeys((current) => {
                       const next = new Set(current);
                       for (const { key } of portfolioEligible) {
-                        if (checked || catalogEnabled) next.add(key);
+                        if (checked) next.add(key);
                         else next.delete(key);
                       }
                       return next;
@@ -963,11 +968,10 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                       void enableCatalog();
                     } else {
                       allIndiaSelectionAppliedRef.current = false;
-                      setCatalogEnabled(false);
                       setAllIndiaSelected(false);
-                      setSelectedKeys(casFundsEnabled
-                        ? new Set(portfolioEligible.map(({ key }) => key))
-                        : new Set());
+                      setSelectedKeys((current) => new Set(
+                        [...current].filter((key) => portfolioKeys.has(key)),
+                      ));
                     }
                   }} /><span>All funds</span><small>Every AMFI scheme in India</small></label>
                 </fieldset>

@@ -278,12 +278,38 @@ test.describe("full-history normalized fund comparison", () => {
     expect(fullHistoryUrl.searchParams.get("startDate")).toBe("1900-01-01");
     expect(fullHistoryUrl.searchParams.get("endDate")).toBe("2026-08-14");
 
+    await casFunds.uncheck();
+    await expect(card).toHaveAttribute("data-selected-funds", "1");
+    await expect(canvas).toHaveAttribute("data-visible-funds", "1");
+    await expect(picker.getByRole("checkbox", { name: /Zenith India/ })).toBeChecked();
+    await expect(picker.getByRole("checkbox", { name: /Alpha Flexi Cap/ })).not.toBeChecked();
+    await casFunds.check();
+    await expect(card).toHaveAttribute("data-selected-funds", "5");
+    await expect(canvas).toHaveAttribute("data-visible-funds", "5");
+
     await picker.getByRole("combobox", { name: "Filter by plan" }).selectOption("Regular");
     await expect(card).toHaveAttribute("data-selected-funds", "5");
     await expect(allFunds).toBeChecked();
+    await picker.getByRole("combobox", { name: "Filter by plan" }).selectOption("All plans");
     await allFunds.uncheck();
     await expect(card).toHaveAttribute("data-selected-funds", "4");
     await expect(canvas).toHaveAttribute("data-visible-funds", "4");
+    await expect(picker.getByRole("checkbox", { name: /Zenith India/ })).not.toBeChecked();
+    await casFunds.uncheck();
+    await expect(card).toHaveAttribute("data-selected-funds", "0");
+    await expect(card.getByText("No funds selected", { exact: true })).toBeVisible();
+    await expect(casFunds).not.toBeChecked();
+    await expect(allFunds).not.toBeChecked();
+    await allFunds.check();
+    await expect(card).toHaveAttribute("data-selected-funds", "1");
+    await expect(canvas).toHaveAttribute("data-visible-funds", "1");
+    await expect(casFunds).not.toBeChecked();
+    await expect(allFunds).toBeChecked();
+    await casFunds.check();
+    await expect(card).toHaveAttribute("data-selected-funds", "5");
+    await expect(canvas).toHaveAttribute("data-visible-funds", "5");
+    await expect(casFunds).toBeChecked();
+    await expect(allFunds).toBeChecked();
   });
 
   test("pointer hover uses nearby lines while a selected fund tracks freely across its timeline", async ({ page }) => {
