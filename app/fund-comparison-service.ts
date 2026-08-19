@@ -19,6 +19,53 @@ export type FundComparisonCandidate = {
   expectedNavDate?: string;
 };
 
+export type FundCatalogPlan = "Direct" | "Regular" | "Other";
+
+export type FundCatalogEntry = FundComparisonCandidate & {
+  amc: string;
+  plan: FundCatalogPlan;
+};
+
+/** Parses AMFI's public NAVAll catalogue without retaining NAV values. */
+export function parseAmfiFundCatalog(text: string): FundCatalogEntry[] {
+  const entries = new Map<string, FundCatalogEntry>();
+  let amc = "Other fund house";
+  let category = "Other";
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const fields = line.split(";");
+    if (fields.length < 6 || !/^\d{1,12}$/.test(fields[0]?.trim() ?? "")) {
+      if (/Mutual Fund$/i.test(line)) amc = line;
+      else if (/Schemes?\b|Fund of Funds|Solution Oriented/i.test(line)) category = line;
+      continue;
+    }
+    const schemeCode = fields[0].trim();
+    const name = fields[3]?.trim();
+    const isin = [fields[1], fields[2]].map((value) => value?.trim() ?? "")
+      .find((value) => /^INF[A-Z0-9]{9}$/.test(value)) ?? "";
+    if (!name || entries.has(schemeCode)) continue;
+    const plan: FundCatalogPlan = /\bDirect\b/i.test(name)
+      ? "Direct"
+      : /\bRegular\b/i.test(name)
+        ? "Regular"
+        : "Other";
+    entries.set(schemeCode, {
+      key: `scheme:${schemeCode}`,
+      name,
+      isin,
+      schemeCode,
+      category,
+      amc,
+      plan,
+      active: false,
+      closed: false,
+      transactions: [],
+    });
+  }
+  return [...entries.values()].sort((left, right) => left.name.localeCompare(right.name, "en-IN"));
+}
+
 export type FundComparisonPoint = {
   date: string;
   nav: number;
