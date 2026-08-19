@@ -63,6 +63,23 @@ test("official AMFI directory becomes a deduplicated, filterable comparison cata
   assert.deepEqual(catalog[0].transactions, []);
 });
 
+test("official catalogue parsing retains a fourteen-thousand-scheme universe", () => {
+  const rows = Array.from({ length: 14_000 }, (_, index) => {
+    const code = String(200_000 + index);
+    const isin = `INF${String(index).padStart(9, "0")}`;
+    return `${code};${isin};;Synthetic India Fund ${index} Direct Growth;10;18-Aug-2026`;
+  });
+  const catalog = parseAmfiFundCatalog([
+    "Synthetic Mutual Fund",
+    "Open Ended Schemes ( Equity Scheme )",
+    ...rows,
+  ].join("\n"));
+
+  assert.equal(catalog.length, 14_000);
+  assert.equal(new Set(catalog.map(({ key }) => key)).size, 14_000);
+  assert.ok(catalog.every(({ schemeCode, plan }) => Boolean(schemeCode) && plan === "Direct"));
+});
+
 test("comparison lines are thin at rest and only become bold when emphasized", () => {
   const resting = fundComparisonLineWidth("resting");
   const emphasized = fundComparisonLineWidth("emphasized");
@@ -705,7 +722,7 @@ test("bulk comparison loads all thirty schemes from 1900 and retains exact 1990 
   }
 });
 
-test("bulk comparison history enforces four concurrent schemes and one inter-batch pause", async () => {
+test("bulk comparison history continuously drains work while enforcing four concurrent schemes", async () => {
   const candidates = Array.from({ length: 5 }, (_, index) => candidate(
     `fund-${index}`,
     String(1001 + index),
@@ -737,7 +754,7 @@ test("bulk comparison history enforces four concurrent schemes and one inter-bat
 
     assert.equal(maximumActive, 4);
     assert.equal(result.historyByKey.size, 5);
-    assert.equal(observedDelays.filter((delay) => delay === 900).length, 1);
+    assert.equal(observedDelays.filter((delay) => delay === 900).length, 0);
   } finally {
     globalThis.setTimeout = originalSetTimeout;
   }

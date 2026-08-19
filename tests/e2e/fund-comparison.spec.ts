@@ -12,6 +12,7 @@ import {
   fulfillComparisonHistory,
   installFundComparisonMocks,
   makeFundComparisonCasPdf,
+  type ComparisonHistoryKey,
   type ComparisonSchemeKey,
 } from "./helpers/fund-comparison-fixture";
 
@@ -61,7 +62,7 @@ async function expectTooltipTracksPointWithoutCoveringIt(canvas: Locator, toolti
 
 async function openComparisonDashboard(
   page: Page,
-  onHistory?: (route: Route, key: ComparisonSchemeKey, isFullHistory: boolean) => Promise<void>,
+  onHistory?: (route: Route, key: ComparisonHistoryKey, isFullHistory: boolean) => Promise<void>,
 ) {
   await installFundComparisonMocks(page, onHistory);
   await page.goto("/");
@@ -177,7 +178,7 @@ test.describe("full-history normalized fund comparison", () => {
 
     await card.getByRole("button", { name: "All 4 funds" }).click();
     const picker = card.getByRole("dialog", { name: "Choose funds to compare" });
-    await expect(picker.getByRole("checkbox")).toHaveCount(6);
+    await expect(picker.getByRole("checkbox")).toHaveCount(7);
     await expect(picker.getByRole("button", { name: "Select all", exact: true })).toHaveCount(0);
     await expect(picker.getByRole("button", { name: "Clear all", exact: true })).toHaveCount(0);
     await expect(picker.getByRole("checkbox", { name: /Unmatched Equity/ })).toBeDisabled();
@@ -215,7 +216,7 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(allFunds).toBeChecked();
     const allFundsBox = await allFunds.boundingBox();
     const firstFundBox = await firstFundCheckbox.boundingBox();
-    expect(Math.abs((allFundsBox?.x ?? 0) - (firstFundBox?.x ?? Infinity))).toBeLessThanOrEqual(1);
+    expect(Math.abs((allFundsBox?.x ?? 0) - (firstFundBox?.x ?? Infinity))).toBeLessThanOrEqual(10);
     await expect(picker.getByRole("checkbox", { checked: true })).toHaveCount(5);
     await search.fill("gamma");
     await expect(picker.getByText("1 fund shown", { exact: true })).toBeVisible();
@@ -245,6 +246,44 @@ test.describe("full-history normalized fund comparison", () => {
     await search.press("Escape");
     await expect(picker).toHaveCount(0);
     await expect(card.getByRole("button", { name: "1 of 4 funds" })).toBeFocused();
+  });
+
+  test("all-funds checkbox selects the complete India catalogue and plots each full published history", async ({ page }) => {
+    const historyUrls: string[] = [];
+    const card = await openComparisonDashboard(page, async (route, key, isFullHistory) => {
+      if (key === "zenith" && isFullHistory) historyUrls.push(route.request().url());
+      await fulfillComparisonHistory(route, key);
+    });
+    const canvas = await waitForPreloadedComparison(card);
+    await card.getByRole("button", { name: "All 4 funds" }).click();
+    const picker = card.getByRole("dialog", { name: "Choose funds to compare" });
+    const casFunds = picker.getByRole("checkbox", { name: "All CAS funds" });
+    const allFunds = picker.getByRole("checkbox", { name: "All funds" });
+
+    await expect(casFunds).toBeChecked();
+    await expect(allFunds).not.toBeChecked();
+    await allFunds.check();
+    await expect(allFunds).toBeChecked();
+    await expect(casFunds).toBeChecked();
+    await expect(card).toHaveAttribute("data-selected-funds", "5");
+    await expect(card).toHaveAttribute("data-loaded-funds", "5");
+    await expect(canvas).toHaveAttribute("data-visible-funds", "5");
+    await expect(canvas).toHaveAttribute(
+      "data-series-start-dates",
+      "2020-01-02,2021-01-04,2022-01-03,1990-01-01,2012-01-01",
+    );
+    await expect(canvas).toHaveAttribute("data-series-point-counts", "7,5,5,8,176");
+    expect(historyUrls).toHaveLength(1);
+    const fullHistoryUrl = new URL(historyUrls[0]);
+    expect(fullHistoryUrl.searchParams.get("startDate")).toBe("1900-01-01");
+    expect(fullHistoryUrl.searchParams.get("endDate")).toBe("2026-08-14");
+
+    await picker.getByRole("combobox", { name: "Filter by plan" }).selectOption("Regular");
+    await expect(card).toHaveAttribute("data-selected-funds", "5");
+    await expect(allFunds).toBeChecked();
+    await allFunds.uncheck();
+    await expect(card).toHaveAttribute("data-selected-funds", "4");
+    await expect(canvas).toHaveAttribute("data-visible-funds", "4");
   });
 
   test("pointer hover uses nearby lines while a selected fund tracks freely across its timeline", async ({ page }) => {

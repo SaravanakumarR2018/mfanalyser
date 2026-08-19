@@ -166,15 +166,17 @@ test.describe("accessibility and responsive behavior", () => {
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
       .analyze();
 
-    const trigger = card.getByRole("button", { name: "All 4 funds" });
+    const trigger = card.locator(".fund-comparison-picker-trigger");
     await trigger.focus();
     await trigger.press("Enter");
     const picker = card.getByRole("dialog", { name: "Choose funds to compare" });
     await expect(picker).toBeVisible();
     await expect(picker.getByRole("searchbox", { name: "Search funds to compare" })).toBeFocused();
-    await expect(picker.getByRole("checkbox")).toHaveCount(6);
+    await expect(picker.getByRole("checkbox")).toHaveCount(7);
     await expect(picker.getByRole("checkbox", { name: "All CAS funds" })).toBeChecked();
-    await picker.getByRole("button", { name: "All India funds" }).click();
+    await expect(picker.getByRole("checkbox", { name: "All funds" })).not.toBeChecked();
+    await picker.getByRole("checkbox", { name: "All funds" }).check();
+    await expect(picker.getByRole("checkbox", { name: "All CAS funds" })).toBeChecked();
     await expect(picker.getByText("Zenith India Large Cap Direct Growth")).toBeVisible();
     await picker.getByRole("combobox", { name: "Filter by plan" }).selectOption("Regular");
     await expect(picker.getByText("Zenith India Large Cap Direct Growth")).toHaveCount(0);

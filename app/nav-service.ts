@@ -304,7 +304,6 @@ export async function loadFundComparisonHistories(
         onProgress?.({ completed: Math.min(completed, total), total });
       }
     }));
-    if (cursor + HISTORY_CONCURRENCY < targets.length) await wait(HISTORY_BATCH_PAUSE_MS);
   }
 
   return { historyByKey, failures, completed: Math.min(completed, total), total };

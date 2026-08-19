@@ -140,17 +140,20 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   const pickerRef = useRef<HTMLDivElement>(null);
   const pickerTriggerRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const allFundsCheckboxRef = useRef<HTMLInputElement>(null);
+  const allCasFundsCheckboxRef = useRef<HTMLInputElement>(null);
   const requestRef = useRef<AbortController | null>(null);
   const requestSequenceRef = useRef(0);
   const loadTriggeredRef = useRef(false);
   const drawnSeriesRef = useRef<DrawnSeries[]>([]);
   const plotGeometryRef = useRef<PlotGeometry | null>(null);
   const tooltipLayoutRef = useRef<FundComparisonTooltipLayout>();
+  const allIndiaSelectionAppliedRef = useRef(false);
 
   const portfolioCandidates = useMemo(() => buildFundComparisonCandidates(portfolio), [portfolio]);
   const [catalog, setCatalog] = useState<FundCatalogEntry[]>([]);
+  const [casFundsEnabled, setCasFundsEnabled] = useState(true);
   const [catalogEnabled, setCatalogEnabled] = useState(false);
+  const [allIndiaSelected, setAllIndiaSelected] = useState(false);
   const [catalogPhase, setCatalogPhase] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [categoryFilter, setCategoryFilter] = useState("All categories");
   const [planFilter, setPlanFilter] = useState("All plans");
@@ -189,29 +192,12 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   const [hoveredFundKey, setHoveredFundKey] = useState<string | null>(null);
   const [tooltipLayout, setTooltipLayout] = useState<FundComparisonTooltipLayout>();
   const [keyboardAnnouncement, setKeyboardAnnouncement] = useState("");
-  const enableCatalog = useCallback(async () => {
-    setCatalogEnabled(true);
-    if (catalogPhase === "ready" || catalogPhase === "loading") return;
-    setCatalogPhase("loading");
-    try {
-      const response = await fetch("/api/nav", { headers: { Accept: "text/plain" } });
-      if (!response.ok) throw new Error("catalog unavailable");
-      const entries = parseAmfiFundCatalog(await response.text());
-      if (!entries.length) throw new Error("empty catalog");
-      setCatalog(entries);
-      setCatalogPhase("ready");
-    } catch {
-      setCatalogPhase("error");
-    }
-  }, [catalogPhase]);
   useEffect(() => {
-    if (!allFundsCheckboxRef.current) return;
-    const selectedPortfolioCount = portfolioCandidates.filter(({ key, schemeCode }) => schemeCode && selectedKeys.has(key)).length;
-    const availablePortfolioCount = portfolioCandidates.filter(({ schemeCode }) => Boolean(schemeCode)).length;
-    allFundsCheckboxRef.current.indeterminate = selectedPortfolioCount > 0
-      && selectedPortfolioCount < availablePortfolioCount;
+    if (!allCasFundsCheckboxRef.current) return;
+    const selectedCount = portfolioCandidates.filter(({ key, schemeCode }) => schemeCode && selectedKeys.has(key)).length;
+    const availableCount = portfolioCandidates.filter(({ schemeCode }) => Boolean(schemeCode)).length;
+    allCasFundsCheckboxRef.current.indeterminate = selectedCount > 0 && selectedCount < availableCount;
   }, [portfolioCandidates, selectedKeys]);
-
   const model = useMemo(
     () => buildFundComparisonModel(
       eligible,
@@ -294,6 +280,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   const activeCandidates = filteredCandidates.filter((candidate) => candidate.active);
   const closedCandidates = filteredCandidates.filter((candidate) => candidate.closed && !candidate.active);
   const indiaCandidates = filteredCandidates.filter((candidate) => "plan" in candidate && !portfolioKeys.has(candidate.key));
+  const visibleIndiaCandidates = indiaCandidates.slice(0, 200);
   const categoryOptions = useMemo(() => [...new Set(catalog.map(({ category }) => category))].sort(), [catalog]);
   const historyLoadReady = shouldStartFundComparisonHistoryLoad(
     portfolio.navHistoryLoading,
@@ -343,6 +330,45 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
       if (requestRef.current === controller) requestRef.current = null;
     }
   }, [historyByKey.size, portfolio.valuationDate]);
+
+  const selectAllIndia = useCallback((allCandidates: FundComparisonCandidate[]) => {
+    if (allIndiaSelectionAppliedRef.current) return;
+    allIndiaSelectionAppliedRef.current = true;
+    setAllIndiaSelected(true);
+    const allIndiaEligible = allCandidates.filter((candidate) => Boolean(candidate.schemeCode));
+    setFocusedFundKey(null);
+    setHoverDate(null);
+    setHoveredFundKey(null);
+    tooltipLayoutRef.current = undefined;
+    setTooltipLayout(undefined);
+    setSelectedKeys(new Set(allIndiaEligible.map(({ key }) => key)));
+    const missingHistories = allIndiaEligible.filter(({ key }) => !historyByKey.has(key));
+    if (missingHistories.length) void requestHistories(missingHistories);
+  }, [historyByKey, requestHistories]);
+
+  const enableCatalog = useCallback(async () => {
+    setCatalogEnabled(true);
+    setAllIndiaSelected(true);
+    if (catalogPhase === "ready") {
+      selectAllIndia(candidates);
+      return;
+    }
+    if (catalogPhase === "loading") return;
+    setCatalogPhase("loading");
+    try {
+      const response = await fetch("/api/nav", { headers: { Accept: "text/plain" } });
+      if (!response.ok) throw new Error("catalog unavailable");
+      const entries = parseAmfiFundCatalog(await response.text());
+      if (!entries.length) throw new Error("empty catalog");
+      setCatalog(entries);
+      setCatalogPhase("ready");
+      selectAllIndia([...portfolioCandidates, ...entries.filter(({ key }) => !portfolioKeys.has(key))]);
+    } catch {
+      setCatalogEnabled(false);
+      setAllIndiaSelected(false);
+      setCatalogPhase("error");
+    }
+  }, [candidates, catalogPhase, portfolioCandidates, portfolioKeys, selectAllIndia]);
 
   const retryFailed = useCallback(() => {
     const targets = eligible.filter((candidate) => failedKeys.has(candidate.key));
@@ -769,12 +795,18 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   }, [activeFocusedFundKey, clearHover, hoverDate, hoveredFundKey, inspectFundAtClientX]);
 
   const toggleCandidate = (key: string) => {
+    if (loadPhase === "loading" && allIndiaSelected) return;
     if (focusedFundKey === key && selectedKeys.has(key)) setFocusedFundKey(null);
     if (hoveredFundKey === key && selectedKeys.has(key)) clearHover();
     setSelectedKeys((current) => {
       const next = new Set(current);
       if (next.has(key)) next.delete(key);
       else next.add(key);
+      if (portfolioKeys.has(key)) {
+        setCasFundsEnabled(portfolioEligible.every(({ key: portfolioKey }) => next.has(portfolioKey)));
+      } else {
+        setAllIndiaSelected(false);
+      }
       return next;
     });
     const target = eligible.find((candidate) => candidate.key === key);
@@ -807,7 +839,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
           <input
             type="checkbox"
             checked={selectedKeys.has(candidate.key)}
-            disabled={!candidate.schemeCode}
+            disabled={!candidate.schemeCode || (loadPhase === "loading" && allIndiaSelected)}
             onChange={() => toggleCandidate(candidate.key)}
           />
           <i aria-hidden="true" style={{ background: colorFor(candidate.key) }} />
@@ -911,10 +943,34 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                 >×</button>
               </header>
               <div className="fund-comparison-picker-tools">
-                <div className="fund-comparison-scope" role="group" aria-label="Fund universe">
-                  <button type="button" className={!catalogEnabled ? "active" : ""} onClick={() => setCatalogEnabled(false)}>CAS funds</button>
-                  <button type="button" className={catalogEnabled ? "active" : ""} aria-pressed={catalogEnabled} onClick={() => void enableCatalog()}>All India funds</button>
-                </div>
+                <fieldset className="fund-comparison-scope">
+                  <legend>Fund universe</legend>
+                  <label><input ref={allCasFundsCheckboxRef} type="checkbox" checked={casFundsEnabled} onChange={(event) => {
+                    const checked = event.target.checked;
+                    setCasFundsEnabled(checked);
+                    setSelectedKeys((current) => {
+                      const next = new Set(current);
+                      for (const { key } of portfolioEligible) {
+                        if (checked || catalogEnabled) next.add(key);
+                        else next.delete(key);
+                      }
+                      return next;
+                    });
+                  }} /><span>All CAS funds</span><small>Funds in your statement</small></label>
+                  <label><input type="checkbox" checked={allIndiaSelected} onChange={(event) => {
+                    if (event.target.checked) {
+                      allIndiaSelectionAppliedRef.current = false;
+                      void enableCatalog();
+                    } else {
+                      allIndiaSelectionAppliedRef.current = false;
+                      setCatalogEnabled(false);
+                      setAllIndiaSelected(false);
+                      setSelectedKeys(casFundsEnabled
+                        ? new Set(portfolioEligible.map(({ key }) => key))
+                        : new Set());
+                    }
+                  }} /><span>All funds</span><small>Every AMFI scheme in India</small></label>
+                </fieldset>
                 <label className="fund-comparison-search">
                   <span aria-hidden="true">⌕</span>
                   <input
@@ -931,22 +987,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                   <label><span>Plan</span><select aria-label="Filter by plan" value={planFilter} onChange={(event) => setPlanFilter(event.target.value)}><option>All plans</option><option>Direct</option><option>Regular</option><option>Other</option></select></label>
                 </div>}
                 <div className="fund-comparison-picker-actions">
-                  <label className="fund-comparison-all-option">
-                    <input
-                      ref={allFundsCheckboxRef}
-                      type="checkbox"
-                      checked={allFundsSelected}
-                      disabled={!eligible.length}
-                      onChange={(event) => {
-                        setFocusedFundKey(null);
-                        clearHover();
-                        setSelectedKeys(event.target.checked
-                          ? new Set([...selectedKeys, ...portfolioEligible.map((candidate) => candidate.key)])
-                          : new Set([...selectedKeys].filter((key) => !portfolioKeys.has(key))));
-                      }}
-                    />
-                    <span>All CAS funds</span>
-                  </label>
+                  <span>{allIndiaSelected ? "All India funds are selected automatically" : allFundsSelected ? "All CAS funds selected" : "Custom selection"}</span>
                   <span aria-live="polite">{filteredCandidates.length} {filteredCandidates.length === 1 ? "fund" : "funds"} shown</span>
                 </div>
               </div>
@@ -954,8 +995,9 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                 {renderOptions(activeCandidates, "Current holdings")}
                 {renderOptions(closedCandidates, "Closed funds")}
                 {catalogEnabled && catalogPhase === "loading" && <div className="fund-comparison-no-results" role="status">Loading the official AMFI fund directory…</div>}
-                {catalogEnabled && catalogPhase === "error" && <div className="fund-comparison-no-results" role="status">The India fund directory is unavailable. <button type="button" onClick={() => { setCatalogPhase("idle"); void enableCatalog(); }}>Retry</button></div>}
-                {renderOptions(indiaCandidates, "All India funds")}
+                {catalogPhase === "error" && <div className="fund-comparison-no-results" role="status">The India fund directory is unavailable. <button type="button" onClick={() => { allIndiaSelectionAppliedRef.current = false; void enableCatalog(); }}>Retry</button></div>}
+                {renderOptions(visibleIndiaCandidates, "All India funds")}
+                {indiaCandidates.length > visibleIndiaCandidates.length && <div className="fund-comparison-results-note">Showing the first {visibleIndiaCandidates.length} of {indiaCandidates.length} matching funds. Refine the search or filters to find a specific fund; every fund remains selected for the graph.</div>}
                 {!filteredCandidates.length && <div className="fund-comparison-no-results">No funds match “{query}”. Your existing selections are unchanged.</div>}
               </div>
             </div>
@@ -989,6 +1031,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                 data-baseline="100"
                 data-earliest-history-date={model.baselineDate}
                 data-series-start-dates={model.series.map((series) => series.points[0]?.date).filter(Boolean).join(",")}
+                data-series-point-counts={model.series.map((series) => series.points.length).join(",")}
                 data-visible-series-start-dates={visibleModel.series.map((series) => series.points[0]?.date).filter(Boolean).join(",")}
                 data-series-baselines={visibleModel.series.map((series) => series.points[0]?.indexedValue).filter((value) => value !== undefined).join(",")}
                 data-visible-funds={visibleModel.series.length}
