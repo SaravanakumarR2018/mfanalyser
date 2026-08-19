@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { TimelinePoint } from "./cas-parser";
+import { fillCalendarDays } from "./calendar-series";
 import { buildChartScale } from "./chart-scale";
 import { formatInr } from "./formatters";
 import { useRangeWindowDrag } from "./useRangeWindowDrag";
@@ -43,20 +44,21 @@ export default function PortfolioChart({
   eyebrow = "Portfolio journey",
   title = "Value over time",
   valueLabel = "Portfolio value",
-  note = "daily points use actual published AMFI NAV observations. CAS transaction dates remain exact, and missing dates are skipped rather than estimated.",
+  note = "daily points use actual published AMFI NAV observations. On dates without a new observation, the chart carries the last observed value forward for display; CAS transaction dates remain exact.",
   compact = false,
   showBelowCost = false,
 }: PortfolioChartProps) {
   const headingId = useId();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
-  const [range, setRange] = useState<[number, number]>([0, Math.max(1, points.length - 1)]);
+  const displayPoints = useMemo(() => fillCalendarDays(points), [points]);
+  const [range, setRange] = useState<[number, number]>([0, Math.max(1, displayPoints.length - 1)]);
   const [hovered, setHovered] = useState<number | null>(null);
   const [tooltipStyle, setTooltipStyle] = useState<CSSProperties>();
   const [animate, setAnimate] = useState(0);
   const [showInvested, setShowInvested] = useState(true);
-  const previousPoints = useRef(points);
-  const rangeWindowDrag = useRangeWindowDrag({ range, setRange, totalPoints: points.length });
+  const previousPoints = useRef(displayPoints);
+  const rangeWindowDrag = useRangeWindowDrag({ range, setRange, totalPoints: displayPoints.length });
 
   useEffect(() => {
     let frame = 0;
@@ -72,36 +74,36 @@ export default function PortfolioChart({
 
   useEffect(() => {
     const prior = previousPoints.current;
-    if (prior === points) return;
+    if (prior === displayPoints) return;
     setRange(([start, end]) => {
-      if (points.length < 2) return [0, Math.max(1, points.length - 1)];
-      if (start === 0 && end >= prior.length - 1) return [0, points.length - 1];
+      if (displayPoints.length < 2) return [0, Math.max(1, displayPoints.length - 1)];
+      if (start === 0 && end >= prior.length - 1) return [0, displayPoints.length - 1];
       const startDate = prior[start]?.date;
       const endDate = prior[end]?.date;
       const nextStart = startDate
-        ? Math.max(0, points.findIndex((point) => point.date >= startDate))
+        ? Math.max(0, displayPoints.findIndex((point) => point.date >= startDate))
         : 0;
       const nextEndCandidate = endDate
-        ? points.findLastIndex((point) => point.date <= endDate)
-        : points.length - 1;
+        ? displayPoints.findLastIndex((point) => point.date <= endDate)
+        : displayPoints.length - 1;
       return [nextStart, Math.max(nextStart + 1, nextEndCandidate)];
     });
-    previousPoints.current = points;
+    previousPoints.current = displayPoints;
     setHovered(null);
     setTooltipStyle(undefined);
-  }, [points]);
+  }, [displayPoints]);
 
   const visible = useMemo(
-    () => points.slice(range[0], Math.min(points.length, range[1] + 1)),
-    [points, range],
+    () => displayPoints.slice(range[0], Math.min(displayPoints.length, range[1] + 1)),
+    [displayPoints, range],
   );
 
   const zoom = useCallback(
     (direction: "in" | "out") => {
       setRange(([start, end]) => {
         const current = end - start + 1;
-        const minimum = Math.min(6, points.length);
-        const target = direction === "in" ? Math.max(minimum, Math.floor(current * 0.72)) : Math.min(points.length, Math.ceil(current * 1.38));
+        const minimum = Math.min(6, displayPoints.length);
+        const target = direction === "in" ? Math.max(minimum, Math.floor(current * 0.72)) : Math.min(displayPoints.length, Math.ceil(current * 1.38));
         const center = (start + end) / 2;
         let nextStart = Math.round(center - target / 2);
         let nextEnd = nextStart + target - 1;
@@ -109,14 +111,14 @@ export default function PortfolioChart({
           nextEnd -= nextStart;
           nextStart = 0;
         }
-        if (nextEnd >= points.length) {
-          nextStart -= nextEnd - points.length + 1;
-          nextEnd = points.length - 1;
+        if (nextEnd >= displayPoints.length) {
+          nextStart -= nextEnd - displayPoints.length + 1;
+          nextEnd = displayPoints.length - 1;
         }
-        return [Math.max(0, nextStart), Math.max(1, Math.min(points.length - 1, nextEnd))];
+        return [Math.max(0, nextStart), Math.max(1, Math.min(displayPoints.length - 1, nextEnd))];
       });
     },
-    [points.length],
+    [displayPoints.length],
   );
 
   const draw = useCallback(() => {
@@ -304,13 +306,13 @@ export default function PortfolioChart({
 
   const selectPeriod = (months: number | "all") => {
     if (months === "all") {
-      setRange([0, points.length - 1]);
+      setRange([0, displayPoints.length - 1]);
       return;
     }
-    const cutoff = new Date(`${points.at(-1)?.date ?? ""}T00:00:00Z`);
+    const cutoff = new Date(`${displayPoints.at(-1)?.date ?? ""}T00:00:00Z`);
     cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
-    const start = Math.max(0, points.findIndex((point) => new Date(`${point.date}T00:00:00Z`) >= cutoff));
-    setRange([start, points.length - 1]);
+    const start = Math.max(0, displayPoints.findIndex((point) => new Date(`${point.date}T00:00:00Z`) >= cutoff));
+    setRange([start, displayPoints.length - 1]);
   };
 
   const pointerToIndex = (clientX: number) => {
@@ -396,13 +398,14 @@ export default function PortfolioChart({
         <canvas
           ref={canvasRef}
           role="img"
-          data-total-points={points.length}
+          data-total-points={displayPoints.length}
           data-visible-points={visible.length}
           data-daily-points={points.filter((point) => point.daily).length}
+          data-carried-points={displayPoints.filter((point) => point.carried).length}
           data-transaction-points={points.filter((point) => point.transaction).length}
           data-investment-points={points.filter((point) => point.transaction && (point.transactionAmount ?? 0) > 0).length}
           data-show-invested={showInvested}
-          aria-label={`${valueLabel} chart from ${prettyDate(visible[0]?.date ?? points[0]?.date)} to ${prettyDate(visible.at(-1)?.date ?? points.at(-1)?.date)}`}
+          aria-label={`${valueLabel} chart from ${prettyDate(visible[0]?.date ?? displayPoints[0]?.date)} to ${prettyDate(visible.at(-1)?.date ?? displayPoints.at(-1)?.date)}`}
         />
         {hoverPoint && tooltipStyle && (
           <div className="chart-tooltip" style={tooltipStyle}>
@@ -421,7 +424,9 @@ export default function PortfolioChart({
               : hoverPoint.nav && <small>NAV {hoverPoint.nav.toFixed(4)}</small>}
             <small>{hoverPoint.transaction
               ? `Transaction ${(hoverPoint.transactionAmount ?? 0) >= 0 ? "+" : "−"}${fullMoney(Math.abs(hoverPoint.transactionAmount ?? 0))}${(hoverPoint.transactionCount ?? 0) > 1 ? ` · ${hoverPoint.transactionCount} entries` : ""}`
-              : hoverPoint.daily ? "Official daily valuation" : "Observed portfolio value"}</small>
+              : hoverPoint.carried
+                ? `Carried from ${fullDate(hoverPoint.carriedFrom ?? hoverPoint.date)} · no new observation`
+                : hoverPoint.daily ? "Official daily valuation" : "Observed portfolio value"}</small>
           </div>
         )}
       </div>
@@ -431,9 +436,9 @@ export default function PortfolioChart({
           role="slider"
           aria-label="Move visible chart window"
           aria-valuemin={0}
-          aria-valuemax={Math.max(0, points.length - (range[1] - range[0] + 1))}
+          aria-valuemax={Math.max(0, displayPoints.length - (range[1] - range[0] + 1))}
           aria-valuenow={range[0]}
-          aria-valuetext={`${fullDate(points[range[0]]?.date ?? points[0]?.date)} to ${fullDate(points[range[1]]?.date ?? points.at(-1)?.date)}`}
+          aria-valuetext={`${fullDate(displayPoints[range[0]]?.date ?? displayPoints[0]?.date)} to ${fullDate(displayPoints[range[1]]?.date ?? displayPoints.at(-1)?.date)}`}
           tabIndex={rangeWindowDrag.movable ? 0 : -1}
           title={rangeWindowDrag.movable ? "Drag to move the selected timeframe" : undefined}
           onKeyDown={rangeWindowDrag.onKeyDown}
@@ -441,13 +446,13 @@ export default function PortfolioChart({
           onPointerDown={rangeWindowDrag.onPointerDown}
           onPointerMove={rangeWindowDrag.onPointerMove}
           onPointerUp={rangeWindowDrag.onPointerUp}
-          style={{ left: `${(range[0] / Math.max(1, points.length - 1)) * 100}%`, right: `${100 - (range[1] / Math.max(1, points.length - 1)) * 100}%` }}
+          style={{ left: `${(range[0] / Math.max(1, displayPoints.length - 1)) * 100}%`, right: `${100 - (range[1] / Math.max(1, displayPoints.length - 1)) * 100}%` }}
         />
         <input
           aria-label="Chart start"
           type="range"
           min={0}
-          max={Math.max(1, points.length - 2)}
+          max={Math.max(1, displayPoints.length - 2)}
           value={range[0]}
           onChange={(event) => setRange([Math.min(Number(event.target.value), range[1] - 1), range[1]])}
         />
@@ -455,7 +460,7 @@ export default function PortfolioChart({
           aria-label="Chart end"
           type="range"
           min={1}
-          max={Math.max(1, points.length - 1)}
+          max={Math.max(1, displayPoints.length - 1)}
           value={range[1]}
           onChange={(event) => setRange([range[0], Math.max(Number(event.target.value), range[0] + 1)])}
         />

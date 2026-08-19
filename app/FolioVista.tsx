@@ -576,7 +576,7 @@ function HoldingDrawer({
           showBelowCost
           note={holding.transactions.length
             ? holding.navHistory?.length
-              ? "daily points use every actual published AMFI NAV and the CAS unit balance held on that date. Diamonds retain exact CAS transaction dates; missing dates are skipped, never estimated."
+              ? "daily points use every actual published AMFI NAV and the CAS unit balance held on that date. Diamonds retain exact CAS transaction dates; other calendar dates carry the last observed values for display only."
               : "the invested amount is the net cash flow recorded in the CAS. Daily AMFI history is loading or unavailable; transaction dates and the exact endpoint remain visible."
             : "the CAS provides the exact current invested amount and value, but did not include usable transaction rows for an earlier history."}
         />
@@ -830,7 +830,7 @@ function Dashboard({
           note={portfolio.valuationSource === "amfi"
             ? portfolio.navHistoryLoading
               ? `exact daily AMFI NAV observations are loading in the background. CAS transaction dates and the latest endpoint dated ${formatDate(portfolio.valuationDate)} remain exact while loading.`
-              : `daily points value the CAS units held in each scheme using actual AMFI NAVs published on that date. Transaction diamonds remain on exact CAS dates; incomplete dates are skipped rather than estimated.`
+              : `daily points value the CAS units held in each scheme using actual AMFI NAVs published on that date. Transaction diamonds remain on exact CAS dates; other calendar dates carry the last complete portfolio observation for display only.`
             : `the endpoint is the reconciled CAS value dated ${formatDate(portfolio.statementDate)} because live NAVs were unavailable. Net invested is calculated from statement purchases and redemptions.`}
         />
 

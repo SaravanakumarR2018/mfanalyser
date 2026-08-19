@@ -17,8 +17,9 @@ test.describe("portfolio and stacked chart controls", () => {
 
   test("renders the portfolio journey canvas and its baseline data contract", async ({ page }) => {
     const chart = page.locator('.chart-card canvas[role="img"]').first();
-    await expect(chart).toHaveAttribute("data-total-points", "58");
-    await expect(chart).toHaveAttribute("data-visible-points", "58");
+    await expect(chart).toHaveAttribute("data-total-points", "1734");
+    await expect(chart).toHaveAttribute("data-visible-points", "1734");
+    await expect(chart).toHaveAttribute("data-carried-points", "1676");
     await expect(chart).toHaveAttribute("data-daily-points", "0");
     await expect(chart).toHaveAttribute("data-show-invested", "true");
     await expect(chart).toHaveAttribute("aria-label", /Portfolio value chart from Nov 2021 to Jul 2026/);

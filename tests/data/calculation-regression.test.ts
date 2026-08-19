@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { demoPortfolio, type FolioHolding, type FundHolding } from "../../app/cas-parser.ts";
+import { fillCalendarDays } from "../../app/calendar-series.ts";
 import { buildChartScale } from "../../app/chart-scale.ts";
 import {
   annualizedReturnAt,
@@ -35,6 +36,72 @@ test("published NAV normalization is sorted, deduplicated last-write-wins, filte
     { date: "2026-01-10", nav: 11 },
   ]);
   assert.deepEqual(input, before);
+});
+
+test("calendar chart points carry Friday values through the weekend without inventing observations", () => {
+  const input = [
+    { date: "2026-01-09", invested: 100, value: 110, nav: 11, daily: true, transaction: true, transactionAmount: 100 },
+    { date: "2026-01-12", invested: 100, value: 120, nav: 12, daily: true },
+  ];
+  const before = structuredClone(input);
+
+  const points = fillCalendarDays(input);
+
+  assert.deepEqual(points.map((point) => point.date), [
+    "2026-01-09", "2026-01-10", "2026-01-11", "2026-01-12",
+  ]);
+  for (const point of points.slice(1, 3)) {
+    assert.equal(point.value, 110);
+    assert.equal(point.invested, 100);
+    assert.equal(point.nav, 11);
+    assert.equal(point.carried, true);
+    assert.equal(point.carriedFrom, "2026-01-09");
+    assert.equal(point.daily, undefined);
+    assert.equal(point.transaction, undefined);
+    assert.equal(point.transactionAmount, undefined);
+  }
+  assert.deepEqual(points.at(-1), input.at(-1));
+  assert.deepEqual(input, before);
+});
+
+test("calendar chart points preserve a real missing-date transaction and carry from it afterward", () => {
+  const points = fillCalendarDays([
+    { date: "2026-01-09", nav: 11, investedAmount: 0, transactionAmount: 0 },
+    { date: "2026-01-10", nav: 11.5, investedAmount: 50, transactionAmount: 50, transaction: true },
+    { date: "2026-01-12", nav: 12, investedAmount: 0, transactionAmount: 0, daily: true },
+  ]);
+
+  assert.equal(points[1].transaction, true);
+  assert.equal(points[1].investedAmount, 50);
+  assert.deepEqual(points[2], {
+    date: "2026-01-11",
+    nav: 11.5,
+    investedAmount: 0,
+    transactionAmount: undefined,
+    transaction: undefined,
+    daily: undefined,
+    exact: undefined,
+    live: undefined,
+    latest: undefined,
+    transactionCount: undefined,
+    investmentCount: 0,
+    carried: true,
+    carriedFrom: "2026-01-10",
+  });
+});
+
+test("calendar chart filling safely leaves single, invalid, and reverse-dated series sparse", () => {
+  assert.deepEqual(fillCalendarDays([{ date: "2026-01-09", value: 1 }]), [
+    { date: "2026-01-09", value: 1 },
+  ]);
+  assert.deepEqual(fillCalendarDays([
+    { date: "invalid", value: 1 },
+    { date: "2026-01-12", value: 2 },
+  ]).map((point) => point.date), ["invalid", "2026-01-12"]);
+  assert.deepEqual(fillCalendarDays([
+    { date: "2026-01-12", value: 2 },
+    { date: "2026-01-09", value: 1 },
+  ]).map((point) => point.date), ["2026-01-12", "2026-01-09"]);
 });
 
 test("a holding with one endpoint gets a deterministic one-year chart baseline", () => {
