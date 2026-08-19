@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { FundTransaction, HistoricalNavPoint } from "./cas-parser";
+import { fillCalendarDays } from "./calendar-series";
 import { formatInr } from "./formatters";
 import { buildNavPoints, type NavActivityPoint } from "./nav-activity-service";
 import { loadFullSchemeNavHistory } from "./nav-service";
@@ -65,10 +66,11 @@ export default function NavActivityChart({
     ? currentFullHistory.points
     : journeyHistory;
   const displayedScope = historyScope === "full" && currentFullHistory?.points ? "full" : "journey";
-  const allPoints = useMemo(
+  const sourcePoints = useMemo(
     () => buildNavPoints(transactions, displayedHistory, nav, navDate),
     [displayedHistory, nav, navDate, transactions],
   );
+  const allPoints = useMemo(() => fillCalendarDays(sourcePoints), [sourcePoints]);
   const [period, setPeriod] = useState<12 | 36 | "all" | null>("all");
   const [range, setRange] = useState<[number, number]>([0, Math.max(1, allPoints.length - 1)]);
   const [hovered, setHovered] = useState<number | null>(null);
@@ -411,6 +413,7 @@ export default function NavActivityChart({
             data-total-points={allPoints.length}
             data-visible-points={points.length}
             data-daily-points={allPoints.filter((point) => point.daily).length}
+            data-carried-points={allPoints.filter((point) => point.carried).length}
             data-transaction-points={allPoints.filter((point) => point.transaction).length}
             data-investment-points={allPoints.filter((point) => point.investedAmount > 0).length}
             aria-label={`Observed NAV and investment dates from ${formatDate(points[0].date)} to ${formatDate(points.at(-1)?.date ?? points[0].date)}`}
@@ -431,7 +434,9 @@ export default function NavActivityChart({
                   ? hoverPoint.investedAmount > 0
                     ? `Purchased ${formatMoney(hoverPoint.investedAmount)}`
                     : `${hoverPoint.transactionAmount < 0 ? "Redeemed" : "Transaction"} ${formatMoney(Math.abs(hoverPoint.transactionAmount))}`
-                  : "Official daily NAV"}</span>
+                  : hoverPoint.carried
+                    ? `Carried from ${formatDate(hoverPoint.carriedFrom ?? hoverPoint.date)} · no NAV published`
+                    : "Official daily NAV"}</span>
                 {hoverPoint.transactionCount > 1 && <span>{hoverPoint.transactionCount} entries</span>}
                 {transactionNavSuffix && <span>{transactionNavSuffix.replace(" · ", "")}</span>}
               </small>
@@ -491,7 +496,7 @@ export default function NavActivityChart({
           </div>
         </div>
       )}
-      <p className="nav-activity-note">{displayedScope === "full" ? "Full fund history starts at the earliest published NAV returned for this scheme. " : "Your journey starts with the first investment recorded in the CAS. "}The line follows actual AMFI NAV publication dates. Green diamonds retain exact CAS purchase dates and invested amounts. Missing dates are skipped; connecting lines do not create NAV observations.</p>
+      <p className="nav-activity-note">{displayedScope === "full" ? "Full fund history starts at the earliest published NAV returned for this scheme. " : "Your journey starts with the first investment recorded in the CAS. "}Published points use actual AMFI NAVs. On dates without a publication, the line carries the last observed NAV forward for display without creating an official observation. Green diamonds retain exact CAS purchase dates and invested amounts.</p>
     </section>
   );
 }
