@@ -63,6 +63,25 @@ type HistoricalNavResponse = {
 const HISTORY_CONCURRENCY = 4;
 const HISTORY_BATCH_PAUSE_MS = 900;
 const wait = (milliseconds: number) => new Promise((resolve) => globalThis.setTimeout(resolve, milliseconds));
+const historySessionCache = new Map<string, HistoricalNavPoint[]>();
+let historySessionFetch = globalThis.fetch;
+
+const currentHistoryCache = () => {
+  if (historySessionFetch !== globalThis.fetch) {
+    historySessionCache.clear();
+    historySessionFetch = globalThis.fetch;
+  }
+  return historySessionCache;
+};
+
+const historyCacheKey = (
+  schemeCode: string,
+  range: [string, string],
+  expected: Array<{ nav?: number; date?: string }>,
+) => `${schemeCode}:${range.join(":")}:${expected
+  .map(({ nav, date }) => `${date ?? ""}:${nav ?? ""}`)
+  .sort()
+  .join("|")}`;
 
 async function fetchSchemeHistory(
   schemeCode: string,
@@ -82,7 +101,7 @@ async function fetchSchemeHistory(
     parentSignal?.addEventListener("abort", abort, { once: true });
     try {
       const response = await fetch(upstream, {
-        cache: "no-store",
+        cache: "default",
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -132,6 +151,29 @@ async function fetchSchemeHistory(
   throw lastError instanceof Error ? lastError : new Error("AMFI history could not be loaded.");
 }
 
+const reconcileHistoryWithExpectedNav = (
+  points: readonly HistoricalNavPoint[],
+  expectedNav?: number,
+  expectedDate?: string,
+) => {
+  if (expectedNav === undefined && expectedDate === undefined) return [...points];
+  if (!expectedDate || !isIsoCalendarDate(expectedDate) || !Number.isFinite(expectedNav) || (expectedNav ?? 0) <= 0) {
+    throw new Error("Historical NAV did not reconcile to the latest official NAV.");
+  }
+  const expectedPoint = points.find((point) => point.date === expectedDate);
+  if (expectedPoint) {
+    if (Math.abs(expectedPoint.nav - expectedNav) > Math.max(0.000001, expectedNav * 0.0000001)) {
+      throw new Error("Historical NAV did not reconcile to the latest official NAV.");
+    }
+    return [...points];
+  }
+  const latestHistoryDate = points.at(-1)?.date;
+  if (!latestHistoryDate || expectedDate <= latestHistoryDate) {
+    throw new Error("Historical NAV did not reconcile to the latest official NAV.");
+  }
+  return normalizePublishedNav([...points, { date: expectedDate, nav: expectedNav }]);
+};
+
 export async function loadFullSchemeNavHistory(
   schemeCode: string,
   valuationDate: string,
@@ -142,25 +184,21 @@ export async function loadFullSchemeNavHistory(
   if (!/^\d{1,12}$/.test(schemeCode) || !/^\d{4}-\d{2}-\d{2}$/.test(valuationDate)) {
     throw new Error("Full published NAV history is unavailable for this scheme.");
   }
+  const range = fullHistoryRange(valuationDate);
+  const cacheKey = historyCacheKey(schemeCode, range, [{ nav: expectedNav, date: expectedDate }]);
+  const cachedPoints = currentHistoryCache().get(cacheKey);
+  if (cachedPoints) return cachedPoints;
   const history = await fetchSchemeHistory(
     schemeCode,
-    fullHistoryRange(valuationDate),
+    range,
     signal,
   );
   if (!history.points.length) {
     throw new Error("Full published NAV history is unavailable for this scheme.");
   }
-  const expectedPoint = expectedDate
-    ? history.points.find((point) => point.date === expectedDate)
-    : undefined;
-  if (
-    expectedPoint
-    && expectedNav
-    && Math.abs(expectedPoint.nav - expectedNav) > Math.max(0.000001, expectedNav * 0.0000001)
-  ) {
-    throw new Error("Historical NAV did not reconcile to the latest official NAV.");
-  }
-  return history.points;
+  const reconciledHistory = reconcileHistoryWithExpectedNav(history.points, expectedNav, expectedDate);
+  currentHistoryCache().set(cacheKey, reconciledHistory);
+  return reconciledHistory;
 }
 
 export type FundComparisonHistoryProgress = {
@@ -178,20 +216,6 @@ export type FundComparisonHistoryLoadResult = {
 type FundComparisonHistoryTarget = {
   schemeCode: string;
   candidates: FundComparisonCandidate[];
-};
-
-const historyMatchesExpectedNav = (
-  points: readonly HistoricalNavPoint[],
-  expectedNav?: number,
-  expectedDate?: string,
-) => {
-  if (expectedNav === undefined && expectedDate === undefined) return true;
-  if (!expectedDate || !isIsoCalendarDate(expectedDate) || !Number.isFinite(expectedNav) || (expectedNav ?? 0) <= 0) {
-    return false;
-  }
-  const expectedPoint = points.find((point) => point.date === expectedDate);
-  if (!expectedPoint) return false;
-  return Math.abs(expectedPoint.nav - expectedNav) <= Math.max(0.000001, expectedNav * 0.0000001);
 };
 
 export async function loadFundComparisonHistories(
@@ -236,23 +260,37 @@ export async function loadFundComparisonHistories(
     await Promise.all(batch.map(async (target) => {
       if (signal?.aborted) throw new DOMException("History load cancelled.", "AbortError");
       try {
-        const history = await fetchSchemeHistory(
+        const range = fullHistoryRange(valuationDate);
+        const cacheKey = historyCacheKey(
           target.schemeCode,
-          fullHistoryRange(valuationDate),
-          signal,
+          range,
+          target.candidates.map((candidate) => ({
+            nav: candidate.expectedNav,
+            date: candidate.expectedNavDate,
+          })),
         );
-        if (!history.points.length) {
-          throw new Error("Full published NAV history is unavailable for this scheme.");
-        }
-        if (target.candidates.some((candidate) => !historyMatchesExpectedNav(
-          history.points,
-          candidate.expectedNav,
-          candidate.expectedNavDate,
-        ))) {
-          throw new Error("Historical NAV did not reconcile to the latest official NAV.");
+        let reconciledHistory = currentHistoryCache().get(cacheKey);
+        if (!reconciledHistory) {
+          const history = await fetchSchemeHistory(
+            target.schemeCode,
+            range,
+            signal,
+          );
+          if (!history.points.length) {
+            throw new Error("Full published NAV history is unavailable for this scheme.");
+          }
+          reconciledHistory = history.points;
+          for (const candidate of target.candidates) {
+            reconciledHistory = reconcileHistoryWithExpectedNav(
+              reconciledHistory,
+              candidate.expectedNav,
+              candidate.expectedNavDate,
+            );
+          }
+          currentHistoryCache().set(cacheKey, reconciledHistory);
         }
         for (const candidate of target.candidates) {
-          historyByKey.set(candidate.key, history.points);
+          historyByKey.set(candidate.key, reconciledHistory);
         }
       } catch (error) {
         if (signal?.aborted) throw error;

@@ -8,6 +8,7 @@ import {
 } from "./helpers/app";
 import {
   COMPARISON_SCHEMES,
+  comparisonHistoryPayload,
   fulfillComparisonHistory,
   installFundComparisonMocks,
   makeFundComparisonCasPdf,
@@ -459,6 +460,30 @@ test.describe("full-history normalized fund comparison", () => {
     expect(fullRequestCounts.get("gamma")).toBe(1);
     expect(fullRequestCounts.get("delta")).toBe(1);
     expect(fullRequestCounts.get("beta")).toBe(2);
+  });
+
+  test("a one-publication mirror lag still loads every eligible comparison history", async ({ page }) => {
+    const card = await openComparisonDashboard(page, async (route, key, isFullHistory) => {
+      if (!isFullHistory) {
+        await fulfillComparisonHistory(route, key);
+        return;
+      }
+      const payload = comparisonHistoryPayload(key);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...payload,
+          data: payload.data.filter((point) => point.date !== "14-08-2026"),
+        }),
+      });
+    });
+
+    await expect(card).toHaveAttribute("data-history-state", "ready");
+    await expect(card).toHaveAttribute("data-loaded-funds", "4");
+    await expect(card).toHaveAttribute("data-failed-funds", "0");
+    await card.scrollIntoViewIfNeeded();
+    await expect(card.locator('canvas[role="img"]')).toHaveAttribute("data-visible-end", "2026-08-14");
   });
 
   test("1Y, 3Y, 5Y, 8Y, 10Y, All, and every range control update exact endpoints", async ({ page }) => {

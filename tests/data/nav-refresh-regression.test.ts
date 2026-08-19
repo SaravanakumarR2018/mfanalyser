@@ -196,7 +196,7 @@ test("repeating the same latest NAV refresh replaces rather than duplicates the 
   assert.equal(twice.timeline.filter((point) => point.date === "2026-02-02").length, 1);
 });
 
-test("full scheme history loads the earliest published series on demand and reconciles its live endpoint", async () => {
+test("full scheme history loads once per session, retains the earliest series, and reconciles its live endpoint", async () => {
   let calls = 0;
   const points = await withFetch(async (input, init) => {
     calls += 1;
@@ -204,7 +204,7 @@ test("full scheme history loads the earliest published series on demand and reco
     assert.equal(url.origin + url.pathname, "https://api.mfapi.in/mf/1001");
     assert.equal(url.searchParams.get("startDate"), "1900-01-01");
     assert.equal(url.searchParams.get("endDate"), "2026-02-02");
-    assert.equal(init?.cache, "no-store");
+    assert.equal(init?.cache, "default");
     assert.ok(init?.signal instanceof AbortSignal);
     return Response.json({
       status: "SUCCESS",
@@ -215,11 +215,33 @@ test("full scheme history loads the earliest published series on demand and reco
         { date: "01-01-1900", nav: "0" },
       ],
     });
-  }, () => loadFullSchemeNavHistory("1001", "2026-02-02", 12, "2026-02-02"));
+  }, async () => {
+    const first = await loadFullSchemeNavHistory("1001", "2026-02-02", 12, "2026-02-02");
+    const second = await loadFullSchemeNavHistory("1001", "2026-02-02", 12, "2026-02-02");
+    assert.equal(first, second);
+    return second;
+  });
 
   assert.equal(calls, 1);
   assert.deepEqual(points, [
     { date: "2004-05-15", nav: 10.25 },
+    { date: "2026-02-02", nav: 12 },
+  ]);
+});
+
+test("full scheme history appends a newer official NAV when the mirror is one publication behind", async () => {
+  const points = await withFetch(async () => Response.json({
+    status: "SUCCESS",
+    meta: { scheme_code: "1001" },
+    data: [
+      { date: "01-02-2026", nav: "11.9000" },
+      { date: "15-05-2004", nav: "10.2500" },
+    ],
+  }), () => loadFullSchemeNavHistory("1001", "2026-02-02", 12, "2026-02-02"));
+
+  assert.deepEqual(points, [
+    { date: "2004-05-15", nav: 10.25 },
+    { date: "2026-02-01", nav: 11.9 },
     { date: "2026-02-02", nav: 12 },
   ]);
 });
