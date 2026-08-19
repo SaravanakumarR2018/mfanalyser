@@ -9,6 +9,7 @@ import {
   buildFundComparisonScale,
   fundComparisonLineWidth,
   fundComparisonTooltipAt,
+  parseAmfiFundCatalog,
   preserveFundComparisonDateRange,
   rebaseFundComparisonModel,
   shouldStartFundComparisonHistoryLoad,
@@ -41,6 +42,25 @@ test("comparison history waits for daily enrichment, then preloads without a vie
   assert.equal(shouldStartFundComparisonHistoryLoad(false, 0), false);
   assert.equal(shouldStartFundComparisonHistoryLoad(false, -1), false);
   assert.equal(shouldStartFundComparisonHistoryLoad(false, 1.5), false);
+});
+
+test("official AMFI directory becomes a deduplicated, filterable comparison catalogue", () => {
+  const catalog = parseAmfiFundCatalog([
+    "Example Mutual Fund",
+    "Open Ended Schemes ( Equity Scheme - Flexi Cap Fund )",
+    "123;INF000A00001;;Example Flexi Cap Fund - Direct Growth;12.3;18-Aug-2026",
+    "123;INF000A00001;;duplicate;12.3;18-Aug-2026",
+    "124;INF000A00002;;Example Flexi Cap Fund - Regular Growth;11.2;18-Aug-2026",
+    "bad;INF000A00003;;Invalid;10;18-Aug-2026",
+  ].join("\n"));
+
+  assert.equal(catalog.length, 2);
+  assert.deepEqual(catalog.map(({ key, plan, amc }) => ({ key, plan, amc })), [
+    { key: "scheme:123", plan: "Direct", amc: "Example Mutual Fund" },
+    { key: "scheme:124", plan: "Regular", amc: "Example Mutual Fund" },
+  ]);
+  assert.match(catalog[0].category, /Flexi Cap/);
+  assert.deepEqual(catalog[0].transactions, []);
 });
 
 test("comparison lines are thin at rest and only become bold when emphasized", () => {

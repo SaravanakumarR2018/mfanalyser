@@ -173,7 +173,13 @@ test.describe("accessibility and responsive behavior", () => {
     await expect(picker).toBeVisible();
     await expect(picker.getByRole("searchbox", { name: "Search funds to compare" })).toBeFocused();
     await expect(picker.getByRole("checkbox")).toHaveCount(6);
-    await expect(picker.getByRole("checkbox", { name: "All funds" })).toBeChecked();
+    await expect(picker.getByRole("checkbox", { name: "All CAS funds" })).toBeChecked();
+    await picker.getByRole("button", { name: "All India funds" }).click();
+    await expect(picker.getByText("Zenith India Large Cap Direct Growth")).toBeVisible();
+    await picker.getByRole("combobox", { name: "Filter by plan" }).selectOption("Regular");
+    await expect(picker.getByText("Zenith India Large Cap Direct Growth")).toHaveCount(0);
+    await picker.getByRole("combobox", { name: "Filter by plan" }).selectOption("Direct");
+    await expect(picker.getByText("Zenith India Large Cap Direct Growth")).toBeVisible();
     const openResults = await new AxeBuilder({ page })
       .include(".fund-comparison-card")
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
@@ -251,7 +257,7 @@ test.describe("accessibility and responsive behavior", () => {
       await trigger.click();
       const picker = card.getByRole("dialog", { name: "Choose funds to compare" });
       await expect(picker).toBeVisible();
-      const allFundsBox = await picker.getByRole("checkbox", { name: "All funds" }).boundingBox();
+      const allFundsBox = await picker.getByRole("checkbox", { name: "All CAS funds" }).boundingBox();
       const firstFundBox = await picker.getByRole("checkbox", { name: /Alpha Flexi Cap/ }).boundingBox();
       expect(Math.abs((allFundsBox?.x ?? 0) - (firstFundBox?.x ?? Infinity))).toBeLessThanOrEqual(1);
       const pickerBox = await picker.boundingBox();

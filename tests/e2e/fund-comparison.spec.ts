@@ -209,7 +209,7 @@ test.describe("full-history normalized fund comparison", () => {
     await trigger.click();
     const picker = card.getByRole("dialog", { name: "Choose funds to compare" });
     const search = picker.getByRole("searchbox", { name: "Search funds to compare" });
-    const allFunds = picker.getByRole("checkbox", { name: "All funds" });
+    const allFunds = picker.getByRole("checkbox", { name: "All CAS funds" });
     const firstFundCheckbox = picker.getByRole("checkbox", { name: /Alpha Flexi Cap/ });
 
     await expect(allFunds).toBeChecked();
@@ -681,7 +681,7 @@ test.describe("full-history normalized fund comparison", () => {
     await card.scrollIntoViewIfNeeded();
     await expect(card).toHaveAttribute("data-history-state", "loading");
     await card.getByRole("button", { name: "All 4 funds" }).click();
-    await card.getByRole("checkbox", { name: "All funds" }).uncheck();
+    await card.getByRole("checkbox", { name: "All CAS funds" }).uncheck();
     await expect(card).toHaveAttribute("data-selected-funds", "0");
 
     releaseBulk();

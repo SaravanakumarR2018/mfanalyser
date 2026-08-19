@@ -88,10 +88,12 @@ export const makeFundComparisonCasPdf = () => buildPdf([
 ]);
 
 export const comparisonLatestNavText = () => (
-  (Object.values(COMPARISON_SCHEMES) as Array<typeof COMPARISON_SCHEMES[keyof typeof COMPARISON_SCHEMES]>)
+  "Example Mutual Fund\nOpen Ended Schemes ( Equity Scheme - Large Cap Fund )\n"
+  + (Object.values(COMPARISON_SCHEMES) as Array<typeof COMPARISON_SCHEMES[keyof typeof COMPARISON_SCHEMES]>)
     .filter((scheme): scheme is typeof COMPARISON_SCHEMES[ComparisonSchemeKey] => "code" in scheme)
     .map((scheme) => `${scheme.code};${scheme.isin};;${scheme.name};${scheme.latestNav.toFixed(4)};14-Aug-2026`)
-    .join("\n") + "\n"
+    .join("\n")
+  + "\n999999;INF999999999;;Zenith India Large Cap Direct Growth;42.0000;14-Aug-2026\n"
 );
 
 const histories: Record<ComparisonSchemeKey, Array<{ date: string; nav: number }>> = {
