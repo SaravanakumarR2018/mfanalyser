@@ -34,7 +34,12 @@ const parseAmfiDate = (value: string) => {
 export const parseAmfiNavText = (text: string) => {
   const records = new Map<string, NavRecord>();
   for (const line of text.split(/\r?\n/)) {
-    const [schemeCode, primaryIsin, reinvestmentIsin, schemeName, navValue, navDate] = line.split(";");
+    const fields = line.split(";");
+    if (fields.length < 6) continue;
+    const [schemeCode, primaryIsin, reinvestmentIsin] = fields;
+    const schemeName = fields[3];
+    const navValue = fields[fields.length - 2];
+    const navDate = fields[fields.length - 1];
     if (!schemeCode || !schemeName || !navValue || !navDate) continue;
     const nav = Number(navValue);
     const date = parseAmfiDate(navDate);
