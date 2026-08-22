@@ -468,3 +468,81 @@ export function fundComparisonTooltipAt(
       };
     });
 }
+
+export type FundComparisonPointsState = {
+  all: boolean;
+  keys: ReadonlySet<string>;
+};
+
+export type FundComparisonPointsScope = "off" | "all" | "custom";
+
+export function initialFundComparisonPointsState(): FundComparisonPointsState {
+  return { all: false, keys: new Set<string>() };
+}
+
+export function fundComparisonPointsScope(
+  state: FundComparisonPointsState,
+): FundComparisonPointsScope {
+  if (state.all) return "all";
+  return state.keys.size ? "custom" : "off";
+}
+
+export function fundComparisonPointsVisibleForFund(
+  state: FundComparisonPointsState,
+  key: string,
+) {
+  return state.all || state.keys.has(key);
+}
+
+export function toggleAllFundComparisonPoints(
+  state: FundComparisonPointsState,
+): FundComparisonPointsState {
+  if (state.all) return { all: false, keys: new Set<string>() };
+  return { all: true, keys: new Set<string>() };
+}
+
+export function toggleFundComparisonPointsForFund(
+  state: FundComparisonPointsState,
+  key: string,
+  eligibleKeys: ReadonlySet<string>,
+): FundComparisonPointsState {
+  if (state.all) {
+    const remaining = new Set<string>();
+    eligibleKeys.forEach((candidate) => {
+      if (candidate !== key) remaining.add(candidate);
+    });
+    return { all: false, keys: remaining };
+  }
+  const next = new Set(state.keys);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  return { all: false, keys: next };
+}
+
+export function toggleFocusedFundComparisonPoints(
+  state: FundComparisonPointsState,
+  key: string,
+): FundComparisonPointsState {
+  const onlyThisFund = !state.all && state.keys.size === 1 && state.keys.has(key);
+  if (onlyThisFund) {
+    const next = new Set(state.keys);
+    next.delete(key);
+    return { all: false, keys: next };
+  }
+  return { all: false, keys: new Set([key]) };
+}
+
+export function collectFundComparisonInvestmentDates(
+  candidates: FundComparisonCandidate[],
+): Map<string, string[]> {
+  const datesByKey = new Map<string, string[]>();
+  candidates.forEach((candidate) => {
+    const dates = [...new Set(
+      candidate.transactions
+        .filter((transaction) => transaction.amount > 0)
+        .map((transaction) => transaction.date),
+    )].sort();
+    if (dates.length) datesByKey.set(candidate.key, dates);
+  });
+  return datesByKey;
+}

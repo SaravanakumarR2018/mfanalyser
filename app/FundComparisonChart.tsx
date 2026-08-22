@@ -19,12 +19,20 @@ import {
   buildFundComparisonCandidates,
   buildFundComparisonModel,
   buildFundComparisonScale,
+  collectFundComparisonInvestmentDates,
   fundComparisonLineWidth,
+  fundComparisonPointsScope,
+  fundComparisonPointsVisibleForFund,
   fundComparisonTooltipAt,
+  initialFundComparisonPointsState,
   preserveFundComparisonDateRange,
   rebaseFundComparisonModel,
   shouldStartFundComparisonHistoryLoad,
+  toggleAllFundComparisonPoints,
+  toggleFocusedFundComparisonPoints,
+  toggleFundComparisonPointsForFund,
   type FundComparisonCandidate,
+  type FundComparisonPointsState,
 } from "./fund-comparison-service";
 import {
   placeFundComparisonTooltip,
@@ -151,6 +159,14 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     () => candidates.filter((candidate) => Boolean(candidate.schemeCode)),
     [candidates],
   );
+  const investmentDatesByKey = useMemo(
+    () => collectFundComparisonInvestmentDates(candidates),
+    [candidates],
+  );
+  const eligibleKeySet = useMemo(
+    () => new Set(eligible.map((candidate) => candidate.key)),
+    [eligible],
+  );
   const eligibleSignature = useMemo(
     () => `${portfolio.valuationDate}:${eligible.map((candidate) => `${candidate.key}:${candidate.schemeCode}`).join("|")}`,
     [eligible, portfolio.valuationDate],
@@ -170,6 +186,9 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   const [pickerOpen, setPickerOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [focusedFundKey, setFocusedFundKey] = useState<string | null>(null);
+  const [pointsState, setPointsState] = useState<FundComparisonPointsState>(
+    initialFundComparisonPointsState,
+  );
   const [period, setPeriod] = useState<ComparisonPeriod>("all");
   const [range, setRange] = useState<[number, number]>([0, 0]);
   const [verticalRange, setVerticalRange] = useState<IndexRange>([0, VERTICAL_RANGE_MAX]);
@@ -327,6 +346,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     setLoadPhase("queued");
     setLoadProgress({ completed: 0, total: eligible.length });
     setFocusedFundKey(null);
+    setPointsState(initialFundComparisonPointsState());
     setHoverDate(null);
     setHoveredFundKey(null);
     tooltipLayoutRef.current = undefined;
@@ -512,6 +532,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     context.setLineDash([]);
 
     const geometries: DrawnSeries[] = [];
+    let investmentMarkerCount = 0;
     for (const series of visibleModel.series) {
       const geometry = series.points.map((point) => ({
         x: xForDate(point.date),
@@ -540,9 +561,49 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
         context.fill();
       }
 
+      const markerDates = fundComparisonPointsVisibleForFund(pointsState, series.key)
+        ? investmentDatesByKey.get(series.key)
+        : undefined;
+      if (markerDates?.length && geometry.length > 1) {
+        const times = geometry.map((point) => toTime(point.date));
+        const firstMarkerTime = times[0];
+        const lastMarkerTime = times[times.length - 1];
+        context.save();
+        context.globalAlpha = dimmed ? 0.3 : 0.95;
+        context.fillStyle = colorFor(series.key);
+        context.strokeStyle = "#FDFCF7";
+        context.lineWidth = 1;
+        context.lineJoin = "miter";
+        for (const markerDate of markerDates) {
+          const markerTime = toTime(markerDate);
+          if (markerTime < firstMarkerTime || markerTime > lastMarkerTime) continue;
+          let lowIndex = 0;
+          let highIndex = times.length - 1;
+          while (highIndex - lowIndex > 1) {
+            const middle = (lowIndex + highIndex) >> 1;
+            if (times[middle] < markerTime) lowIndex = middle;
+            else highIndex = middle;
+          }
+          const ratio = (markerTime - times[lowIndex]) / Math.max(1, times[highIndex] - times[lowIndex]);
+          const markerX = geometry[lowIndex].x + ratio * (geometry[highIndex].x - geometry[lowIndex].x);
+          const markerY = geometry[lowIndex].y + ratio * (geometry[highIndex].y - geometry[lowIndex].y);
+          context.beginPath();
+          context.moveTo(markerX, markerY - 3.4);
+          context.lineTo(markerX + 3.4, markerY);
+          context.lineTo(markerX, markerY + 3.4);
+          context.lineTo(markerX - 3.4, markerY);
+          context.closePath();
+          context.fill();
+          context.stroke();
+          investmentMarkerCount += 1;
+        }
+        context.restore();
+      }
+
       context.globalAlpha = 1;
     }
     drawnSeriesRef.current = geometries;
+    canvas.dataset.investmentMarkers = String(investmentMarkerCount);
 
     const labelCount = width < 520 ? 3 : 5;
     context.font = "9px Arial, sans-serif";
@@ -580,7 +641,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
         context.stroke();
       }
     }
-  }, [activeFocusedFundKey, axisTicks, colorFor, emphasizedFundKey, hoverDate, hoveredFundKey, verticalScale, visibleDates, visibleEnd, visibleModel, visibleStart]);
+  }, [activeFocusedFundKey, axisTicks, colorFor, emphasizedFundKey, hoverDate, hoveredFundKey, investmentDatesByKey, pointsState, verticalScale, visibleDates, visibleEnd, visibleModel, visibleStart]);
 
   useEffect(() => {
     draw();
@@ -594,6 +655,18 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     setHoveredFundKey(null);
     tooltipLayoutRef.current = undefined;
     setTooltipLayout(undefined);
+  }, []);
+
+  const onToggleAllPoints = useCallback(() => {
+    setPointsState((current) => toggleAllFundComparisonPoints(current));
+  }, []);
+
+  const onToggleFundPoints = useCallback((key: string) => {
+    setPointsState((current) => toggleFundComparisonPointsForFund(current, key, eligibleKeySet));
+  }, [eligibleKeySet]);
+
+  const resetInvestmentPoints = useCallback(() => {
+    setPointsState(initialFundComparisonPointsState());
   }, []);
 
   const inspectFundAtClientX = useCallback((fundKey: string, clientX: number, keyboard = false) => {
@@ -692,8 +765,11 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     }
     setFocusedFundKey(nearestKey);
     if (nearestKey) inspectFundAtClientX(nearestKey, event.clientX);
-    else clearHover();
-  }, [clearHover, inspectFundAtClientX]);
+    else {
+      clearHover();
+      resetInvestmentPoints();
+    }
+  }, [clearHover, inspectFundAtClientX, resetInvestmentPoints]);
 
   const onCanvasKeyDown = useCallback((event: ReactKeyboardEvent<HTMLCanvasElement>) => {
     if (event.key === "Escape") {
@@ -745,6 +821,16 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     });
   };
 
+  const onCanvasContextMenu = useCallback((event: ReactMouseEvent<HTMLCanvasElement>) => {
+    event.preventDefault();
+    const focusedKey = activeFocusedFundKey;
+    if (!focusedKey) {
+      setPointsState((current) => toggleAllFundComparisonPoints(current));
+      return;
+    }
+    setPointsState((current) => toggleFocusedFundComparisonPoints(current, focusedKey));
+  }, [activeFocusedFundKey]);
+
   const tooltipRow = hoverDate && hoveredFundKey
     ? fundComparisonTooltipAt(visibleModel, hoverDate, hoveredFundKey)[0]
     : undefined;
@@ -764,30 +850,51 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   const renderOptions = (items: FundComparisonCandidate[], label: string) => items.length ? (
     <div role="group" aria-label={label}>
       <span className="fund-comparison-group-label">{label}</span>
-      {items.map((candidate) => (
-        <label className={`fund-comparison-option${candidate.schemeCode ? "" : " unavailable"}`} key={candidate.key}>
-          <input
-            type="checkbox"
-            checked={selectedKeys.has(candidate.key)}
-            disabled={!candidate.schemeCode}
-            onChange={() => toggleCandidate(candidate.key)}
-          />
-          <i aria-hidden="true" style={{ background: colorFor(candidate.key) }} />
-          <span>
-            <strong title={candidate.name}>{candidate.name}</strong>
-            <small>{candidate.category} · {candidate.isin}</small>
-          </span>
-          <em>{!candidate.schemeCode
-            ? "Published history unavailable"
-            : failedKeys.has(candidate.key)
-              ? "Retry needed"
-              : candidate.active && candidate.closed
-                ? "Current · previously closed"
-                : candidate.closed
-                  ? "Closed"
-                  : "Current"}</em>
-        </label>
-      ))}
+      {items.map((candidate) => {
+        const pointsVisible = fundComparisonPointsVisibleForFund(pointsState, candidate.key);
+        return (
+          <div
+            className={`fund-comparison-option${candidate.schemeCode ? "" : " unavailable"}`}
+            key={candidate.key}
+            data-points-visible={pointsVisible ? "true" : "false"}
+          >
+            <label>
+              <input
+                type="checkbox"
+                checked={selectedKeys.has(candidate.key)}
+                disabled={!candidate.schemeCode}
+                onChange={() => toggleCandidate(candidate.key)}
+              />
+              <i aria-hidden="true" style={{ background: colorFor(candidate.key) }} />
+              <span>
+                <strong title={candidate.name}>{candidate.name}</strong>
+                <small>{candidate.category} · {candidate.isin}</small>
+              </span>
+              <em>{!candidate.schemeCode
+                ? "Published history unavailable"
+                : failedKeys.has(candidate.key)
+                  ? "Retry needed"
+                  : candidate.active && candidate.closed
+                    ? "Current · previously closed"
+                    : candidate.closed
+                      ? "Closed"
+                      : "Current"}</em>
+            </label>
+            {candidate.schemeCode && (
+              <button
+                type="button"
+                className={`chart-series-toggle fund-comparison-points-fund${pointsVisible ? " active" : ""}`}
+                aria-pressed={pointsVisible}
+                aria-label={`${pointsVisible ? "Hide" : "Show"} investment points for ${candidate.name}`}
+                title={`${pointsVisible ? "Hide" : "Show"} investment points for ${candidate.name}`}
+                onClick={() => onToggleFundPoints(candidate.key)}
+              >
+                <em aria-hidden="true"><i /></em>
+              </button>
+            )}
+          </div>
+        );
+      })}
     </div>
   ) : null;
 
@@ -801,6 +908,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
       data-loaded-funds={historyByKey.size}
       data-failed-funds={failedKeys.size}
       data-history-state={historyState}
+      data-investment-points={fundComparisonPointsScope(pointsState)}
     >
       <div className="fund-comparison-head">
         <div><p className="eyebrow">Every fund on equal footing</p><h2 id={headingId}>Growth of ₹100</h2></div>
@@ -899,6 +1007,18 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                     />
                     <span>All funds</span>
                   </label>
+                  <button
+                    type="button"
+                    className={`chart-series-toggle fund-comparison-points-master${pointsState.all ? " active" : ""}`}
+                    aria-pressed={pointsState.all}
+                    aria-label={`${pointsState.all ? "Hide" : "Show"} investment points for all funds`}
+                    title={`${pointsState.all ? "Hide" : "Show"} investment points for all funds`}
+                    disabled={!eligible.length}
+                    onClick={onToggleAllPoints}
+                  >
+                    <b>Investment points</b>
+                    <em aria-hidden="true"><i /></em>
+                  </button>
                   <span aria-live="polite">{filteredCandidates.length} {filteredCandidates.length === 1 ? "fund" : "funds"} shown</span>
                 </div>
               </div>
@@ -968,6 +1088,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                 data-tooltip-fund-count={tooltipRow ? 1 : 0}
                 onPointerMove={onCanvasPointerMove}
                 onClick={onCanvasClick}
+                onContextMenu={onCanvasContextMenu}
                 onKeyDown={onCanvasKeyDown}
               />
               {hoverDate && tooltipLayout && tooltipRow?.nav !== undefined && tooltipRow.indexedValue !== undefined && (
