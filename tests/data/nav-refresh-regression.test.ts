@@ -32,6 +32,15 @@ const amfiLine = (
   reinvestmentIsin = "",
 ) => `${code};${isin};${reinvestmentIsin};${name};${nav};${date}`;
 
+const amfiLineWithPlanOption = (
+  code: string,
+  isin: string,
+  nav: number,
+  date: string,
+  name = `Official ${isin}`,
+  reinvestmentIsin = "-",
+) => `${code};${isin};${reinvestmentIsin};${name};Direct Plan;Growth;${nav.toFixed(4)};${date}`;
+
 test("AMFI text parsing accepts both ISIN fields, rejects unsafe rows, and keeps the newest duplicate", () => {
   const records = parseAmfiNavText([
     "Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Net Asset Value;Date",
@@ -53,6 +62,26 @@ test("AMFI text parsing accepts both ISIN fields, rejects unsafe rows, and keeps
     schemeName: "Fund A",
   });
   assert.equal(records.get("INF000A00002")?.nav, 10);
+});
+
+test("AMFI text parsing reads NAV and date from the end of rows that carry plan and option columns", () => {
+  const records = parseAmfiNavText([
+    "Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Plan;Option;Net Asset Value;Date",
+    amfiLineWithPlanOption("2001", "INF000B00001", 15.5, "21-Aug-2026", "Fund B", "INF000B00002"),
+    amfiLineWithPlanOption("bad", "INF000B00003", Number.NaN, "21-Aug-2026", "Fund C"),
+    amfiLineWithPlanOption("bad", "INF000B00004", 12, "not-a-date", "Fund D"),
+    ";INF000B00005;-;;;;;",
+  ].join("\n"));
+
+  assert.equal(records.size, 2);
+  assert.deepEqual(records.get("INF000B00001"), {
+    schemeCode: "2001",
+    isin: "INF000B00001",
+    nav: 15.5,
+    date: "2026-08-21",
+    schemeName: "Fund B",
+  });
+  assert.equal(records.get("INF000B00002")?.nav, 15.5);
 });
 
 test("the demo portfolio is never sent to network refresh and is returned by identity", async () => {

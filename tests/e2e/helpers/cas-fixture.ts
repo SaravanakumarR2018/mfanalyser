@@ -120,7 +120,7 @@ export const latestNavText = ({
   nav = 15,
   date = "14-Aug-2026",
 }: { nav?: number; date?: string } = {}) =>
-  `${TEST_SCHEME_CODE};${TEST_ISIN};;Testhouse Flexi Cap Direct Growth;${nav.toFixed(4)};${date}\n`;
+  `${TEST_SCHEME_CODE};${TEST_ISIN};;Testhouse Flexi Cap Direct Growth;Direct Plan;Growth;${nav.toFixed(4)};${date}\n`;
 
 export const dailyHistoryPayload = ({
   finalNav = 15,
