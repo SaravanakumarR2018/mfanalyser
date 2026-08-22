@@ -111,13 +111,13 @@ Non-negotiable product promises:
 
 - `app/api/nav/route.ts` proxies the latest official AMFI `NAVAll.txt`, returns
   safe 502 responses, and publishes a 15-minute cache contract.
-- Historical NAV requests go directly from the browser to the CORS-enabled
-  `api.mfapi.in` mirror. `app/nav-service.ts` validates the returned scheme
-  identity, dates, and positive NAV observations before using them.
-- The latest-NAV route and direct history requests must remain read-only. Never include CAS text, PDF bytes,
+- `app/api/nav-history/route.ts` validates scheme/date query parameters,
+  requests the mfapi.in mirror, verifies the returned scheme identity, filters
+  observations, and publishes explicit cache/error contracts.
+- These routes must remain read-only. Never include CAS text, PDF bytes,
   passwords, folio data, or portfolio values in their URLs, bodies, headers, or
   logs.
-- `vite.config.ts` configures vinext, the local latest-NAV proxy rewrite, Cloudflare
+- `vite.config.ts` configures vinext, local NAV proxy rewrites, Cloudflare
   bindings, and polling under the Codex macOS sandbox.
 - `worker/index.ts` is the Cloudflare entry point and image-optimization path.
 - `build/sites-vite-plugin.ts` packages `.openai/hosting.json` and migrations in
@@ -223,7 +223,7 @@ Preserve and test every applicable transition:
 - Never print CAS text, raw PDF bytes, passwords, unmasked folio numbers, or
   personal financial values to the console, server logs, test reports, URLs, or
   exceptions.
-- Keep latest-NAV proxy and direct-history errors safe and non-sensitive. Validate upstream status,
+- Keep NAV proxy errors safe and non-sensitive. Validate upstream status,
   identity, shape, dates, and positive finite NAV values before use.
 - Preserve abort and timeout behavior for network work. New async flows need a
   sequence/abort guard so stale results cannot replace current state.
@@ -305,13 +305,13 @@ This section is mandatory for every agent making code changes.
 
 The current full gate contains:
 
-- 106 passing data tests;
+- 113 passing data tests;
 - aggregate application coverage above the mandatory 97% lines, 80% branches,
   and 90% functions thresholds;
 - 2 passing rendered-HTML tests after a successful production build;
-- 288 Playwright executions: 265 ordinary passes, 12 expected-failure
+- 284 Playwright executions: 261 ordinary passes, 12 expected-failure
   executions, and 11 intentional project skips, reported by Playwright as
-  `277 passed, 11 skipped` with zero unexpected failures.
+  `273 passed, 11 skipped` with zero unexpected failures.
 
 Test counts may grow as behavior grows. A smaller count is suspicious and must
 be explained. The 12 expected-failure executions are three documented product

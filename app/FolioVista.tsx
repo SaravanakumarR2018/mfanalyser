@@ -5,7 +5,6 @@ import PortfolioChart from "./PortfolioChart";
 import NavActivityChart from "./NavActivityChart";
 import FundStackChart from "./FundStackChart";
 import FundComparisonChart from "./FundComparisonChart";
-import IndiaInflationChart from "./IndiaInflationChart";
 import DragScrollRegion from "./DragScrollRegion";
 import InteractiveDonut from "./InteractiveDonut";
 import {
@@ -984,8 +983,6 @@ function Dashboard({
         <FundStackChart portfolio={portfolio} />
 
         <FundComparisonChart portfolio={portfolio} />
-
-        <IndiaInflationChart />
 
         <footer className="dashboard-footer"><Brand /><p>Your statement was processed locally and is not stored by FolioVista.</p><span>For tracking only · Not investment advice</span></footer>
       </div>
