@@ -162,15 +162,15 @@ export async function installFundComparisonMocks(page: Page, onHistory?: (
     contentType: "text/plain; charset=utf-8",
     body: comparisonLatestNavText(),
   }));
-  await page.route("https://api.mfapi.in/mf/**", async (route) => {
+  await page.route("**/api/nav-history?**", async (route) => {
     const url = new URL(route.request().url());
-    const key = comparisonKeyForCode(url.pathname.split("/").at(-1) ?? "");
+    const key = comparisonKeyForCode(url.searchParams.get("sd_id") ?? "");
     if (!key) {
       await route.fulfill({ status: 400, contentType: "application/json", body: "{}" });
       return;
     }
     if (onHistory) {
-      await onHistory(route, key, url.searchParams.get("startDate") === "1900-01-01");
+      await onHistory(route, key, url.searchParams.get("from_date") === "1900-01-01");
       return;
     }
     await fulfillComparisonHistory(route, key);
