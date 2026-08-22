@@ -89,7 +89,7 @@ test.describe("independent critical-path verification", () => {
       await new Promise((resolve) => setTimeout(resolve, requestOrdinal === 1 ? 900 : 50));
       await route.fulfill({ status: 200, contentType: "text/plain", body: latestNavText({ nav: requestOrdinal === 1 ? 15 : 16 }) });
     });
-    await page.route("https://api.mfapi.in/mf/**", async (route) => {
+    await page.route("**/api/nav-history?**", async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 600));
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(dailyHistoryPayload({ finalNav: 16 })) });
     });

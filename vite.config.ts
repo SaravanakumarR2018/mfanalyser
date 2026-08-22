@@ -49,6 +49,19 @@ export default defineConfig(async () => {
         ? { watch: { useFsEvents: false, usePolling: true } }
         : {}),
       proxy: {
+        "/api/nav-history": {
+          target: "https://api.mfapi.in",
+          changeOrigin: true,
+          rewrite: (path) => {
+            const request = new URL(path, "http://localhost");
+            const schemeCode = request.searchParams.get("sd_id") ?? "";
+            const historyParams = new URLSearchParams({
+              startDate: request.searchParams.get("from_date") ?? "",
+              endDate: request.searchParams.get("to_date") ?? "",
+            });
+            return `/mf/${encodeURIComponent(schemeCode)}?${historyParams}`;
+          },
+        },
         "/api/nav": {
           target: "https://portal.amfiindia.com",
           changeOrigin: true,

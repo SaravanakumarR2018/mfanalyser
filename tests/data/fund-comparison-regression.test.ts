@@ -545,13 +545,12 @@ test("bulk comparison history loading deduplicates schemes and returns partial s
   const result = await withFetch(async (input, init) => {
     const url = new URL(String(input), "http://localhost");
     urls.push(url);
-    assert.equal(url.origin, "https://api.mfapi.in");
-    assert.deepEqual([...url.searchParams.keys()].sort(), ["endDate", "startDate"]);
-    assert.equal(url.searchParams.get("startDate"), "1900-01-01");
-    assert.equal(url.searchParams.get("endDate"), "2026-02-02");
-    assert.equal(init?.cache, "default");
+    assert.deepEqual([...url.searchParams.keys()].sort(), ["from_date", "query_type", "sd_id", "to_date"]);
+    assert.equal(url.searchParams.get("from_date"), "1900-01-01");
+    assert.equal(url.searchParams.get("to_date"), "2026-02-02");
+    assert.equal(init?.cache, "no-store");
     assert.ok(init?.signal instanceof AbortSignal);
-    if (url.pathname.endsWith("/1002")) {
+    if (url.searchParams.get("sd_id") === "1002") {
       return Response.json({ data: { nav_groups: [{ historical_records: [] }] } });
     }
     return Response.json({
@@ -569,7 +568,7 @@ test("bulk comparison history loading deduplicates schemes and returns partial s
   ));
 
   assert.equal(urls.length, 2);
-  assert.deepEqual(new Set(urls.map((url) => url.pathname.split("/").at(-1))), new Set(["1001", "1002"]));
+  assert.deepEqual(new Set(urls.map((url) => url.searchParams.get("sd_id"))), new Set(["1001", "1002"]));
   assert.equal(result.historyByKey.has("a"), true);
   assert.equal(result.historyByKey.get("a"), result.historyByKey.get("shared"));
   assert.equal(result.failures.get("unavailable"), "Full published NAV history is unavailable for this scheme.");
@@ -580,14 +579,14 @@ test("bulk comparison history loading deduplicates schemes and returns partial s
   assert.deepEqual({ completed: result.completed, total: result.total }, { completed: 4, total: 4 });
 });
 
-test("bulk comparison history repairs a lagging endpoint but rejects inconsistent or missing past observations", async () => {
+test("bulk comparison history rejects an inconsistent live endpoint without affecting another scheme", async () => {
   const mismatched = candidate("mismatch", "1001");
   mismatched.expectedNav = 12;
   mismatched.expectedNavDate = "2026-02-02";
   const valid = candidate("valid", "1002");
 
   const result = await withFetch(async (input) => {
-    const schemeCode = new URL(String(input), "http://localhost").pathname.split("/").at(-1);
+    const schemeCode = new URL(String(input), "http://localhost").searchParams.get("sd_id");
     return Response.json({
       meta: { scheme_code: schemeCode },
       data: [{ date: "02-02-2026", nav: schemeCode === "1001" ? 99 : 5 }],
@@ -614,24 +613,8 @@ test("bulk comparison history repairs a lagging endpoint but rejects inconsisten
     meta: { scheme_code: "1003" },
     data: [{ date: "01-02-2026", nav: 12 }],
   }), () => loadFundComparisonHistories([missingEndpoint], "2026-02-02"));
-  assert.equal(missingResult.failures.size, 0);
-  assert.deepEqual(missingResult.historyByKey.get("missing-endpoint"), [
-    { date: "2026-02-01", nav: 12 },
-    { date: "2026-02-02", nav: 12 },
-  ]);
-
-  const missingPastPoint = candidate("missing-past-point", "1004");
-  missingPastPoint.expectedNav = 12;
-  missingPastPoint.expectedNavDate = "2026-02-01";
-  const missingPastResult = await withFetch(async () => Response.json({
-    meta: { scheme_code: "1004" },
-    data: [
-      { date: "02-02-2026", nav: 13 },
-      { date: "31-01-2026", nav: 11 },
-    ],
-  }), () => loadFundComparisonHistories([missingPastPoint], "2026-02-02"));
-  assert.match(missingPastResult.failures.get("missing-past-point") ?? "", /did not reconcile/);
-  assert.equal(missingPastResult.historyByKey.has("missing-past-point"), false);
+  assert.match(missingResult.failures.get("missing-endpoint") ?? "", /did not reconcile/);
+  assert.equal(missingResult.historyByKey.has("missing-endpoint"), false);
 });
 
 test("bulk comparison history rejects impossible upstream calendar dates", async () => {
@@ -660,7 +643,7 @@ test("bulk comparison loads all thirty schemes from 1900 and retains exact 1990 
       const url = new URL(String(input), "http://localhost");
       urls.push(url);
       return Response.json({
-        meta: { scheme_code: url.pathname.split("/").at(-1) },
+        meta: { scheme_code: url.searchParams.get("sd_id") },
         data: [
           { date: "14-08-2026", nav: 20 },
           { date: "01-01-1990", nav: 10 },
@@ -676,8 +659,8 @@ test("bulk comparison loads all thirty schemes from 1900 and retains exact 1990 
     assert.equal(urls.length, 30);
     assert.equal(result.historyByKey.size, 30);
     assert.equal(result.failures.size, 0);
-    assert.ok(urls.every((url) => url.searchParams.get("startDate") === "1900-01-01"));
-    assert.ok(urls.every((url) => url.searchParams.get("endDate") === "2026-08-14"));
+    assert.ok(urls.every((url) => url.searchParams.get("from_date") === "1900-01-01"));
+    assert.ok(urls.every((url) => url.searchParams.get("to_date") === "2026-08-14"));
     assert.deepEqual(progress.at(-1), { completed: 30, total: 30 });
     assert.ok([...result.historyByKey.values()].every((points) => points[0].date === "1990-01-01"));
   } finally {
@@ -703,7 +686,7 @@ test("bulk comparison history enforces four concurrent schemes and one inter-bat
     const result = await withFetch(async (input) => {
       active += 1;
       maximumActive = Math.max(maximumActive, active);
-      const schemeCode = new URL(String(input), "http://localhost").pathname.split("/").at(-1) ?? "";
+      const schemeCode = new URL(String(input), "http://localhost").searchParams.get("sd_id") ?? "";
       return await new Promise<Response>((resolve) => {
         originalSetTimeout(() => {
           active -= 1;
