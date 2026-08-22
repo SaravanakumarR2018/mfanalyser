@@ -718,4 +718,74 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(card.locator('canvas[role="img"]')).toHaveAttribute("data-visible-funds", "4");
     await expect(page.locator(".summary-exact-value")).toHaveText(portfolioValueBefore ?? "");
   });
+
+  test("investment points follow picker switches and canvas clicks", async ({ page }) => {
+    const card = await openComparisonDashboard(page);
+    await waitForPreloadedComparison(card);
+    await expect(card).toHaveAttribute("data-investment-points", "off");
+
+    const canvas = card.locator('canvas[role="img"]');
+    await expect(canvas).toHaveAttribute("data-investment-markers", "0");
+    const quietSpot = { x: 90, y: 90 } as const;
+
+    await card.locator(".fund-comparison-picker-trigger").click();
+    const picker = card.getByRole("dialog", { name: "Choose funds to compare" });
+    await expect(picker).toBeVisible();
+    const masterSwitch = picker.getByRole("button", { name: /investment points for all funds/i });
+    await expect(masterSwitch).toHaveAttribute("aria-pressed", "false");
+
+    await masterSwitch.click();
+    await expect(masterSwitch).toHaveAttribute("aria-pressed", "true");
+    await expect(card).toHaveAttribute("data-investment-points", "all");
+    await expect(canvas).toHaveAttribute("data-investment-markers", "5");
+
+    const gammaSwitch = picker.getByRole("button", { name: /investment points for Gamma Small Cap/i });
+    await expect(gammaSwitch).toHaveAttribute("aria-pressed", "true");
+    await gammaSwitch.click();
+    await expect(card).toHaveAttribute("data-investment-points", "custom");
+    await expect(canvas).toHaveAttribute("data-investment-markers", "4");
+
+    await masterSwitch.click();
+    await expect(masterSwitch).toHaveAttribute("aria-pressed", "true");
+    await expect(card).toHaveAttribute("data-investment-points", "all");
+    await expect(canvas).toHaveAttribute("data-investment-markers", "5");
+
+    await masterSwitch.click();
+    await expect(masterSwitch).toHaveAttribute("aria-pressed", "false");
+    await expect(canvas).toHaveAttribute("data-investment-markers", "0");
+
+    await gammaSwitch.click();
+    await expect(gammaSwitch).toHaveAttribute("aria-pressed", "true");
+    await expect(canvas).toHaveAttribute("data-investment-markers", "1");
+
+    await page.keyboard.press("Escape");
+    await expect(picker).toBeHidden();
+
+    await canvas.click({ button: "right", position: quietSpot });
+    await expect(card).toHaveAttribute("data-investment-points", "all");
+    await expect(canvas).toHaveAttribute("data-investment-markers", "5");
+
+    await canvas.click({ position: quietSpot });
+    await expect(card).toHaveAttribute("data-investment-points", "off");
+    await expect(canvas).toHaveAttribute("data-investment-markers", "0");
+    await expect(canvas).toHaveAttribute("data-focused-fund", "");
+
+    await canvas.focus();
+    await canvas.press("ArrowDown");
+    const focusedKey = await canvas.getAttribute("data-focused-fund");
+    expect(focusedKey).toBeTruthy();
+
+    await canvas.click({ button: "right", position: quietSpot });
+    await expect(card).toHaveAttribute("data-investment-points", "custom");
+    await expect(canvas).toHaveAttribute("data-investment-markers", focusedKey === "scheme:100001" ? "2" : "1");
+    await expect(canvas).toHaveAttribute("data-focused-fund", focusedKey ?? "");
+
+    await canvas.click({ button: "right", position: quietSpot });
+    await expect(canvas).toHaveAttribute("data-investment-markers", "0");
+    await expect(canvas).toHaveAttribute("data-focused-fund", focusedKey ?? "");
+
+    await canvas.click({ position: quietSpot });
+    await expect(card).toHaveAttribute("data-investment-points", "off");
+    await expect(canvas).toHaveAttribute("data-focused-fund", "");
+  });
 });
