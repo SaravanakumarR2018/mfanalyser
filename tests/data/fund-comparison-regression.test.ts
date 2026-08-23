@@ -7,7 +7,7 @@ import {
   buildFundComparisonCandidates,
   buildFundComparisonModel,
   buildFundComparisonScale,
-  collectFundComparisonInvestmentDates,
+  collectFundComparisonInvestments,
   fundComparisonLineWidth,
   fundComparisonPointsScope,
   fundComparisonPointsVisibleForFund,
@@ -823,7 +823,7 @@ test("focused-fund right-click shows only that fund or hides it without dropping
   assert.equal(fundComparisonPointsScope(state), "all");
 });
 
-test("investment dates collect positive cash flows per fund without duplicates", () => {
+test("investment points collect positive cash flows per fund with same-day totals", () => {
   const funds = [
     candidate("a", "100001", [
       transaction("2020-01-02", 7000, 700, 10),
@@ -837,8 +837,26 @@ test("investment dates collect positive cash flows per fund without duplicates",
       transaction("2022-01-03", 4000, 800, 5),
     ]),
   ];
-  const datesByKey = collectFundComparisonInvestmentDates(funds);
-  assert.deepEqual(datesByKey.get("a"), ["2020-01-02", "2023-06-16"]);
-  assert.equal(datesByKey.has("b"), false);
-  assert.deepEqual(datesByKey.get("c"), ["2022-01-03"]);
+  const investmentsByKey = collectFundComparisonInvestments(funds);
+  assert.deepEqual(investmentsByKey.get("a"), [
+    { date: "2020-01-02", amount: 7000, label: "Purchase" },
+    { date: "2023-06-16", amount: 3000, label: "Purchase" },
+  ]);
+  assert.equal(investmentsByKey.has("b"), false);
+  assert.deepEqual(investmentsByKey.get("c"), [
+    { date: "2022-01-03", amount: 4000, label: "Purchase" },
+  ]);
+});
+
+test("same-day purchases combine into one investment point with their combined amount", () => {
+  const funds = [
+    candidate("a", "100001", [
+      transaction("2020-03-05", 2000, 100, 20),
+      transaction("2020-03-05", 3000, 150, 20),
+    ]),
+  ];
+  const investmentsByKey = collectFundComparisonInvestments(funds);
+  assert.deepEqual(investmentsByKey.get("a"), [
+    { date: "2020-03-05", amount: 5000, label: "Purchase" },
+  ]);
 });

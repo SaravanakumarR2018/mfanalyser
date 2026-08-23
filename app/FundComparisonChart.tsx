@@ -19,7 +19,7 @@ import {
   buildFundComparisonCandidates,
   buildFundComparisonModel,
   buildFundComparisonScale,
-  collectFundComparisonInvestmentDates,
+  collectFundComparisonInvestments,
   fundComparisonLineWidth,
   fundComparisonPointsScope,
   fundComparisonPointsVisibleForFund,
@@ -52,6 +52,24 @@ type LoadPhase = "queued" | "loading" | "ready" | "partial" | "error";
 type DrawnSeries = {
   key: string;
   points: Array<{ x: number; y: number; date: string }>;
+};
+
+type DrawnInvestmentMarker = {
+  key: string;
+  x: number;
+  y: number;
+  date: string;
+  amount: number;
+  label: string;
+};
+
+type InvestmentMarkerTip = {
+  key: string;
+  left: number;
+  top: number;
+  date: string;
+  amount: number;
+  label: string;
 };
 
 type PlotGeometry = {
@@ -151,6 +169,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   const requestSequenceRef = useRef(0);
   const loadTriggeredRef = useRef(false);
   const drawnSeriesRef = useRef<DrawnSeries[]>([]);
+  const drawnMarkersRef = useRef<DrawnInvestmentMarker[]>([]);
   const plotGeometryRef = useRef<PlotGeometry | null>(null);
   const tooltipLayoutRef = useRef<FundComparisonTooltipLayout>();
 
@@ -159,8 +178,8 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     () => candidates.filter((candidate) => Boolean(candidate.schemeCode)),
     [candidates],
   );
-  const investmentDatesByKey = useMemo(
-    () => collectFundComparisonInvestmentDates(candidates),
+  const investmentsByKey = useMemo(
+    () => collectFundComparisonInvestments(candidates),
     [candidates],
   );
   const eligibleKeySet = useMemo(
@@ -194,6 +213,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   const [verticalRange, setVerticalRange] = useState<IndexRange>([0, VERTICAL_RANGE_MAX]);
   const [hoverDate, setHoverDate] = useState<string | null>(null);
   const [hoveredFundKey, setHoveredFundKey] = useState<string | null>(null);
+  const [markerTip, setMarkerTip] = useState<InvestmentMarkerTip | undefined>();
   const [tooltipLayout, setTooltipLayout] = useState<FundComparisonTooltipLayout>();
   const [keyboardAnnouncement, setKeyboardAnnouncement] = useState("");
   useEffect(() => {
@@ -347,6 +367,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     setLoadProgress({ completed: 0, total: eligible.length });
     setFocusedFundKey(null);
     setPointsState(initialFundComparisonPointsState());
+    setMarkerTip(undefined);
     setHoverDate(null);
     setHoveredFundKey(null);
     tooltipLayoutRef.current = undefined;
@@ -443,6 +464,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     const shell = shellRef.current;
     if (!canvas || !shell || !visibleStart || !visibleEnd || !visibleModel.series.length) {
       drawnSeriesRef.current = [];
+      drawnMarkersRef.current = [];
       plotGeometryRef.current = null;
       return;
     }
@@ -532,6 +554,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     context.setLineDash([]);
 
     const geometries: DrawnSeries[] = [];
+    const drawnMarkers: DrawnInvestmentMarker[] = [];
     let investmentMarkerCount = 0;
     for (const series of visibleModel.series) {
       const geometry = series.points.map((point) => ({
@@ -561,21 +584,27 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
         context.fill();
       }
 
-      const markerDates = fundComparisonPointsVisibleForFund(pointsState, series.key)
-        ? investmentDatesByKey.get(series.key)
+      const seriesInvestments = fundComparisonPointsVisibleForFund(pointsState, series.key)
+        ? investmentsByKey.get(series.key)
         : undefined;
-      if (markerDates?.length && geometry.length > 1) {
+      if (seriesInvestments?.length && geometry.length > 1) {
         const times = geometry.map((point) => toTime(point.date));
         const firstMarkerTime = times[0];
         const lastMarkerTime = times[times.length - 1];
+        const isEmphasized = emphasizedFundKey === series.key;
+        const markerRadius = isEmphasized ? 4.6 : 3.2;
         context.save();
-        context.globalAlpha = dimmed ? 0.3 : 0.95;
+        context.globalAlpha = dimmed ? 0.25 : isEmphasized ? 1 : 0.92;
         context.fillStyle = colorFor(series.key);
         context.strokeStyle = "#FDFCF7";
-        context.lineWidth = 1;
+        context.lineWidth = isEmphasized ? 1.6 : 1;
         context.lineJoin = "miter";
-        for (const markerDate of markerDates) {
-          const markerTime = toTime(markerDate);
+        if (isEmphasized && !dimmed) {
+          context.shadowColor = colorFor(series.key);
+          context.shadowBlur = 7;
+        }
+        for (const investment of seriesInvestments) {
+          const markerTime = toTime(investment.date);
           if (markerTime < firstMarkerTime || markerTime > lastMarkerTime) continue;
           let lowIndex = 0;
           let highIndex = times.length - 1;
@@ -588,13 +617,21 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
           const markerX = geometry[lowIndex].x + ratio * (geometry[highIndex].x - geometry[lowIndex].x);
           const markerY = geometry[lowIndex].y + ratio * (geometry[highIndex].y - geometry[lowIndex].y);
           context.beginPath();
-          context.moveTo(markerX, markerY - 3.4);
-          context.lineTo(markerX + 3.4, markerY);
-          context.lineTo(markerX, markerY + 3.4);
-          context.lineTo(markerX - 3.4, markerY);
+          context.moveTo(markerX, markerY - markerRadius);
+          context.lineTo(markerX + markerRadius, markerY);
+          context.lineTo(markerX, markerY + markerRadius);
+          context.lineTo(markerX - markerRadius, markerY);
           context.closePath();
           context.fill();
           context.stroke();
+          drawnMarkers.push({
+            key: series.key,
+            x: markerX,
+            y: markerY,
+            date: investment.date,
+            amount: investment.amount,
+            label: investment.label,
+          });
           investmentMarkerCount += 1;
         }
         context.restore();
@@ -603,7 +640,11 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
       context.globalAlpha = 1;
     }
     drawnSeriesRef.current = geometries;
+    drawnMarkersRef.current = drawnMarkers;
     canvas.dataset.investmentMarkers = String(investmentMarkerCount);
+    canvas.dataset.investmentMarkerPoints = drawnMarkers
+      .map((marker) => `${marker.key}:${marker.x.toFixed(1)},${marker.y.toFixed(1)}`)
+      .join(";");
 
     const labelCount = width < 520 ? 3 : 5;
     context.font = "9px Arial, sans-serif";
@@ -641,7 +682,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
         context.stroke();
       }
     }
-  }, [activeFocusedFundKey, axisTicks, colorFor, emphasizedFundKey, hoverDate, hoveredFundKey, investmentDatesByKey, pointsState, verticalScale, visibleDates, visibleEnd, visibleModel, visibleStart]);
+  }, [activeFocusedFundKey, axisTicks, colorFor, emphasizedFundKey, hoverDate, hoveredFundKey, investmentsByKey, pointsState, verticalScale, visibleDates, visibleEnd, visibleModel, visibleStart]);
 
   useEffect(() => {
     draw();
@@ -653,6 +694,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   const clearHover = useCallback(() => {
     setHoverDate(null);
     setHoveredFundKey(null);
+    setMarkerTip(undefined);
     tooltipLayoutRef.current = undefined;
     setTooltipLayout(undefined);
   }, []);
@@ -709,6 +751,33 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     }
   }, [visibleModel]);
 
+  const resolveMarkerTip = useCallback((clientX: number, clientY: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !drawnMarkersRef.current.length) return undefined;
+    const bounds = canvas.getBoundingClientRect();
+    const x = clientX - bounds.left;
+    const y = clientY - bounds.top;
+    let nearest: DrawnInvestmentMarker | undefined;
+    let nearestDistance = 9;
+    for (const marker of drawnMarkersRef.current) {
+      if (emphasizedFundKey && marker.key !== emphasizedFundKey) continue;
+      const distance = Math.hypot(marker.x - x, marker.y - y);
+      if (distance <= nearestDistance) {
+        nearest = marker;
+        nearestDistance = distance;
+      }
+    }
+    if (!nearest) return undefined;
+    return {
+      key: nearest.key,
+      left: Math.max(92, Math.min(bounds.width - 92, nearest.x)),
+      top: nearest.y,
+      date: nearest.date,
+      amount: nearest.amount,
+      label: nearest.label,
+    };
+  }, [emphasizedFundKey]);
+
   const onCanvasPointerMove = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - bounds.left;
@@ -732,6 +801,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
         return;
       }
       inspectFundAtClientX(focused.key, event.clientX);
+      setMarkerTip(resolveMarkerTip(event.clientX, event.clientY));
       return;
     }
     let nearest: DrawnSeries | undefined;
@@ -748,7 +818,8 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
       return;
     }
     inspectFundAtClientX(nearest.key, event.clientX);
-  }, [activeFocusedFundKey, clearHover, inspectFundAtClientX]);
+    setMarkerTip(resolveMarkerTip(event.clientX, event.clientY));
+  }, [activeFocusedFundKey, clearHover, inspectFundAtClientX, resolveMarkerTip]);
 
   const onCanvasClick = useCallback((event: ReactMouseEvent<HTMLCanvasElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -821,15 +892,15 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     });
   };
 
-  const onCanvasContextMenu = useCallback((event: ReactMouseEvent<HTMLCanvasElement>) => {
+  const onGraphContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const focusedKey = activeFocusedFundKey;
-    if (!focusedKey) {
+    const targetKey = activeFocusedFundKey ?? activeHoveredFundKey;
+    if (!targetKey) {
       setPointsState((current) => toggleAllFundComparisonPoints(current));
       return;
     }
-    setPointsState((current) => toggleFocusedFundComparisonPoints(current, focusedKey));
-  }, [activeFocusedFundKey]);
+    setPointsState((current) => toggleFocusedFundComparisonPoints(current, targetKey));
+  }, [activeFocusedFundKey, activeHoveredFundKey]);
 
   const tooltipRow = hoverDate && hoveredFundKey
     ? fundComparisonTooltipAt(visibleModel, hoverDate, hoveredFundKey)[0]
@@ -1048,6 +1119,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
               className="fund-comparison-shell"
               ref={shellRef}
               onPointerLeave={clearHover}
+              onContextMenu={onGraphContextMenu}
             >
               <canvas
                 ref={canvasRef}
@@ -1088,10 +1160,9 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                 data-tooltip-fund-count={tooltipRow ? 1 : 0}
                 onPointerMove={onCanvasPointerMove}
                 onClick={onCanvasClick}
-                onContextMenu={onCanvasContextMenu}
                 onKeyDown={onCanvasKeyDown}
               />
-              {hoverDate && tooltipLayout && tooltipRow?.nav !== undefined && tooltipRow.indexedValue !== undefined && (
+              {!markerTip && hoverDate && tooltipLayout && tooltipRow?.nav !== undefined && tooltipRow.indexedValue !== undefined && (
                 <div
                   className="fund-comparison-tooltip"
                   data-placement={tooltipLayout.placement}
@@ -1117,6 +1188,20 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                     <span>₹100 value<b>{indexedMoney(tooltipRow.indexedValue)}</b></span>
                   </div>
                   <p>{tooltipRow.indexedValue >= 100 ? "+" : ""}{(tooltipRow.indexedValue - 100).toFixed(2)}% within the selected range</p>
+                </div>
+              )}
+              {markerTip && (
+                <div
+                  className="fund-comparison-marker-tip"
+                  data-marker-key={markerTip.key}
+                  style={{ left: `${markerTip.left}px`, top: `${markerTip.top}px` }}
+                >
+                  <header>
+                    <i aria-hidden="true" style={{ background: colorFor(markerTip.key) }} />
+                    <span>{fullDate(markerTip.date)}</span>
+                  </header>
+                  <strong>Invested {formatInr(markerTip.amount, 0)}</strong>
+                  <small>{markerTip.label}</small>
                 </div>
               )}
             </div>
@@ -1184,7 +1269,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
         <div className="fund-comparison-empty"><div><strong>No published NAV history</strong>The selected funds do not have an official history available for this comparison.{failedKeys.size ? <><br /><button type="button" onClick={retryFailed}>Retry histories</button></> : null}</div></div>
       )}
 
-      <p id={noteId} className="fund-comparison-note"><strong>How this is calculated:</strong> in every selected range, each fund restarts at ₹100 on its first actual published NAV inside that range. All reaches back to the earliest exact plan history available; Direct-plan records commonly begin in January 2013 and are never replaced with a different Regular-plan series. Missing dates are never interpolated or forward-filled. Connecting strokes are visual guides between published observations.</p>
+      <p id={noteId} className="fund-comparison-note"><strong>How this is calculated:</strong> in every selected range, each fund restarts at ₹100 on its first actual published NAV inside that range. All reaches back to the earliest exact plan history available; Direct-plan records commonly begin in January 2013 and are never replaced with a different Regular-plan series. Missing dates are never interpolated or forward-filled. Connecting strokes are visual guides between published observations. Right-click the chart to reveal CAS investment points, hover a point for its invested amount, and left-click empty space to reset.</p>
       <span id={liveId} className="fund-comparison-live" role="status" aria-live="polite">{keyboardAnnouncement}</span>
     </section>
   );

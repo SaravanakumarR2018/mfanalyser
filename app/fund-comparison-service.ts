@@ -532,17 +532,35 @@ export function toggleFocusedFundComparisonPoints(
   return { all: false, keys: new Set([key]) };
 }
 
-export function collectFundComparisonInvestmentDates(
+export type FundComparisonInvestment = {
+  date: string;
+  amount: number;
+  label: string;
+};
+
+export function collectFundComparisonInvestments(
   candidates: FundComparisonCandidate[],
-): Map<string, string[]> {
-  const datesByKey = new Map<string, string[]>();
+): Map<string, FundComparisonInvestment[]> {
+  const investmentsByKey = new Map<string, FundComparisonInvestment[]>();
   candidates.forEach((candidate) => {
-    const dates = [...new Set(
-      candidate.transactions
-        .filter((transaction) => transaction.amount > 0)
-        .map((transaction) => transaction.date),
-    )].sort();
-    if (dates.length) datesByKey.set(candidate.key, dates);
+    const byDate = new Map<string, FundComparisonInvestment>();
+    candidate.transactions
+      .filter((transaction) => transaction.amount > 0)
+      .forEach((transaction) => {
+        const existing = byDate.get(transaction.date);
+        if (existing) {
+          existing.amount += transaction.amount;
+          if (/sip/i.test(transaction.label)) existing.label = transaction.label;
+        } else {
+          byDate.set(transaction.date, {
+            date: transaction.date,
+            amount: transaction.amount,
+            label: transaction.label,
+          });
+        }
+      });
+    const investments = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+    if (investments.length) investmentsByKey.set(candidate.key, investments);
   });
-  return datesByKey;
+  return investmentsByKey;
 }

@@ -788,4 +788,67 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(card).toHaveAttribute("data-investment-points", "off");
     await expect(canvas).toHaveAttribute("data-focused-fund", "");
   });
+
+  test("right-click works over the focused tooltip and hovering a point shows its invested amount", async ({ page }) => {
+    const card = await openComparisonDashboard(page);
+    await waitForPreloadedComparison(card);
+
+    const canvas = card.locator('canvas[role="img"]');
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    const plotLeft = Number(await canvas.getAttribute("data-plot-left"));
+    const plotTop = Number(await canvas.getAttribute("data-plot-top"));
+    const plotBottom = Number(await canvas.getAttribute("data-plot-bottom"));
+    const axisMin = Number(await canvas.getAttribute("data-axis-min"));
+    const axisMax = Number(await canvas.getAttribute("data-axis-max"));
+    const chartHeight = await canvas.evaluate((element) => element.clientHeight);
+    const baselineY = plotTop + (axisMax - 100) / (axisMax - axisMin) * (chartHeight - plotTop - plotBottom);
+
+    await canvas.click({ position: { x: plotLeft + 4, y: baselineY } });
+    await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100004");
+
+    const tooltip = card.locator(".fund-comparison-tooltip");
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toHaveAttribute("data-anchor-x", plotLeft.toFixed(2));
+    await canvas.click({ button: "right", position: { x: plotLeft + 4, y: baselineY } });
+    await expect(card).toHaveAttribute("data-investment-points", "custom");
+    await expect(canvas).toHaveAttribute("data-investment-markers", "1");
+    await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100004");
+
+    await canvas.click({ button: "right", position: { x: plotLeft + 4, y: baselineY } });
+    await expect(canvas).toHaveAttribute("data-investment-markers", "0");
+    await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100004");
+
+    await canvas.click({ position: { x: 90, y: 90 } });
+    await expect(canvas).toHaveAttribute("data-focused-fund", "");
+
+    await card.locator(".fund-comparison-picker-trigger").click();
+    const picker = card.getByRole("dialog", { name: "Choose funds to compare" });
+    await expect(picker).toBeVisible();
+    await picker.getByRole("button", { name: /investment points for all funds/i }).click();
+    await page.keyboard.press("Escape");
+
+    await expect(card).toHaveAttribute("data-investment-points", "all");
+    await expect(canvas).toHaveAttribute("data-investment-markers", "5");
+
+    const markerPoints = (await canvas.getAttribute("data-investment-marker-points")) ?? "";
+    const gammaMarker = markerPoints.split(";")
+      .map((entry) => {
+        const separator = entry.lastIndexOf(":");
+        const [x, y] = entry.slice(separator + 1).split(",").map(Number);
+        return { key: entry.slice(0, separator), x, y };
+      })
+      .find((marker) => marker.key === "scheme:100003");
+    expect(gammaMarker).toBeTruthy();
+
+    await page.mouse.move((box?.x ?? 0) + gammaMarker.x, (box?.y ?? 0) + gammaMarker.y);
+    const chip = card.locator(".fund-comparison-marker-tip");
+    await expect(chip).toBeVisible();
+    await expect(chip).toHaveAttribute("data-marker-key", "scheme:100003");
+    await expect(chip).toContainText("Invested");
+    await expect(chip).toContainText("4,000");
+
+    await page.mouse.move((box?.x ?? 0) + 300, (box?.y ?? 0) + 95);
+    await expect(chip).toBeHidden();
+  });
 });
