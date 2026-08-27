@@ -396,11 +396,20 @@ export default function NavActivityChart({
         <div
           className="nav-activity-shell"
           ref={shellRef}
+          onPointerDown={(event) => {
+            if (event.pointerType !== "touch") return;
+            setHovered(pointerToIndex(event.clientX));
+            setTooltipStyle(positionTooltip(event.clientX));
+          }}
           onPointerMove={(event) => {
             setHovered(pointerToIndex(event.clientX));
             setTooltipStyle(positionTooltip(event.clientX));
           }}
-          onPointerLeave={() => { setHovered(null); setTooltipStyle(undefined); }}
+          onPointerLeave={(event) => {
+            if (event.pointerType === "touch") return;
+            setHovered(null);
+            setTooltipStyle(undefined);
+          }}
         >
           <canvas
             ref={canvasRef}

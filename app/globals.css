@@ -428,12 +428,12 @@ a { color: inherit; text-decoration: none; }
 }
 
 @media (max-width: 480px) {
-  .header-action { padding: 9px 12px; }.brand { font-size: 20px; }
+  .header-action { min-height: 44px; padding: 9px 12px; }.brand { font-size: 20px; }
   .hero { padding-top: 42px; }.hero-kicker { flex-wrap: wrap; }.hero h1 { font-size: 49px; line-height: 1; }.trust-row { gap: 12px 17px; }.upload-card { padding: 27px 20px; border-radius: 20px; }
   .preview-body { grid-template-columns: 1fr; }.preview-side { display: none; }.preview-summary strong { font-size: 35px; }.preview-swoop { left: 25%; }.preview-band { min-height: 340px; }
   .how-section > div { align-items: flex-start; flex-direction: column; gap: 12px; }.how-section h2 { font-size: 39px; }
   .privacy-section { margin: 0 14px 70px; }.privacy-section h2 { font-size: 32px; }
-  .import-button { font-size: 0; width: 36px; height: 36px; padding: 0; }.import-button span { font-size: 18px; }
+  .import-button { font-size: 0; width: 44px; height: 44px; padding: 0; }.import-button span { font-size: 18px; }
   .summary-main h1 { font-size: 45px; }.gain-line { flex-wrap: wrap; }.summary-allocation { padding: 24px; }.metric-grid article { padding: 18px 16px; }.metric-grid article > strong { font-size: 23px; }
   .periods button { padding: 6px 8px; }.chart-actions { gap: 5px; }.chart-shell { min-height: 330px; }.chart-shell canvas { height: 330px !important; }
   .allocation-content, .top-funds-content { grid-template-columns: 1fr; }.allocation-donut, .concentration-donut { margin: auto; }.top-list { width: 100%; height: 196px; }
@@ -445,6 +445,25 @@ a { color: inherit; text-decoration: none; }
   .stack-chart-stage { grid-template-columns: 46px minmax(0,1fr); gap: 6px; }.stack-y-control { width: 46px; }.stack-y-reset { width: 44px; }.stack-y-reset span { display: none; }.stack-y-track { width: 28px; }.stack-y-window { left: 6px; right: 6px; }
   .fund-comparison-toolbar { display: grid; grid-template-columns: 1fr; gap: 7px; }.fund-comparison-summary { min-height: 28px; }.fund-comparison-picker { width: 100%; margin-left: 0; }.fund-comparison-picker-trigger { width: 100%; }.fund-comparison-popover { left: 0; width: 100%; max-width: calc(100vw - 50px); }.fund-comparison-stage { grid-template-columns: 46px minmax(0,1fr); gap: 6px; }.fund-comparison-stage .stack-y-control { height: 409px; }.fund-comparison-stage .stack-y-track { height: 200px; flex-basis: 200px; margin-top: 79px; }.fund-comparison-stage .stack-y-track input[type="range"] { width: 200px; }.fund-comparison-shell { min-height: 409px; }.fund-comparison-shell canvas { height: 409px; }.fund-comparison-empty { min-height: 310px; }.fund-comparison-range .range-track { margin-left: 8px; margin-right: 8px; }
   .inflation-metrics { grid-template-columns: 1fr 1fr; }.inflation-metrics > div:first-child { grid-column: 1 / -1; }.inflation-chart-shell { margin-left: -5px; margin-right: -5px; }.inflation-chart-shell svg { min-height: 250px; }.inflation-grid text { font-size: 13px; }.inflation-year { font-size: 12px; }.inflation-active text { font-size: 10px; }.inflation-active text:first-of-type, .inflation-active .inflation-tooltip-value { font-size: 13px; }
+  .periods button, .zoom-controls button, .nav-periods button, .stack-modes button,
+  .stack-lens-toggle, .fund-comparison-periods button, .fund-comparison-picker-trigger,
+  .fund-comparison-popover > header button, .row-expand, .drawer-close {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .periods, .nav-periods, .fund-comparison-periods { width: 100%; }
+  .periods button, .nav-periods button, .fund-comparison-periods button { flex: 1; }
+  .chart-actions { flex-wrap: wrap; }
+  .zoom-controls { width: 100%; }
+  .zoom-controls button { flex: 1; }
+  .fund-comparison-periods { flex-wrap: wrap; }
+  .fund-comparison-periods button { flex: 1 0 calc(25% - 4px); }
+  .range-track { height: 44px; margin-top: -19px; margin-bottom: -9px; background: transparent; }
+  .range-track:before { content: ""; position: absolute; inset: 15px 0; border-radius: 99px; background: #e2e7df; }
+  .range-fill { top: 18px; bottom: 18px; }
+  .range-track input::-webkit-slider-thumb { width: 24px; height: 24px; }
+  .fund-drawer { width: 100vw; max-width: 100vw; min-height: 100dvh; padding-top: max(30px, env(safe-area-inset-top)); padding-bottom: max(30px, env(safe-area-inset-bottom)); }
+  .top-list { -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
 }
 
 @media (prefers-reduced-motion: reduce) {
