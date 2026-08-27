@@ -761,7 +761,7 @@ function Dashboard({
       annualizedReturn: annualizedReturnAt(
         fund.transactions,
         fund.navDate || portfolio.valuationDate,
-        fund.currentValue,
+        fund.liveValue ?? fund.currentValue,
       ),
     })),
     [portfolio.funds, portfolio.valuationDate],
@@ -793,16 +793,16 @@ function Dashboard({
 
         <div className={`valuation-notice ${portfolio.valuationSource === "amfi" ? "live" : "fallback"}`}>
           <span>{portfolio.valuationSource === "amfi" ? "LIVE" : "CAS"}</span>
-          <p><strong>{portfolio.valuationSource === "amfi" ? `Latest available official NAVs · ${formatDate(portfolio.valuationDate)}` : `Showing statement valuation · ${formatDate(portfolio.statementDate)}`}</strong>{portfolio.valuationSource === "amfi" ? ` Values use the unit balances in your CAS dated ${formatDate(portfolio.statementDate)}. ${portfolio.navHistoryLoading ? "Actual daily NAV history is loading in the background." : portfolio.navHistoryError ?? "Daily history uses only published AMFI observations."}` : ` ${portfolio.liveUpdateError ?? "Live NAVs were unavailable."}`}</p>
+          <p><strong>{portfolio.valuationSource === "amfi" ? `CAS statement valuation · ${formatDate(portfolio.statementDate)}` : `Showing statement valuation · ${formatDate(portfolio.statementDate)}`}</strong>{portfolio.valuationSource === "amfi" ? ` Live official NAVs dated ${formatDate(portfolio.valuationDate)} power daily charts, momentum and returns; the values shown remain the reconciled statement total. ${portfolio.navHistoryLoading ? "Actual daily NAV history is loading in the background." : portfolio.navHistoryError ?? "Daily history uses only published AMFI observations."}` : ` ${portfolio.liveUpdateError ?? "Live NAVs were unavailable."}`}</p>
         </div>
 
         <section className="summary-card">
           <div className="summary-main">
-            <p>CURRENT PORTFOLIO VALUE <span title="Latest available NAV multiplied by the unit balances in this CAS">i</span></p>
+            <p>CURRENT PORTFOLIO VALUE <span title="Reconciled statement total from the unit balances in this CAS">i</span></p>
             <h1>{compactMoney(portfolio.currentValue)}</h1>
             <div className="summary-exact-value">{formatMoney(portfolio.currentValue, 2)}</div>
             <div className="gain-line"><strong className={gain >= 0 ? "positive" : "negative"}>{gain >= 0 ? "↗" : "↘"} {formatMoney(Math.abs(gain))}</strong><span>all-time gain</span><i /> <strong>{absoluteReturnLabel}</strong><span>absolute return</span></div>
-            <small>{portfolio.valuationSource === "amfi" ? "Official AMFI NAV" : "CAS statement value"} · {formatDate(portfolio.valuationDate)} · CAS units as of {formatDate(portfolio.statementDate)}</small>
+            <small>{portfolio.valuationSource === "amfi" ? `CAS statement value · ${formatDate(portfolio.statementDate)} · latest NAVs ${formatDate(portfolio.valuationDate)}` : `CAS statement value · ${formatDate(portfolio.valuationDate)} · CAS units as of ${formatDate(portfolio.statementDate)}`}</small>
           </div>
           <div className="summary-allocation">
             <InteractiveDonut
@@ -821,7 +821,7 @@ function Dashboard({
           <article><p>Amount invested <span title="Purchases minus redemptions from active CAS holdings">i</span></p><strong>{compactMoney(portfolio.invested)}</strong><span className="metric-exact">Exact · {formatMoney(portfolio.invested, 2)}</span><small>Net transaction cash flow</small></article>
           <article><p>Wealth created</p><strong className={gain >= 0 ? "positive" : "negative"}>{compactMoney(gain)}</strong><span className="metric-exact">Exact · {formatMoney(gain, 2)}</span><small>{absoluteReturn === null ? "Absolute return unavailable" : `${absoluteReturnLabel} including realised gains`}</small></article>
           <article className="return-metric"><p>Absolute return <MetricInfo label="About absolute return">Wealth created divided by amount invested, including realised gains.</MetricInfo></p><strong className={absoluteReturn === null ? "" : absoluteReturn >= 0 ? "positive" : "negative"}>{absoluteReturnLabel}</strong><small>{absoluteReturn === null ? "Requires a positive invested amount" : "Total return including realised gains"}</small></article>
-          <article className="return-metric"><p>Return p.a. <MetricInfo label="About return per annum">Money-weighted XIRR from exact dated CAS cash flows, including closed-fund proceeds, and the current portfolio value.</MetricInfo></p><strong className={annualizedReturn === null ? "" : annualizedReturn >= 0 ? "positive" : "negative"}>{annualizedReturn === null ? "—" : `${annualizedReturn.toFixed(2)}%`}</strong><small>{annualizedReturn === null ? "Not enough dated cash flows" : "Money-weighted XIRR · all funds"}</small></article>
+          <article className="return-metric"><p>Return p.a. <MetricInfo label="About return per annum">Money-weighted XIRR from exact dated CAS cash flows, including closed-fund proceeds, and the current live portfolio value.</MetricInfo></p><strong className={annualizedReturn === null ? "" : annualizedReturn >= 0 ? "positive" : "negative"}>{annualizedReturn === null ? "—" : `${annualizedReturn.toFixed(2)}%`}</strong><small>{annualizedReturn === null ? "Not enough dated cash flows" : "Money-weighted XIRR · all funds"}</small></article>
           <article><p>Realised gains</p><strong className={portfolio.realizedGain >= 0 ? "positive" : "negative"}>{compactMoney(portfolio.realizedGain)}</strong><small>From {portfolio.closedFunds.length} closed {portfolio.closedFunds.length === 1 ? "fund" : "funds"}</small></article>
         </section>
 
@@ -902,7 +902,7 @@ function Dashboard({
                         const folioAnnualizedReturn = annualizedReturnAt(
                           folio.transactions,
                           folio.navDate || portfolio.valuationDate,
-                          folio.currentValue,
+                          folio.liveValue ?? folio.currentValue,
                         );
                         return (
                           <button className="folio-row" key={folio.key} onClick={() => setSelectedFolioKey({ fundKey: fund.key, folioKey: folio.key })}>

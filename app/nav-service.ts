@@ -447,16 +447,16 @@ export async function refreshWithLatestNav(portfolio: Portfolio): Promise<Portfo
       return {
         ...fund,
         schemeCode: record.schemeCode,
-        currentValue: fund.units * record.nav,
         nav: record.nav,
         navDate: record.date,
         liveNav: true,
+        liveValue: fund.units * record.nav,
         folioHoldings: fund.folioHoldings.map((folio) => ({
           ...folio,
-          currentValue: folio.units * record.nav,
           nav: record.nav,
           navDate: record.date,
           liveNav: true,
+          liveValue: folio.units * record.nav,
         })),
       };
     });
@@ -473,7 +473,7 @@ export async function refreshWithLatestNav(portfolio: Portfolio): Promise<Portfo
       };
     });
 
-    const currentValue = funds.reduce((total, fund) => total + fund.currentValue, 0);
+    const liveValue = funds.reduce((total, fund) => total + (fund.liveValue ?? fund.currentValue), 0);
     const allTransactions = [...funds, ...closedFunds].flatMap((fund) => fund.transactions);
     const latestTransactions = allTransactions.filter((transaction) => transaction.date === valuationDate);
     const endpointTimeline = [...portfolio.timeline];
@@ -483,7 +483,7 @@ export async function refreshWithLatestNav(portfolio: Portfolio): Promise<Portfo
     const livePoint: TimelinePoint = {
       date: valuationDate,
       invested: portfolio.invested,
-      value: currentValue,
+      value: liveValue,
       live: true,
       transaction: Boolean(priorEndpoint?.transaction || latestTransactions.length),
       transactionAmount: priorEndpoint?.transactionAmount
@@ -501,7 +501,8 @@ export async function refreshWithLatestNav(portfolio: Portfolio): Promise<Portfo
       ...portfolio,
       valuationDate,
       valuationSource: "amfi",
-      currentValue,
+      liveValue,
+      liveValuationDate: valuationDate,
       funds: funds.sort((left, right) => right.currentValue - left.currentValue),
       closedFunds,
       timeline: endpointTimeline,

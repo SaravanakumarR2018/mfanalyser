@@ -44,12 +44,13 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     await expect(page.locator(".reconcile-bar")).toContainText("Latest NAV applied");
     await expect(page.locator(".reconcile-bar")).toContainText("1/1 funds updated");
     await expect(page.locator(".reconcile-bar")).toContainText("daily history loading");
-    await expect(page.locator(".valuation-notice.live")).toContainText("Latest available official NAVs");
-    await expect(page.locator(".summary-main h1")).toHaveText("₹15,000");
-    await expect(page.locator(".summary-exact-value")).toHaveText("₹15,000.00");
+    await expect(page.locator(".valuation-notice.live")).toContainText("CAS statement valuation · 31 Jul 2026");
+    await expect(page.locator(".valuation-notice.live")).toContainText("values shown remain the reconciled statement total");
+    await expect(page.locator(".summary-main h1")).toHaveText("₹12,000");
+    await expect(page.locator(".summary-exact-value")).toHaveText("₹12,000.00");
     await expect(page.getByText("Exact · ₹10,000.00")).toBeVisible();
-    await expect(page.locator(".gain-line")).toContainText("₹5,000");
-    await expect(page.locator(".gain-line")).toContainText("50.00%");
+    await expect(page.locator(".gain-line")).toContainText("₹2,000");
+    await expect(page.locator(".gain-line")).toContainText("20.00%");
 
     const progress = page.getByRole("status", { name: /Daily NAV history \d+% loaded/ });
     await expect(progress).toBeVisible();

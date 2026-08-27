@@ -47,7 +47,7 @@ test.describe("independent critical-path verification", () => {
     await uploadInput(page).setInputFiles({ name: "partial.pdf", mimeType: "application/pdf", buffer: makeTwoFundCasPdf() });
     await expect(page.locator(".reconcile-bar")).toContainText("1/2 funds updated");
     await expect(page.locator(".valuation-notice.live")).toBeVisible();
-    await expect(page.locator(".summary-exact-value")).toHaveText("₹23,000.00");
+    await expect(page.locator(".summary-exact-value")).toHaveText("₹20,000.00");
     await expect(page.locator(".fund-group")).toHaveCount(2);
   });
 
@@ -107,9 +107,12 @@ test.describe("independent critical-path verification", () => {
     }, secondPdf);
 
     await expect(page.getByRole("heading", { name: "Your funds" })).toBeVisible();
-    await expect(page.locator(".summary-exact-value")).toHaveText("₹16,000.00", { timeout: 2_000 });
+    await expect(page.locator(".summary-exact-value")).toHaveText("₹12,000.00", { timeout: 2_000 });
+    await page.locator(".fund-group .fund-row").first().click();
+    const dialog = page.getByRole("dialog", { name: "Testhouse Flexi Cap Direct Growth" });
+    await expect(dialog.locator(".drawer-grid")).toContainText("16.0000", { timeout: 500 });
     await page.waitForTimeout(1_700);
-    await expect(page.locator(".summary-exact-value")).toHaveText("₹16,000.00", { timeout: 500 });
+    await expect(dialog.locator(".drawer-grid")).toContainText("16.0000", { timeout: 500 });
   });
 
   test("demo dashboard reaches interactive readiness within a generous MVP smoke budget", async ({ page }, testInfo) => {

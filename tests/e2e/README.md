@@ -64,6 +64,13 @@ future intentional extra stage is visible in review. Portfolio-wide background
 history failures still have no standalone retry action today; retrying those
 requires a new import.
 
+A successful latest-NAV refresh leaves the reconciled statement headline and
+every holding `currentValue` unchanged; the latest official NAVs are applied to
+the NAV fields and to the separate `liveValue` output that powers charts,
+momentum, and XIRR. The live valuation notice therefore names the statement
+date first and describes the latest NAVs as powering charts, momentum, and
+returns, so the headline value and its "LIVE" provenance label stay unambiguous.
+
 Inside a matched fund or folio drawer, the NAV chart defaults to the investor's
 CAS period. Turning on the compact **Full fund history** switch makes one read-only, cancellable
 request for that public scheme's history from 1900 through the current NAV date.

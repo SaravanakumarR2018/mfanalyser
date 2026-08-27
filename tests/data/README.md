@@ -24,7 +24,7 @@ does not.
 | CAS reconciliation | Current-value and cost-only mismatch rejection, paise-level totals |
 | Initial CAS state | Statement valuation source/date, exact endpoint, active invested/cost basis, closed gains, zero NAV coverage |
 | Latest NAV parsing | Header/malformed rows, both AMFI ISIN columns, duplicate-date precedence, invalid NAV/date filtering |
-| Latest NAV application | Full and partial matches, mixed publication dates, stale data, zero matches, malformed/non-OK response, closed-fund enrichment, folio propagation |
+| Latest NAV application | Full and partial matches, mixed publication dates, stale data, zero matches, malformed/non-OK response, closed-fund enrichment, folio propagation, statement-anchored headline retained while `liveValue` is tracked separately |
 | Latest NAV reruns | Immutable input and single replaced live endpoint (no duplicate point) |
 | Daily history orchestration | Direct browser requests to the mfapi.in mirror, both supported payload shapes, invested-period and on-demand full-scheme requests, scheme-identity validation, lagging-mirror repair from the exact latest AMFI observation, safe rejection of conflicting or missing past observations, session-memory reuse, concurrency progress, shared-scheme deduplication, Retry-After, missing scheme codes, cancellation, completed rerun no-op |
 | Daily valuation | Exact units by date and folio, no estimation for missing same-day NAV, no history when closing balances cannot reconcile, exact/live endpoint precedence |

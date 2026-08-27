@@ -36,6 +36,7 @@ export type FolioHolding = {
   nav: number;
   navDate: string;
   liveNav?: boolean;
+  liveValue?: number;
   navHistory?: HistoricalNavPoint[];
   transactions: FundTransaction[];
 };
@@ -53,6 +54,7 @@ export type FundHolding = {
   nav: number;
   navDate: string;
   liveNav?: boolean;
+  liveValue?: number;
   schemeCode?: string;
   navHistory?: HistoricalNavPoint[];
   folios: number;
@@ -82,6 +84,8 @@ export type Portfolio = {
   valuationDate: string;
   valuationSource: "amfi" | "cas" | "demo";
   currentValue: number;
+  liveValue?: number;
+  liveValuationDate?: string;
   invested: number;
   costBasis: number;
   realizedGain: number;

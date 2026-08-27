@@ -3,8 +3,33 @@ import test from "node:test";
 
 import type { Portfolio } from "../../app/cas-parser.ts";
 import { parseCasFile } from "../../app/cas-parser.ts";
-import { refreshWithDailyHistory } from "../../app/nav-service.ts";
+import { portfolioAnnualizedReturn } from "../../app/fund-stack-service.ts";
+import { buildFundStackModel } from "../../app/fund-stack-service.ts";
+import { refreshWithDailyHistory, refreshWithLatestNav } from "../../app/nav-service.ts";
+import { buildHoldingTimeline } from "../../app/timeline-service.ts";
 import { activeFund, casPortfolio, pdfFile } from "./helpers.ts";
+
+const withFetch = async <T>(
+  replacement: typeof globalThis.fetch,
+  action: () => Promise<T>,
+) => {
+  const original = globalThis.fetch;
+  globalThis.fetch = replacement;
+  try {
+    return await action();
+  } finally {
+    globalThis.fetch = original;
+  }
+};
+
+const amfiLine = (
+  code: string,
+  isin: string,
+  nav: number,
+  date: string,
+  name = `Official ${isin}`,
+  reinvestmentIsin = "",
+) => `${code};${isin};${reinvestmentIsin};${name};${nav};${date}`;
 
 const liveHistoryPortfolio = (count = 1): Portfolio => {
   const funds = Array.from({ length: count }, (_, index) => {
@@ -192,4 +217,84 @@ test("daily history propagates cancellation that occurs while a request is in fl
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("a latest-NAV refresh keeps the reconciled statement headline while tracking latest values separately", async () => {
+  const fundA = activeFund({ key: "a", isin: "INF000A00001", units: 10, invested: 100, nav: 11 });
+  const fundB = activeFund({ key: "b", isin: "INF000A00002", units: 20, invested: 100, nav: 5 });
+  const original = casPortfolio([fundA, fundB]);
+  const refreshed = await withFetch(async () => new Response([
+    amfiLine("1001", fundA.isin, 12, "02-Feb-2026", "Official A", "INF000A00009"),
+    amfiLine("1002", fundB.isin, 6, "01-Feb-2026", "Official B", "INF000A00008"),
+  ].join("\n")), () => refreshWithLatestNav(original));
+
+  assert.equal(refreshed.currentValue, original.currentValue);
+  assert.equal(refreshed.currentValue, 210);
+  assert.equal(refreshed.liveValue, 240);
+  assert.equal(refreshed.liveValuationDate, "2026-02-02");
+  assert.equal(refreshed.funds[0].currentValue, 110);
+  assert.equal(refreshed.funds[0].liveValue, 120);
+  assert.equal(refreshed.funds[0].folioHoldings[0].currentValue, 110);
+  assert.equal(refreshed.funds[0].folioHoldings[0].liveValue, 120);
+  assert.equal(refreshed.currentValue + (refreshed.liveValue - refreshed.currentValue), refreshed.liveValue);
+  assert.deepEqual(refreshed.timeline.at(-1), {
+    date: "2026-02-02",
+    invested: 200,
+    value: 240,
+    live: true,
+    transaction: false,
+    transactionAmount: undefined,
+    transactionCount: undefined,
+  });
+  assert.equal(original.currentValue, 210);
+  assert.equal(original.funds[0].currentValue, 110);
+});
+
+test("returns and fund journeys consume the latest live value while the headline stays statement-anchored", async () => {
+  const fund = activeFund({ key: "a", isin: "INF000A00001", units: 10, invested: 100, nav: 11 });
+  const original = casPortfolio([fund]);
+  const refreshed = await withFetch(
+    async () => new Response(amfiLine("1001", fund.isin, 12, "02-Feb-2026", "Official A", "INF000A00009")),
+    () => refreshWithLatestNav(original),
+  );
+
+  const holding = refreshed.funds[0];
+  assert.equal(holding.nav, 12);
+  assert.equal(holding.navDate, "2026-02-02");
+  assert.equal(holding.liveNav, true);
+
+  const journey = buildHoldingTimeline(holding);
+  assert.deepEqual(journey.at(-1), {
+    date: "2026-02-02",
+    invested: 100,
+    value: 120,
+    nav: 12,
+    live: true,
+    exact: false,
+    transaction: false,
+    transactionAmount: undefined,
+    transactionCount: undefined,
+    daily: false,
+  });
+
+  const statementAnchoredReturn = portfolioAnnualizedReturn({ ...original, liveValue: undefined });
+  const liveReturn = portfolioAnnualizedReturn(refreshed);
+  assert.equal(typeof liveReturn, "number");
+  assert.notEqual(liveReturn, statementAnchoredReturn);
+
+  const stack = buildFundStackModel(refreshed);
+  assert.deepEqual(stack.points.at(-1)?.funds[0], {
+    fundKey: "a",
+    value: 120,
+    invested: 100,
+    contribution: 20,
+  });
+
+  const fallbackStack = buildFundStackModel(original);
+  assert.deepEqual(fallbackStack.points.at(-1)?.funds[0], {
+    fundKey: "a",
+    value: 110,
+    invested: 100,
+    contribution: 10,
+  });
 });
