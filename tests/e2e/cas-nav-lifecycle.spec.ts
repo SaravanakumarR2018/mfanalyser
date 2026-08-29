@@ -18,9 +18,9 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     let releaseHistory!: () => void;
     const historyGate = new Promise<void>((resolve) => { releaseHistory = resolve; });
     await mockLatestNav(page);
-    await page.route("https://api.mfapi.in/mf/**", async (route) => {
+    await page.route("**/api/nav-history?**", async (route) => {
       const url = new URL(route.request().url());
-      if (url.searchParams.get("startDate") === "1900-01-01") {
+      if (url.searchParams.get("from_date") === "1900-01-01") {
         comparisonHistoryUrl = url.toString();
         await route.fulfill({
           status: 200,
@@ -64,10 +64,10 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     await expect(page.locator(".fund-comparison-card")).toHaveAttribute("data-history-state", "ready");
 
     const request = new URL(dailyHistoryUrl);
-    expect(request.pathname.split("/").at(-1)).toBe(TEST_SCHEME_CODE);
-    expect(request.searchParams.get("startDate")).toBe("2025-01-01");
-    expect(request.searchParams.get("endDate")).toBe("2026-08-14");
-    expect(new URL(comparisonHistoryUrl).searchParams.get("startDate")).toBe("1900-01-01");
+    expect(request.searchParams.get("sd_id")).toBe(TEST_SCHEME_CODE);
+    expect(request.searchParams.get("from_date")).toBe("2025-01-01");
+    expect(request.searchParams.get("to_date")).toBe("2026-08-14");
+    expect(new URL(comparisonHistoryUrl).searchParams.get("from_date")).toBe("1900-01-01");
   });
 
   test("floating history bar expands while the pointer crosses it and collapses after leaving", async ({ page }) => {
@@ -102,12 +102,15 @@ test.describe("real CAS parser and NAV lifecycle", () => {
   test("switches smoothly between the invested period and full fund NAV history", async ({ page }) => {
     const assertNoErrors = await installFailureGuards(page);
     let fullHistoryRequests = 0;
+    let releaseFullHistory!: () => void;
+    const fullHistoryGate = new Promise<void>((resolve) => { releaseFullHistory = resolve; });
     await mockLatestNav(page);
-    await page.route("https://api.mfapi.in/mf/**", async (route) => {
+    await page.route("**/api/nav-history?**", async (route) => {
       const request = new URL(route.request().url());
-      const fullHistory = request.searchParams.get("startDate") === "1900-01-01";
+      const fullHistory = request.searchParams.get("from_date") === "1900-01-01";
       if (fullHistory) {
         fullHistoryRequests += 1;
+        if (fullHistoryRequests > 1) await fullHistoryGate;
       }
       await route.fulfill({
         status: 200,
@@ -137,7 +140,13 @@ test.describe("real CAS parser and NAV lifecycle", () => {
 
     await fullHistoryToggle.click();
     await expect(navCard.getByRole("button", { name: "Hide full fund history" })).toHaveAttribute("aria-pressed", "true");
+    await expect(scopeStatus).toContainText("Loading full published history");
     await expect(canvas).toHaveAttribute("data-requested-history-scope", "full");
+    await expect(canvas).toHaveAttribute("data-history-scope", "journey");
+    await expect(canvas).toHaveAttribute("data-total-points", "6");
+    expect(fullHistoryRequests).toBe(2);
+
+    releaseFullHistory();
     await expect(scopeStatus).toContainText("Full history · earliest published NAV 15 May 2004 · 12 observations");
     await expect(canvas).toHaveAttribute("data-history-scope", "full");
     await expect(canvas).toHaveAttribute("data-series-start", "2004-05-15");
@@ -145,9 +154,6 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     await expect(canvas).toHaveAttribute("data-investment-points", "3");
     await expect(canvas).toHaveAttribute("aria-label", /15 May 2004 to 14 Aug 2026/);
     const afterBounds = await canvas.boundingBox();
-    const requestsAfterFirstFullHistory = fullHistoryRequests;
-    expect(requestsAfterFirstFullHistory).toBeGreaterThanOrEqual(1);
-    expect(requestsAfterFirstFullHistory).toBeLessThanOrEqual(2);
     expect(afterBounds?.width).toBeCloseTo(beforeBounds?.width ?? 0, 0);
     expect(afterBounds?.height).toBeCloseTo(beforeBounds?.height ?? 0, 0);
 
@@ -164,7 +170,7 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     await expect(navCard.getByRole("button", { name: "Show full fund history" })).toHaveAttribute("aria-pressed", "false");
     await navCard.getByRole("button", { name: "Show full fund history" }).click();
     await expect(canvas).toHaveAttribute("data-history-scope", "full");
-    expect(fullHistoryRequests).toBe(requestsAfterFirstFullHistory);
+    expect(fullHistoryRequests).toBe(2);
     expect(await navCard.evaluate((element) => {
       const card = element.getBoundingClientRect();
       return [...element.querySelectorAll(".nav-activity-legend, .nav-activity-shell, .nav-range-control")]
@@ -177,20 +183,17 @@ test.describe("real CAS parser and NAV lifecycle", () => {
   });
 
   test("keeps the current NAV chart visible when full history fails and supports retry", async ({ page }) => {
-    let releaseComparisonHistory!: () => void;
-    const comparisonHistoryGate = new Promise<void>((resolve) => { releaseComparisonHistory = resolve; });
-    let fullHistoryRequests = 0;
+    let comparisonHistoryLoaded = false;
     let fullHistoryAttempts = 0;
     await mockLatestNav(page);
-    await page.route("https://api.mfapi.in/mf/**", async (route) => {
+    await page.route("**/api/nav-history?**", async (route) => {
       const request = new URL(route.request().url());
-      if (request.searchParams.get("startDate") !== "1900-01-01") {
+      if (request.searchParams.get("from_date") !== "1900-01-01") {
         await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(dailyHistoryPayload()) });
         return;
       }
-      fullHistoryRequests += 1;
-      if (fullHistoryRequests === 1) {
-        await comparisonHistoryGate;
+      if (!comparisonHistoryLoaded) {
+        comparisonHistoryLoaded = true;
         await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(fullDailyHistoryPayload()) });
         return;
       }
@@ -202,7 +205,7 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     await page.goto("/");
     await uploadCas(page);
     await expect(page.locator(".reconcile-bar")).toContainText("1/1 daily histories");
-    await expect(page.locator(".fund-comparison-card")).toHaveAttribute("data-history-state", "loading");
+    await expect(page.locator(".fund-comparison-card")).toHaveAttribute("data-history-state", "ready");
     await page.locator(".fund-group .fund-row").first().click();
 
     const navCard = page.getByRole("dialog", { name: "Testhouse Flexi Cap Direct Growth" }).locator(".nav-activity-card");
@@ -217,15 +220,13 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     await expect(canvas).toHaveAttribute("data-history-scope", "full");
     await expect(canvas).toHaveAttribute("data-series-start", "2004-05-15");
     expect(fullHistoryAttempts).toBe(4);
-    releaseComparisonHistory();
-    await expect(page.locator(".fund-comparison-card")).toHaveAttribute("data-history-state", "ready");
   });
 
   test("keeps statement values when the latest NAV endpoint fails", async ({ page }) => {
     let historyRequests = 0;
     await mockLatestNav(page, { status: 503, body: "temporarily unavailable" });
     page.on("request", (request) => {
-      if (new URL(request.url()).origin === "https://api.mfapi.in") historyRequests += 1;
+      if (new URL(request.url()).pathname === "/api/nav-history") historyRequests += 1;
     });
     await page.goto("/");
     await uploadCas(page);
@@ -256,9 +257,9 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     let dailyHistoryAttempts = 0;
     let comparisonHistoryAttempts = 0;
     await mockLatestNav(page);
-    await page.route("https://api.mfapi.in/mf/**", async (route) => {
+    await page.route("**/api/nav-history?**", async (route) => {
       const request = new URL(route.request().url());
-      if (request.searchParams.get("startDate") === "1900-01-01") {
+      if (request.searchParams.get("from_date") === "1900-01-01") {
         comparisonHistoryAttempts += 1;
         await route.fulfill({
           status: 200,

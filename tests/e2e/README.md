@@ -12,10 +12,10 @@ This suite treats commit `865aa11` / tag `working-version-11` as the minimum pro
 Local Playwright execution is serialized so repeated full gates do not trip
 macOS headless-browser rendezvous limits; CI retains two-worker parallelism.
 
-The suite contains 72 scenarios. Across the four configured projects that is
-288 executions: 265 ordinary passes, 12 expected-failure executions for three
+The suite contains 71 scenarios. Across the four configured projects that is
+284 executions: 261 ordinary passes, 12 expected-failure executions for three
 confirmed baseline defects, and 11 intentional project skips. Playwright reports
-the ordinary and expected-failure outcomes together as 277 passed with zero
+the ordinary and expected-failure outcomes together as 273 passed with zero
 unexpected failures.
 
 ## Coverage map
@@ -35,7 +35,6 @@ unexpected failures.
 | Portfolio chart | Canvas pixels, point metadata, period buttons, zoom, X endpoints, draggable/keyboard window, invested-series toggle, pointer tooltip |
 | Fund stack | Reconciliation tolerance, four-view multiselect, shared Y scale, period-change/cash-flow panel, X/Y sliders, reset, keyboard ranking, canvas pixels |
 | Normalized fund comparison | Real multi-scheme CAS parsing, full histories queued behind floater-backed daily enrichment and then preloaded while the card remains offscreen, separate inline comparison progress, all eligible histories from 1900 with a pre-2013 observation preserved end to end, thin resting lines with bold hover/selection emphasis, independent ₹100 rebasing at every fund's first exact observation inside the selected period/range, mirrored left/right Y axes showing indexed rupees and signed percentage change from ₹100, custom horizontal-window and locked-fund preservation across range/selection changes, shared vertical min/max/window drag/keyboard/reset controls, earliest-to-latest full timeline, unavailable schemes, active/closed defaults, searchable native checkboxes with a left-aligned All funds checkbox, nearby-line pointer discovery plus free vertical plot tracking for a selected fund with an exact-date guide/marker/single-fund tooltip that follows its point smoothly with placement hysteresis, switches sides to avoid every line, and falls back to the nearest safe chart edge, line focus/dimming/reset, 1Y/3Y/5Y/8Y/10Y/All and range controls, absent legend tiles/investment markers, partial/total failure retry, cached successes, delayed-load selection races, request privacy, axe, responsive containment, and chart/picker/tooltip goldens |
-| India inflation context | Near-viewport browser-only World Bank request, exact latest-30 observation rendering, public-request privacy, highlights, keyboard year inspection, responsive containment, failure isolation, and retry |
 | Magnifier | Enable/disable state, range control availability, magnification, size, synchronized metadata, pointer drag |
 | Drawer NAV chart | Default invested-period view and an off-by-default compact full-history switch, preserved CAS investment markers, atomic loading transition, retry/fallback, request reuse, period/range controls, observation metadata, rendered pixels, responsive containment, empty transaction state |
 | Accessibility | Axe WCAG A/AA scans, accessible control/canvas names, keyboard activation, modal semantics, slider names/orientation, named donut slices, and closed/open-tooltip contrast |
@@ -94,7 +93,7 @@ assertion.
 
 ## Testability limits / next hardening targets
 
-- Production state is not dependency-injected. Network failures can be controlled at `/api/nav` and the direct `api.mfapi.in` history request, but parser internals cannot be paused at an exact page without using a multi-page fixture plus delayed NAV.
+- Production state is not dependency-injected. Network failures can be controlled at `/api/nav` and `/api/nav-history`, but parser internals cannot be paused at an exact page without using a multi-page fixture plus delayed NAV.
 - Most selectors use accessible roles/names; a small number of chart/drawing assertions use stable existing classes and `data-*` diagnostics. Dedicated test IDs would reduce coupling if labels are redesigned.
 - External AMFI availability is intentionally excluded from E2E. Server/data tests should own upstream schema checks, while this suite owns every browser state produced by those schemas.
 - Screenshot goldens should only be updated after a human reviews the diffs; do not use update mode automatically in CI.
