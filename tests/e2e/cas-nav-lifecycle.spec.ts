@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { installFailureGuards, openDemo, uploadCas } from "./helpers/app";
+import { expectCanvasHasInk, installFailureGuards, openDemo, uploadCas } from "./helpers/app";
 import {
   dailyHistoryPayload,
   fullDailyHistoryPayload,
@@ -69,10 +69,13 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     await expect(progress).toContainText("Loading daily NAVs");
     releaseHistory();
     await expect(page.locator(".reconcile-bar")).toContainText("1/1 daily histories");
-    await expect(page.locator('.chart-card canvas[role="img"]').first()).toHaveAttribute("data-daily-points", "6");
+    const portfolioJourney = page.locator('.chart-card canvas[role="img"]').first();
+    await expect(portfolioJourney).toHaveAttribute("data-daily-points", "6");
+    await expectCanvasHasInk(portfolioJourney);
     const enrichedStack = page.locator(".fund-stack-card canvas.stack-base-canvas").first();
     await expect(enrichedStack).toHaveAttribute("data-fund-count", "1");
     await expect(enrichedStack).toHaveAttribute("data-visible-points", "6");
+    await expectCanvasHasInk(enrichedStack);
     await expect(page.locator(".fund-stack-empty")).toHaveCount(0);
     await expect(page.locator(".fund-comparison-card")).toHaveAttribute("data-history-state", "ready");
 

@@ -25,6 +25,7 @@ import {
   type FundStackPoint,
   type FundStackScale,
 } from "./fund-stack-service";
+import { useResponsiveCanvasRedraw } from "./useResponsiveCanvasRedraw";
 
 const modeTotal = (point: FundStackPoint, mode: FundStackMode) => {
   if (mode === "value") return point.totalValue;
@@ -397,6 +398,7 @@ export default function FundStackPanel({
     const shell = shellRef.current;
     if (!canvas || !shell || !visible.length) return;
     const width = shell.clientWidth;
+    if (width < 2) return;
     const height = 390;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = width * dpr;
@@ -562,17 +564,11 @@ export default function FundStackPanel({
     if (lensMoveFrameRef.current !== null) cancelAnimationFrame(lensMoveFrameRef.current);
   }, []);
 
-  useEffect(() => {
+  const redrawResponsiveChart = useCallback(() => {
     draw();
     requestAnimationFrame(() => latestLensDrawRef.current());
-    const observer = new ResizeObserver(() => {
-      setHover(null);
-      draw();
-      requestAnimationFrame(() => latestLensDrawRef.current());
-    });
-    if (shellRef.current) observer.observe(shellRef.current);
-    return () => observer.disconnect();
   }, [draw]);
+  useResponsiveCanvasRedraw(shellRef, redrawResponsiveChart);
 
   const lensPositionForPointer = useCallback((
     event: ReactPointerEvent<HTMLCanvasElement>,

@@ -6,6 +6,7 @@ import type { TimelinePoint } from "./cas-parser";
 import { buildChartScale } from "./chart-scale";
 import { formatInr } from "./formatters";
 import { useRangeWindowDrag } from "./useRangeWindowDrag";
+import { useResponsiveCanvasRedraw } from "./useResponsiveCanvasRedraw";
 
 type PortfolioChartProps = {
   points: TimelinePoint[];
@@ -124,6 +125,7 @@ export default function PortfolioChart({
     const shell = shellRef.current;
     if (!canvas || !shell || visible.length < 2) return;
     const width = shell.clientWidth;
+    if (width < 2) return;
     const height = compact ? 278 : 360;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = width * dpr;
@@ -295,12 +297,7 @@ export default function PortfolioChart({
     }
   }, [animate, compact, hovered, showBelowCost, showInvested, visible]);
 
-  useEffect(() => {
-    draw();
-    const observer = new ResizeObserver(draw);
-    if (shellRef.current) observer.observe(shellRef.current);
-    return () => observer.disconnect();
-  }, [draw]);
+  useResponsiveCanvasRedraw(shellRef, draw);
 
   const selectPeriod = (months: number | "all") => {
     if (months === "all") {
