@@ -95,7 +95,7 @@ test("the demo portfolio is never sent to network refresh and is returned by ide
   assert.equal(calls, 0);
 });
 
-test("latest NAV refresh updates every active folio, enriches closed funds, and appends one live endpoint", async () => {
+test("latest NAV refresh keeps statement values and tracks latest values on every active fund and folio", async () => {
   const fundA = activeFund({ key: "a", isin: "INF000A00001", units: 10, invested: 100, nav: 11 });
   const fundB = activeFund({ key: "b", isin: "INF000A00002", units: 20, invested: 100, nav: 5 });
   const exited = closedFund({ name: "Demat", isin: "INF000A00003" });
@@ -118,7 +118,9 @@ test("latest NAV refresh updates every active folio, enriches closed funds, and 
 
   assert.equal(refreshed.valuationDate, "2026-02-02");
   assert.equal(refreshed.valuationSource, "amfi");
-  assert.equal(refreshed.currentValue, 240);
+  assert.equal(refreshed.currentValue, 210);
+  assert.equal(refreshed.liveValue, 240);
+  assert.equal(refreshed.liveValuationDate, "2026-02-02");
   assert.deepEqual(refreshed.navCoverage, { updated: 2, total: 2 });
   assert.deepEqual(refreshed.navHistoryCoverage, { updated: 0, total: 3 });
   assert.equal(refreshed.navHistoryLoading, true);
@@ -127,15 +129,17 @@ test("latest NAV refresh updates every active folio, enriches closed funds, and 
   assert.deepEqual(refreshed.funds.map((fund) => ({
     key: fund.key,
     value: fund.currentValue,
+    liveValue: fund.liveValue,
     nav: fund.nav,
     date: fund.navDate,
     live: fund.liveNav,
     code: fund.schemeCode,
     folioValue: fund.folioHoldings[0].currentValue,
+    folioLiveValue: fund.folioHoldings[0].liveValue,
     folioLive: fund.folioHoldings[0].liveNav,
   })), [
-    { key: "a", value: 120, nav: 12, date: "2026-02-02", live: true, code: "1001", folioValue: 120, folioLive: true },
-    { key: "b", value: 120, nav: 6, date: "2026-02-01", live: true, code: "1002", folioValue: 120, folioLive: true },
+    { key: "a", value: 110, liveValue: 120, nav: 12, date: "2026-02-02", live: true, code: "1001", folioValue: 110, folioLiveValue: 120, folioLive: true },
+    { key: "b", value: 100, liveValue: 120, nav: 6, date: "2026-02-01", live: true, code: "1002", folioValue: 100, folioLiveValue: 120, folioLive: true },
   ]);
   assert.deepEqual(
     { name: refreshed.closedFunds[0].name, code: refreshed.closedFunds[0].schemeCode },
@@ -165,11 +169,13 @@ test("latest NAV refresh preserves unmatched funds and reports partial coverage"
     () => refreshWithLatestNav(original),
   );
 
-  assert.equal(refreshed.currentValue, 220);
+  assert.equal(refreshed.currentValue, 210);
+  assert.equal(refreshed.liveValue, 220);
   assert.deepEqual(refreshed.navCoverage, { updated: 1, total: 2 });
   assert.equal(refreshed.liveUpdateError, "1 fund could not be updated from AMFI.");
   assert.equal(refreshed.funds.find((fund) => fund.key === "b"), fundB);
-  assert.equal(refreshed.funds.find((fund) => fund.key === "a")?.currentValue, 120);
+  assert.equal(refreshed.funds.find((fund) => fund.key === "a")?.currentValue, 110);
+  assert.equal(refreshed.funds.find((fund) => fund.key === "a")?.liveValue, 120);
 });
 
 test("latest NAV refresh fails closed for server, malformed, no-match, and stale-only data", async (context) => {

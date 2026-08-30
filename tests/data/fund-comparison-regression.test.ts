@@ -7,11 +7,18 @@ import {
   buildFundComparisonCandidates,
   buildFundComparisonModel,
   buildFundComparisonScale,
+  collectFundComparisonInvestments,
   fundComparisonLineWidth,
+  fundComparisonPointsScope,
+  fundComparisonPointsVisibleForFund,
   fundComparisonTooltipAt,
+  initialFundComparisonPointsState,
   preserveFundComparisonDateRange,
   rebaseFundComparisonModel,
   shouldStartFundComparisonHistoryLoad,
+  toggleAllFundComparisonPoints,
+  toggleFocusedFundComparisonPoints,
+  toggleFundComparisonPointsForFund,
   type FundComparisonCandidate,
 } from "../../app/fund-comparison-service.ts";
 import { placeFundComparisonTooltip } from "../../app/fund-comparison-tooltip.ts";
@@ -752,4 +759,104 @@ test("bulk comparison history propagates cancellation and validates the request 
     () => loadFundComparisonHistories([fund], "2026-02-02", alreadyAborted.signal),
     { name: "AbortError" },
   );
+});
+
+test("investment point state starts hidden and toggles globally", () => {
+  const initial = initialFundComparisonPointsState();
+  assert.equal(fundComparisonPointsScope(initial), "off");
+  assert.equal(fundComparisonPointsVisibleForFund(initial, "a"), false);
+
+  const allOn = toggleAllFundComparisonPoints(initial);
+  assert.equal(fundComparisonPointsScope(allOn), "all");
+  assert.equal(fundComparisonPointsVisibleForFund(allOn, "a"), true);
+  assert.equal(fundComparisonPointsVisibleForFund(allOn, "b"), true);
+
+  const backOff = toggleAllFundComparisonPoints(allOn);
+  assert.equal(fundComparisonPointsScope(backOff), "off");
+  assert.deepEqual([...backOff.keys], []);
+});
+
+test("per-fund toggles build a custom scope and collapse an all scope", () => {
+  const eligibleKeys = new Set(["a", "b", "c"]);
+  let state = initialFundComparisonPointsState();
+
+  state = toggleFundComparisonPointsForFund(state, "a", eligibleKeys);
+  assert.equal(fundComparisonPointsScope(state), "custom");
+  assert.equal(fundComparisonPointsVisibleForFund(state, "a"), true);
+  assert.equal(fundComparisonPointsVisibleForFund(state, "b"), false);
+
+  state = toggleFundComparisonPointsForFund(state, "b", eligibleKeys);
+  assert.equal(fundComparisonPointsVisibleForFund(state, "b"), true);
+
+  state = toggleFundComparisonPointsForFund(state, "b", eligibleKeys);
+  assert.equal(fundComparisonPointsVisibleForFund(state, "b"), false);
+
+  state = toggleAllFundComparisonPoints(state);
+  assert.equal(fundComparisonPointsScope(state), "all");
+
+  state = toggleFundComparisonPointsForFund(state, "b", eligibleKeys);
+  assert.equal(fundComparisonPointsScope(state), "custom");
+  assert.deepEqual([...state.keys].sort(), ["a", "c"]);
+});
+
+test("focused-fund right-click shows only that fund or hides it without dropping focus", () => {
+  let state = initialFundComparisonPointsState();
+
+  state = toggleFocusedFundComparisonPoints(state, "a");
+  assert.equal(fundComparisonPointsScope(state), "custom");
+  assert.equal(fundComparisonPointsVisibleForFund(state, "a"), true);
+  assert.equal(fundComparisonPointsVisibleForFund(state, "b"), false);
+
+  state = toggleFocusedFundComparisonPoints(state, "a");
+  assert.equal(fundComparisonPointsScope(state), "off");
+  assert.equal(fundComparisonPointsVisibleForFund(state, "a"), false);
+
+  state = toggleAllFundComparisonPoints(state);
+  state = toggleFocusedFundComparisonPoints(state, "b");
+  assert.equal(state.all, false);
+  assert.deepEqual([...state.keys], ["b"]);
+
+  state = toggleFocusedFundComparisonPoints(state, "b");
+  assert.equal(fundComparisonPointsScope(state), "off");
+
+  state = toggleAllFundComparisonPoints(state);
+  assert.equal(fundComparisonPointsScope(state), "all");
+});
+
+test("investment points collect positive cash flows per fund with same-day totals", () => {
+  const funds = [
+    candidate("a", "100001", [
+      transaction("2020-01-02", 7000, 700, 10),
+      transaction("2023-06-16", 3000, 150, 20),
+      transaction("2023-06-16", -1000, -50, 20),
+    ]),
+    candidate("b", "100002", [
+      transaction("2021-01-04", -6000, -500, 12),
+    ]),
+    candidate("c", undefined, [
+      transaction("2022-01-03", 4000, 800, 5),
+    ]),
+  ];
+  const investmentsByKey = collectFundComparisonInvestments(funds);
+  assert.deepEqual(investmentsByKey.get("a"), [
+    { date: "2020-01-02", amount: 7000, label: "Purchase" },
+    { date: "2023-06-16", amount: 3000, label: "Purchase" },
+  ]);
+  assert.equal(investmentsByKey.has("b"), false);
+  assert.deepEqual(investmentsByKey.get("c"), [
+    { date: "2022-01-03", amount: 4000, label: "Purchase" },
+  ]);
+});
+
+test("same-day purchases combine into one investment point with their combined amount", () => {
+  const funds = [
+    candidate("a", "100001", [
+      transaction("2020-03-05", 2000, 100, 20),
+      transaction("2020-03-05", 3000, 150, 20),
+    ]),
+  ];
+  const investmentsByKey = collectFundComparisonInvestments(funds);
+  assert.deepEqual(investmentsByKey.get("a"), [
+    { date: "2020-03-05", amount: 5000, label: "Purchase" },
+  ]);
 });

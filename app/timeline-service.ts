@@ -14,6 +14,7 @@ type TimelineHolding = {
   nav: number;
   navDate: string;
   liveNav?: boolean;
+  liveValue?: number;
   navHistory?: HistoricalNavPoint[];
   transactions: FundTransaction[];
   folioHoldings?: FolioHolding[];
@@ -156,7 +157,7 @@ export function buildHoldingTimeline(holding: TimelineHolding): TimelinePoint[] 
   mergePoint(points, {
     date: holding.navDate,
     invested: holding.invested,
-    value: holding.currentValue,
+    value: holding.liveValue ?? holding.currentValue,
     nav: holding.nav,
     exact: !holding.liveNav,
     live: holding.liveNav,

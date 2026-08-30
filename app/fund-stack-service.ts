@@ -122,6 +122,7 @@ export function annualizedReturnAt(
 export function portfolioAnnualizedReturn(portfolio: {
   valuationDate: string;
   currentValue: number;
+  liveValue?: number;
   timeline: Array<{ date: string; transactionAmount?: number }>;
   funds: Array<{
     currentValue: number;
@@ -154,7 +155,7 @@ export function portfolioAnnualizedReturn(portfolio: {
       balance: 0,
       label: "Portfolio cash flow",
     }));
-  return annualizedReturnAt(transactions, portfolio.valuationDate, portfolio.currentValue);
+  return annualizedReturnAt(transactions, portfolio.valuationDate, portfolio.liveValue ?? portfolio.currentValue);
 }
 
 export function portfolioAbsoluteReturn(invested: number, wealthCreated: number) {
@@ -193,6 +194,7 @@ const investedAt = (transactions: FundTransaction[], date: string) =>
 type PreparedFund = {
   key: string;
   currentValue: number;
+  liveValue?: number;
   currentInvested: number;
   navHistory?: HistoricalNavPoint[];
   groups: FundTransaction[][];
@@ -216,6 +218,7 @@ const prepareFund = (fund: FundHolding): PreparedFund => {
   return {
     key: fund.key,
     currentValue: fund.currentValue,
+    liveValue: fund.liveValue,
     currentInvested: fund.invested,
     navHistory: fund.navHistory,
     groups,
@@ -260,9 +263,9 @@ const snapshotAt = (
   if (date === valuationDate) {
     return {
       fundKey: prepared.key,
-      value: prepared.currentValue,
+      value: prepared.liveValue ?? prepared.currentValue,
       invested: prepared.currentInvested,
-      contribution: prepared.currentValue - prepared.currentInvested,
+      contribution: (prepared.liveValue ?? prepared.currentValue) - prepared.currentInvested,
     };
   }
   if (!prepared.reconstructable) return null;

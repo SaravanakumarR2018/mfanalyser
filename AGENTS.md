@@ -162,9 +162,14 @@ Preserve and test every applicable transition:
 4. For a real CAS, `Landing.processFile` awaits the latest-NAV refresh before
    showing the first dashboard. Working-version-11 does not render a separate
    CAS-only dashboard while the latest request is pending.
-5. A successful latest-NAV refresh values matched active funds and folios using
-   their CAS unit balances, enriches scheme codes, preserves unmatched funds on
-   partial coverage, and appends/replaces one live endpoint.
+5. A successful latest-NAV refresh never revalues the statement headline or
+   holding current values. It enriches matched active funds and folios with
+   scheme codes, latest official NAV, its live date, and a separate `liveValue`
+   computed from CAS unit balances × the latest official NAV; a portfolio-level
+   `liveValue` and `liveValuationDate` accompany the appended/replaced live
+   endpoint. Unmatched funds are preserved as-is under partial coverage. Live
+   NAVs power the charts, momentum, and XIRR; `currentValue` totals stay
+   anchored to the reconciled statement.
 6. A failed or unusable latest-NAV response falls back to the reconciled CAS
    valuation with an explicit error and does not begin daily-history loading.
 7. After the first dashboard render, eligible daily histories load in the
@@ -199,6 +204,11 @@ Preserve and test every applicable transition:
   a newer statement NAV.
 - A partial latest-NAV match must not invent coverage or replace unmatched fund
   values. Mixed publication dates and coverage must remain explicit.
+- A live-NAV refresh is separate from statement valuation: `currentValue` (the
+  reconciled statement total and its fund/folio parts) must never be overwritten
+  by latest NAVs, while `liveValue`/`liveValuationDate` track the latest
+  valuation and `valuationDate`/`valuationSource` record the most recent
+  successful refresh date for chart and coverage reference.
 - Historical loading is bounded to four concurrent schemes, deduplicates a
   shared scheme code, honors Retry-After for throttling, supports cancellation,
   and reconciles a live endpoint against history.
