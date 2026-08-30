@@ -18,7 +18,7 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     let releaseHistory!: () => void;
     const historyGate = new Promise<void>((resolve) => { releaseHistory = resolve; });
     await mockLatestNav(page);
-    await page.route("https://api.mfapi.in/mf/**", async (route) => {
+    await page.route("**/api/nav-history**", async (route) => {
       const url = new URL(route.request().url());
       if (url.searchParams.get("startDate") === "1900-01-01") {
         comparisonHistoryUrl = url.toString();
@@ -64,7 +64,7 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     await expect(page.locator(".fund-comparison-card")).toHaveAttribute("data-history-state", "ready");
 
     const request = new URL(dailyHistoryUrl);
-    expect(request.pathname.split("/").at(-1)).toBe(TEST_SCHEME_CODE);
+    expect(request.searchParams.get("schemeCode")).toBe(TEST_SCHEME_CODE);
     expect(request.searchParams.get("startDate")).toBe("2025-01-01");
     expect(request.searchParams.get("endDate")).toBe("2026-08-14");
     expect(new URL(comparisonHistoryUrl).searchParams.get("startDate")).toBe("1900-01-01");
@@ -103,7 +103,7 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     const assertNoErrors = await installFailureGuards(page);
     let fullHistoryRequests = 0;
     await mockLatestNav(page);
-    await page.route("https://api.mfapi.in/mf/**", async (route) => {
+    await page.route("**/api/nav-history**", async (route) => {
       const request = new URL(route.request().url());
       const fullHistory = request.searchParams.get("startDate") === "1900-01-01";
       if (fullHistory) {
@@ -182,7 +182,7 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     let fullHistoryRequests = 0;
     let fullHistoryAttempts = 0;
     await mockLatestNav(page);
-    await page.route("https://api.mfapi.in/mf/**", async (route) => {
+    await page.route("**/api/nav-history**", async (route) => {
       const request = new URL(route.request().url());
       if (request.searchParams.get("startDate") !== "1900-01-01") {
         await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(dailyHistoryPayload()) });
@@ -225,7 +225,7 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     let historyRequests = 0;
     await mockLatestNav(page, { status: 503, body: "temporarily unavailable" });
     page.on("request", (request) => {
-      if (new URL(request.url()).origin === "https://api.mfapi.in") historyRequests += 1;
+      if (new URL(request.url()).pathname === "/api/nav-history") historyRequests += 1;
     });
     await page.goto("/");
     await uploadCas(page);
@@ -256,7 +256,7 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     let dailyHistoryAttempts = 0;
     let comparisonHistoryAttempts = 0;
     await mockLatestNav(page);
-    await page.route("https://api.mfapi.in/mf/**", async (route) => {
+    await page.route("**/api/nav-history**", async (route) => {
       const request = new URL(route.request().url());
       if (request.searchParams.get("startDate") === "1900-01-01") {
         comparisonHistoryAttempts += 1;

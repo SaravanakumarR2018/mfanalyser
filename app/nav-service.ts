@@ -94,7 +94,11 @@ async function fetchSchemeHistory(
   parentSignal?: AbortSignal,
 ) {
   const [from, to] = range;
-  const upstream = new URL(`https://api.mfapi.in/mf/${encodeURIComponent(schemeCode)}`);
+  // Keep the browser coupled to our small, validated history contract rather
+  // than to a third-party response shape. The proxy also gives Cloudflare one
+  // shared cache for all visitors when the history provider is intermittent.
+  const upstream = new URL("/api/nav-history", globalThis.location?.origin ?? "http://localhost");
+  upstream.searchParams.set("schemeCode", schemeCode);
   upstream.searchParams.set("startDate", from);
   upstream.searchParams.set("endDate", to);
   let lastError: unknown;
@@ -105,8 +109,8 @@ async function fetchSchemeHistory(
     const abort = () => controller.abort();
     parentSignal?.addEventListener("abort", abort, { once: true });
     try {
-      const response = await fetch(upstream, {
-        cache: "default",
+      const response = await fetch(`${upstream.pathname}${upstream.search}`, {
+        cache: "no-store",
         signal: controller.signal,
       });
       if (!response.ok) {

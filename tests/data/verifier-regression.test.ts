@@ -110,7 +110,7 @@ test("daily history enforces the four-request concurrency cap and inter-batch pa
     calls += 1;
     activeRequests += 1;
     maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
-    const schemeCode = new URL(String(input), "http://localhost").pathname.split("/").at(-1) ?? "";
+    const schemeCode = new URL(String(input), "http://localhost").searchParams.get("schemeCode") ?? "";
     return await new Promise<Response>((resolve) => {
       originalSetTimeout(() => {
         activeRequests -= 1;
