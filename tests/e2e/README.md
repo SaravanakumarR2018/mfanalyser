@@ -93,7 +93,7 @@ assertion.
 
 ## Testability limits / next hardening targets
 
-- Production state is not dependency-injected. Network failures can be controlled at `/api/nav` and the direct `api.mfapi.in` history request, but parser internals cannot be paused at an exact page without using a multi-page fixture plus delayed NAV.
+- Production state is not dependency-injected. Network failures can be controlled at `/api/nav` and `/api/nav-history`, but parser internals cannot be paused at an exact page without using a multi-page fixture plus delayed NAV.
 - Most selectors use accessible roles/names; a small number of chart/drawing assertions use stable existing classes and `data-*` diagnostics. Dedicated test IDs would reduce coupling if labels are redesigned.
 - External AMFI availability is intentionally excluded from E2E. Server/data tests should own upstream schema checks, while this suite owns every browser state produced by those schemas.
 - Screenshot goldens should only be updated after a human reviews the diffs; do not use update mode automatically in CI.

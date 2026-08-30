@@ -186,7 +186,7 @@ test.describe("full-history normalized fund comparison", () => {
     expect(fullHistoryUrls).toHaveLength(4);
     for (const requestUrl of fullHistoryUrls) {
       const url = new URL(requestUrl);
-      expect(url.origin).toBe("https://api.mfapi.in");
+      expect(url.pathname).toBe("/api/nav-history");
       expect(url.searchParams.get("startDate")).toBe("1900-01-01");
       expect(url.searchParams.get("endDate")).toBe("2026-08-14");
       expect(Object.values(COMPARISON_SCHEMES).some((scheme) => requestUrl.includes(scheme.name))).toBe(false);

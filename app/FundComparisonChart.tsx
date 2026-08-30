@@ -35,6 +35,7 @@ import { formatInr } from "./formatters";
 import { loadFundComparisonHistories } from "./nav-service";
 import type { IndexRange } from "./range-window";
 import { useRangeWindowDrag } from "./useRangeWindowDrag";
+import { useResponsiveCanvasRedraw } from "./useResponsiveCanvasRedraw";
 import VerticalScaleControl from "./VerticalScaleControl";
 import { scaleForVerticalRange, VERTICAL_RANGE_MAX } from "./vertical-range";
 
@@ -427,6 +428,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
       return;
     }
     const width = shell.clientWidth;
+    if (width < 2) return;
     const chartGeometry = comparisonChartGeometry(window.innerWidth <= 768);
     const height = chartGeometry.height;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -582,12 +584,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     }
   }, [activeFocusedFundKey, axisTicks, colorFor, emphasizedFundKey, hoverDate, hoveredFundKey, verticalScale, visibleDates, visibleEnd, visibleModel, visibleStart]);
 
-  useEffect(() => {
-    draw();
-    const observer = new ResizeObserver(draw);
-    if (shellRef.current) observer.observe(shellRef.current);
-    return () => observer.disconnect();
-  }, [draw]);
+  useResponsiveCanvasRedraw(shellRef, draw);
 
   const clearHover = useCallback(() => {
     setHoverDate(null);

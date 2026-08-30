@@ -230,10 +230,11 @@ test("full scheme history loads once per session, retains the earliest series, a
   const points = await withFetch(async (input, init) => {
     calls += 1;
     const url = new URL(String(input), "http://localhost");
-    assert.equal(url.origin + url.pathname, "https://api.mfapi.in/mf/1001");
+    assert.equal(url.pathname, "/api/nav-history");
+    assert.equal(url.searchParams.get("schemeCode"), "1001");
     assert.equal(url.searchParams.get("startDate"), "1900-01-01");
     assert.equal(url.searchParams.get("endDate"), "2026-02-02");
-    assert.equal(init?.cache, "default");
+    assert.equal(init?.cache, "no-store");
     assert.ok(init?.signal instanceof AbortSignal);
     return Response.json({
       status: "SUCCESS",
@@ -358,14 +359,14 @@ test("daily history refresh loads each scheme, reports progress, and builds only
   const refreshed = await withFetch(async (input) => {
     const url = new URL(String(input), "http://localhost");
     urls.push(url.href);
-    const schemeCode = url.pathname.split("/").at(-1) ?? "";
-    assert.equal(url.origin, "https://api.mfapi.in");
+    const schemeCode = url.searchParams.get("schemeCode") ?? "";
+    assert.equal(url.pathname, "/api/nav-history");
     assert.equal(url.searchParams.get("endDate"), "2026-02-02");
     return Response.json(mirrorHistory(schemeCode));
   }, () => refreshWithDailyHistory(portfolio, undefined, (value) => progress.push(value)));
 
   assert.equal(urls.length, 3);
-  assert.deepEqual(new Set(urls.map((url) => new URL(url).pathname.split("/").at(-1))), new Set(["1001", "1002", "1003"]));
+  assert.deepEqual(new Set(urls.map((url) => new URL(url).searchParams.get("schemeCode"))), new Set(["1001", "1002", "1003"]));
   assert.deepEqual(refreshed.navHistoryCoverage, { updated: 3, total: 3 });
   assert.equal(refreshed.navHistoryLoading, false);
   assert.equal(refreshed.navHistoryError, undefined);
@@ -469,7 +470,7 @@ test("daily history deduplicates one scheme request shared by multiple holdings"
   let calls = 0;
   const refreshed = await withFetch(async (input) => {
     calls += 1;
-    const schemeCode = new URL(String(input), "http://localhost").pathname.split("/").at(-1) ?? "";
+    const schemeCode = new URL(String(input), "http://localhost").searchParams.get("schemeCode") ?? "";
     return Response.json(mirrorHistory(schemeCode));
   }, () => refreshWithDailyHistory(portfolio));
 
@@ -484,7 +485,7 @@ test("missing scheme codes finish cleanly with explicit incomplete coverage and 
   let calls = 0;
   const refreshed = await withFetch(async (input) => {
     calls += 1;
-    const schemeCode = new URL(String(input), "http://localhost").pathname.split("/").at(-1) ?? "";
+    const schemeCode = new URL(String(input), "http://localhost").searchParams.get("schemeCode") ?? "";
     return Response.json(mirrorHistory(schemeCode));
   }, () => refreshWithDailyHistory(portfolio));
 

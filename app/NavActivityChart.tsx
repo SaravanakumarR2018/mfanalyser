@@ -6,6 +6,7 @@ import type { FundTransaction, HistoricalNavPoint } from "./cas-parser";
 import { formatInr } from "./formatters";
 import { buildNavPoints, type NavActivityPoint } from "./nav-activity-service";
 import { loadFullSchemeNavHistory } from "./nav-service";
+import { useResponsiveCanvasRedraw } from "./useResponsiveCanvasRedraw";
 import { useRangeWindowDrag } from "./useRangeWindowDrag";
 
 type NavActivityChartProps = {
@@ -173,6 +174,7 @@ export default function NavActivityChart({
     const shell = shellRef.current;
     if (!canvas || !shell || !points.length) return;
     const width = shell.clientWidth;
+    if (width < 2) return;
     const height = 250;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = width * dpr;
@@ -309,12 +311,7 @@ export default function NavActivityChart({
     }
   }, [hovered, points]);
 
-  useEffect(() => {
-    draw();
-    const observer = new ResizeObserver(draw);
-    if (shellRef.current) observer.observe(shellRef.current);
-    return () => observer.disconnect();
-  }, [draw]);
+  useResponsiveCanvasRedraw(shellRef, draw);
 
   const pointerToIndex = (clientX: number) => {
     const rect = canvasRef.current?.getBoundingClientRect();

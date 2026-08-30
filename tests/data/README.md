@@ -26,7 +26,7 @@ does not.
 | Latest NAV parsing | Header/malformed rows, both AMFI ISIN columns, duplicate-date precedence, invalid NAV/date filtering |
 | Latest NAV application | Full and partial matches, mixed publication dates, stale data, zero matches, malformed/non-OK response, closed-fund enrichment, folio propagation |
 | Latest NAV reruns | Immutable input and single replaced live endpoint (no duplicate point) |
-| Daily history orchestration | Direct browser requests to the mfapi.in mirror, both supported payload shapes, invested-period and on-demand full-scheme requests, scheme-identity validation, lagging-mirror repair from the exact latest AMFI observation, safe rejection of conflicting or missing past observations, session-memory reuse, concurrency progress, shared-scheme deduplication, Retry-After, missing scheme codes, cancellation, completed rerun no-op |
+| Daily history orchestration | Same-origin requests through the schema-normalizing history adapter, both supported upstream payload shapes, invested-period and on-demand full-scheme requests, scheme-identity validation, lagging-mirror repair from the exact latest AMFI observation, safe rejection of conflicting or missing past observations, session-memory reuse, concurrency progress, shared-scheme deduplication, Retry-After, missing scheme codes, cancellation, completed rerun no-op |
 | Daily valuation | Exact units by date and folio, no estimation for missing same-day NAV, no history when closing balances cannot reconcile, exact/live endpoint precedence |
 | Transactions and NAV chart | Same-day aggregation, purchases vs redemptions, official vs transaction NAV provenance, latest marker, earliest-published full-history range, invalid input filtering |
 | Fund NAV comparison | Order-independent active/closed scheme deduplication, daily-history completion gating followed by offscreen preload, bounded full-history loading for all 30 schemes from 1900 with exact 1990 observations retained, partial failure/cancellation, thin resting versus bold emphasized line contracts, per-fund inception and selected-range rebasing to 100, mirrored Y-axis tick values with signed percentage change from the ₹100 baseline, calendar-window preservation across selection changes, shared vertical-scale/window math, full earliest-to-latest union timeline, exact single-fund hover lookup, collision-aware near-point tooltip placement with continuity hysteresis and nearest safe-edge fallback, derived-value finite guards, no interpolation or forward-fill |
@@ -34,7 +34,7 @@ does not.
 | Portfolio/fund calculations | Absolute return, XIRR gain/loss/unavailable cases, active-folio completeness, closed-fund cash flows |
 | Chart/model calculations | Empty/constant scale, non-finite inputs, fund stacks, closed funds, contribution reconciliation, deterministic sorting and immutability |
 | Allocation visualization | Exact portfolio shares, invalid/non-positive filtering, immutable inputs, finite SVG donut paths, deterministic radial selection offsets, and viewport-safe tooltip placement with zero donut overlap |
-| Server proxy | Latest NAV pass-through, cache contract, and safe 502 errors |
+| Server proxies | Latest NAV pass-through plus schema-tolerant historical NAV normalization, cache contracts, identity checks, and safe 502 errors |
 
 ## Baseline issues found (production code intentionally unchanged)
 
