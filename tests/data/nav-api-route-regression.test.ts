@@ -58,7 +58,7 @@ test("history proxy normalizes current and legacy provider shapes behind one sta
         assert.equal(url.origin + url.pathname, "https://api.mfapi.in/mf/1001");
         assert.equal(url.searchParams.get("startDate"), "2026-02-01");
         assert.equal(url.searchParams.get("endDate"), "2026-02-02");
-        assert.equal(init?.cache, "force-cache");
+        assert.equal(init?.cache, undefined);
         assert.ok(init?.signal instanceof AbortSignal);
         return Response.json(payload);
       }, () => getNavHistory(new Request(

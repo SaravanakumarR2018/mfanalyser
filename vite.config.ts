@@ -49,7 +49,10 @@ export default defineConfig(async () => {
         ? { watch: { useFsEvents: false, usePolling: true } }
         : {}),
       proxy: {
-        "/api/nav": {
+        // Match only the latest-NAV endpoint. A prefix match also captures
+        // /api/nav-history and silently sends graph-history requests to the
+        // NAVAll.txt upstream instead of the application route.
+        "^/api/nav$": {
           target: "https://portal.amfiindia.com",
           changeOrigin: true,
           rewrite: () => "/spages/NAVAll.txt",

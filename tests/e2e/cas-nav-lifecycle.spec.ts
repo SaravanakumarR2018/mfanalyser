@@ -12,6 +12,19 @@ import {
 } from "./helpers/cas-fixture";
 
 test.describe("real CAS parser and NAV lifecycle", () => {
+  test("keeps the historical NAV adapter distinct from the latest-NAV development proxy", async ({ page }) => {
+    await page.goto("/");
+    const response = await page.evaluate(async () => {
+      const result = await fetch("/api/nav-history?schemeCode=unsafe&startDate=2026-01-01&endDate=2026-01-02");
+      return { status: result.status, body: await result.json() };
+    });
+
+    expect(response).toEqual({
+      status: 400,
+      body: { error: "Invalid published NAV history request." },
+    });
+  });
+
   test("parses, reconciles, applies latest NAV, then enriches with daily history", async ({ page }) => {
     let dailyHistoryUrl = "";
     let comparisonHistoryUrl = "";

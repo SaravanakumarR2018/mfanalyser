@@ -40,9 +40,11 @@ export async function GET(request: Request) {
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), 30_000);
   try {
+    // Cloudflare Workers rejects the unsupported `force-cache` subrequest mode.
+    // Cache the normalized route response below instead of making the upstream
+    // subrequest fail before it reaches the history provider.
     const response = await fetch(upstream, {
       headers: { accept: "application/json" },
-      cache: "force-cache",
       signal: controller.signal,
     });
     if (!response.ok) {
