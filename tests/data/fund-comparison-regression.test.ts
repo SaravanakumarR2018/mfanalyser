@@ -9,6 +9,7 @@ import {
   buildFundComparisonScale,
   fundComparisonLineWidth,
   fundComparisonTooltipAt,
+  parseAmfiFundCatalog,
   preserveFundComparisonDateRange,
   rebaseFundComparisonModel,
   shouldStartFundComparisonHistoryLoad,
@@ -41,6 +42,42 @@ test("comparison history waits for daily enrichment, then preloads without a vie
   assert.equal(shouldStartFundComparisonHistoryLoad(false, 0), false);
   assert.equal(shouldStartFundComparisonHistoryLoad(false, -1), false);
   assert.equal(shouldStartFundComparisonHistoryLoad(false, 1.5), false);
+});
+
+test("official AMFI directory becomes a deduplicated, filterable comparison catalogue", () => {
+  const catalog = parseAmfiFundCatalog([
+    "Example Mutual Fund",
+    "Open Ended Schemes ( Equity Scheme - Flexi Cap Fund )",
+    "123;INF000A00001;;Example Flexi Cap Fund - Direct Growth;12.3;18-Aug-2026",
+    "123;INF000A00001;;duplicate;12.3;18-Aug-2026",
+    "124;INF000A00002;;Example Flexi Cap Fund - Regular Growth;11.2;18-Aug-2026",
+    "bad;INF000A00003;;Invalid;10;18-Aug-2026",
+  ].join("\n"));
+
+  assert.equal(catalog.length, 2);
+  assert.deepEqual(catalog.map(({ key, plan, amc }) => ({ key, plan, amc })), [
+    { key: "scheme:123", plan: "Direct", amc: "Example Mutual Fund" },
+    { key: "scheme:124", plan: "Regular", amc: "Example Mutual Fund" },
+  ]);
+  assert.match(catalog[0].category, /Flexi Cap/);
+  assert.deepEqual(catalog[0].transactions, []);
+});
+
+test("official catalogue parsing retains a fourteen-thousand-scheme universe", () => {
+  const rows = Array.from({ length: 14_000 }, (_, index) => {
+    const code = String(200_000 + index);
+    const isin = `INF${String(index).padStart(9, "0")}`;
+    return `${code};${isin};;Synthetic India Fund ${index} Direct Growth;10;18-Aug-2026`;
+  });
+  const catalog = parseAmfiFundCatalog([
+    "Synthetic Mutual Fund",
+    "Open Ended Schemes ( Equity Scheme )",
+    ...rows,
+  ].join("\n"));
+
+  assert.equal(catalog.length, 14_000);
+  assert.equal(new Set(catalog.map(({ key }) => key)).size, 14_000);
+  assert.ok(catalog.every(({ schemeCode, plan }) => Boolean(schemeCode) && plan === "Direct"));
 });
 
 test("comparison lines are thin at rest and only become bold when emphasized", () => {
@@ -590,13 +627,18 @@ test("bulk comparison history repairs a lagging endpoint but rejects inconsisten
     const schemeCode = new URL(String(input), "http://localhost").pathname.split("/").at(-1);
     return Response.json({
       meta: { scheme_code: schemeCode },
-      data: [{ date: "02-02-2026", nav: schemeCode === "1001" ? 99 : 5 }],
+      data: schemeCode === "1001"
+        ? [{ date: "02-02-2026", nav: 99 }]
+        : [{ date: "02-02-2026", nav: 5 }, { date: "01-02-2026", nav: 4.9 }],
     });
   }, () => loadFundComparisonHistories([mismatched, valid], "2026-02-02"));
 
   assert.match(result.failures.get("mismatch") ?? "", /did not reconcile/);
   assert.equal(result.historyByKey.has("mismatch"), false);
-  assert.deepEqual(result.historyByKey.get("valid"), [{ date: "2026-02-02", nav: 5 }]);
+  assert.deepEqual(result.historyByKey.get("valid"), [
+    { date: "2026-02-01", nav: 4.9 },
+    { date: "2026-02-02", nav: 5 },
+  ]);
 
   const invalidExpected = candidate("invalid-expected", "1002");
   invalidExpected.expectedNav = Number.NaN;
@@ -645,6 +687,29 @@ test("bulk comparison history rejects impossible upstream calendar dates", async
   assert.equal(result.failures.get(fund.key), "Full published NAV history is unavailable for this scheme.");
 });
 
+test("comparison history rejects a misleading one-observation upstream series", async () => {
+  let attempts = 0;
+  const fund = candidate("one-point", "1001");
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = ((callback: TimerHandler, delay?: number, ...args: unknown[]) =>
+    originalSetTimeout(callback, delay === 500 || delay === 1_000 ? 0 : delay, ...args)) as typeof globalThis.setTimeout;
+  try {
+    const result = await withFetch(async () => {
+      attempts += 1;
+      return Response.json({
+        meta: { scheme_code: "1001" },
+        data: [{ date: "14-08-2026", nav: 10 }],
+      });
+    }, () => loadFundComparisonHistories([fund], "2026-08-14"));
+
+    assert.equal(attempts, 1);
+    assert.equal(result.historyByKey.size, 0);
+    assert.equal(result.failures.get(fund.key), "Full published NAV history could not be loaded.");
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
 test("bulk comparison loads all thirty schemes from 1900 and retains exact 1990 inception observations", async () => {
   const candidates = Array.from({ length: 30 }, (_, index) => candidate(
     `fund-${index + 1}`,
@@ -652,6 +717,7 @@ test("bulk comparison loads all thirty schemes from 1900 and retains exact 1990 
   ));
   const urls: URL[] = [];
   const progress: Array<{ completed: number; total: number }> = [];
+  const streamed = new Map<string, HistoricalNavPoint[]>();
   const originalSetTimeout = globalThis.setTimeout;
   globalThis.setTimeout = ((callback: TimerHandler, delay?: number, ...args: unknown[]) =>
     originalSetTimeout(callback, delay === 900 ? 0 : delay, ...args)) as typeof globalThis.setTimeout;
@@ -671,11 +737,14 @@ test("bulk comparison loads all thirty schemes from 1900 and retains exact 1990 
       "2026-08-14",
       undefined,
       (value) => progress.push(value),
+      (key, points) => streamed.set(key, points),
     ));
 
     assert.equal(urls.length, 30);
     assert.equal(result.historyByKey.size, 30);
     assert.equal(result.failures.size, 0);
+    assert.equal(streamed.size, 30);
+    assert.ok([...streamed.values()].every((points) => points.length === 2));
     assert.ok(urls.every((url) => url.searchParams.get("startDate") === "1900-01-01"));
     assert.ok(urls.every((url) => url.searchParams.get("endDate") === "2026-08-14"));
     assert.deepEqual(progress.at(-1), { completed: 30, total: 30 });
@@ -685,7 +754,7 @@ test("bulk comparison loads all thirty schemes from 1900 and retains exact 1990 
   }
 });
 
-test("bulk comparison history enforces four concurrent schemes and one inter-batch pause", async () => {
+test("bulk comparison history continuously drains work while enforcing four concurrent schemes", async () => {
   const candidates = Array.from({ length: 5 }, (_, index) => candidate(
     `fund-${index}`,
     String(1001 + index),
@@ -709,7 +778,10 @@ test("bulk comparison history enforces four concurrent schemes and one inter-bat
           active -= 1;
           resolve(Response.json({
             meta: { scheme_code: schemeCode },
-            data: [{ date: "02-02-2026", nav: 10 }],
+            data: [
+              { date: "02-02-2026", nav: 10 },
+              { date: "01-02-2026", nav: 9.9 },
+            ],
           }));
         }, 5);
       });
@@ -717,7 +789,7 @@ test("bulk comparison history enforces four concurrent schemes and one inter-bat
 
     assert.equal(maximumActive, 4);
     assert.equal(result.historyByKey.size, 5);
-    assert.equal(observedDelays.filter((delay) => delay === 900).length, 1);
+    assert.equal(observedDelays.filter((delay) => delay === 900).length, 0);
   } finally {
     globalThis.setTimeout = originalSetTimeout;
   }

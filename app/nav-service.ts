@@ -228,6 +228,7 @@ export async function loadFundComparisonHistories(
   valuationDate: string,
   signal?: AbortSignal,
   onProgress?: (progress: FundComparisonHistoryProgress) => void,
+  onHistory?: (key: string, points: HistoricalNavPoint[]) => void,
 ): Promise<FundComparisonHistoryLoadResult> {
   if (signal?.aborted) throw new DOMException("History load cancelled.", "AbortError");
   const historyByKey = new Map<string, HistoricalNavPoint[]>();
@@ -292,10 +293,14 @@ export async function loadFundComparisonHistories(
               candidate.expectedNavDate,
             );
           }
+          if (reconciledHistory.length < 2) {
+            throw new Error("Full published NAV history requires at least two observations.");
+          }
           currentHistoryCache().set(cacheKey, reconciledHistory);
         }
         for (const candidate of target.candidates) {
           historyByKey.set(candidate.key, reconciledHistory);
+          onHistory?.(candidate.key, reconciledHistory);
         }
       } catch (error) {
         if (signal?.aborted) throw error;
@@ -309,7 +314,6 @@ export async function loadFundComparisonHistories(
         onProgress?.({ completed: Math.min(completed, total), total });
       }
     }));
-    if (cursor + HISTORY_CONCURRENCY < targets.length) await wait(HISTORY_BATCH_PAUSE_MS);
   }
 
   return { historyByKey, failures, completed: Math.min(completed, total), total };

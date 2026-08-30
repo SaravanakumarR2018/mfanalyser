@@ -8,7 +8,15 @@ export const COMPARISON_SCHEMES = {
   unavailable: { isin: "INF999U09090", name: "Unmatched Equity Direct Growth" },
 } as const;
 
+export const INDIA_CATALOG_SCHEME = {
+  code: "999999",
+  isin: "INF999999999",
+  name: "Zenith India Large Cap Direct Growth",
+  latestNav: 42,
+} as const;
+
 export type ComparisonSchemeKey = Exclude<keyof typeof COMPARISON_SCHEMES, "unavailable">;
+export type ComparisonHistoryKey = ComparisonSchemeKey | "zenith";
 
 const escapePdfText = (value: string) => value
   .replaceAll("\\", "\\\\")
@@ -88,13 +96,15 @@ export const makeFundComparisonCasPdf = () => buildPdf([
 ]);
 
 export const comparisonLatestNavText = () => (
-  (Object.values(COMPARISON_SCHEMES) as Array<typeof COMPARISON_SCHEMES[keyof typeof COMPARISON_SCHEMES]>)
+  "Example Mutual Fund\nOpen Ended Schemes ( Equity Scheme - Large Cap Fund )\n"
+  + (Object.values(COMPARISON_SCHEMES) as Array<typeof COMPARISON_SCHEMES[keyof typeof COMPARISON_SCHEMES]>)
     .filter((scheme): scheme is typeof COMPARISON_SCHEMES[ComparisonSchemeKey] => "code" in scheme)
     .map((scheme) => `${scheme.code};${scheme.isin};;${scheme.name};${scheme.latestNav.toFixed(4)};14-Aug-2026`)
-    .join("\n") + "\n"
+    .join("\n")
+  + `\n${INDIA_CATALOG_SCHEME.code};${INDIA_CATALOG_SCHEME.isin};;${INDIA_CATALOG_SCHEME.name};${INDIA_CATALOG_SCHEME.latestNav.toFixed(4)};14-Aug-2026\n`
 );
 
-const histories: Record<ComparisonSchemeKey, Array<{ date: string; nav: number }>> = {
+const histories: Record<ComparisonHistoryKey, Array<{ date: string; nav: number }>> = {
   alpha: [
     { date: "02-01-2020", nav: 10 },
     { date: "04-01-2021", nav: 12 },
@@ -128,10 +138,19 @@ const histories: Record<ComparisonSchemeKey, Array<{ date: string; nav: number }
     { date: "14-08-2025", nav: 13.5 },
     { date: "14-08-2026", nav: 14 },
   ],
+  zenith: [
+    ...Array.from({ length: 175 }, (_, index) => {
+      const monthIndex = index;
+      const year = 2012 + Math.floor(monthIndex / 12);
+      const month = monthIndex % 12 + 1;
+      return { date: `01-${String(month).padStart(2, "0")}-${year}`, nav: 10 + index * 0.18 };
+    }),
+    { date: "14-08-2026", nav: 42 },
+  ],
 };
 
-export function comparisonHistoryPayload(key: ComparisonSchemeKey) {
-  const scheme = COMPARISON_SCHEMES[key];
+export function comparisonHistoryPayload(key: ComparisonHistoryKey) {
+  const scheme = key === "zenith" ? INDIA_CATALOG_SCHEME : COMPARISON_SCHEMES[key];
   return {
     status: "SUCCESS",
     meta: { scheme_code: scheme.code },
@@ -140,11 +159,12 @@ export function comparisonHistoryPayload(key: ComparisonSchemeKey) {
 }
 
 export const comparisonKeyForCode = (code: string) => (
+  code === INDIA_CATALOG_SCHEME.code ? "zenith" :
   (Object.keys(COMPARISON_SCHEMES) as Array<keyof typeof COMPARISON_SCHEMES>)
     .find((key) => "code" in COMPARISON_SCHEMES[key] && COMPARISON_SCHEMES[key].code === code)
-) as ComparisonSchemeKey | undefined;
+) as ComparisonHistoryKey | undefined;
 
-export async function fulfillComparisonHistory(route: Route, key: ComparisonSchemeKey) {
+export async function fulfillComparisonHistory(route: Route, key: ComparisonHistoryKey) {
   await route.fulfill({
     status: 200,
     contentType: "application/json",
@@ -154,7 +174,7 @@ export async function fulfillComparisonHistory(route: Route, key: ComparisonSche
 
 export async function installFundComparisonMocks(page: Page, onHistory?: (
   route: Route,
-  key: ComparisonSchemeKey,
+  key: ComparisonHistoryKey,
   isFullHistory: boolean,
 ) => Promise<void>) {
   await page.route("**/api/nav", (route) => route.fulfill({
