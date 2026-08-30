@@ -70,6 +70,29 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     expect(new URL(comparisonHistoryUrl).searchParams.get("startDate")).toBe("1900-01-01");
   });
 
+  test("carries the last observation across missing calendar dates in portfolio and NAV charts", async ({ page }) => {
+    await mockLatestNav(page);
+    await mockDailyHistory(page);
+    await page.goto("/");
+    await uploadCas(page);
+    await expect(page.locator(".reconcile-bar")).toContainText("1/1 daily histories");
+
+    const portfolioCanvas = page.locator('.chart-card canvas[role="img"]').first();
+    await expect(portfolioCanvas).toHaveAttribute("data-daily-points", "6");
+    await expect(portfolioCanvas).toHaveAttribute("data-total-points", "591");
+    await expect(portfolioCanvas).toHaveAttribute("data-carried-points", "584");
+
+    await page.locator(".fund-group .fund-row").first().click();
+    const dialog = page.getByRole("dialog", { name: "Testhouse Flexi Cap Direct Growth" });
+    const journeyCanvas = dialog.getByRole("img", { name: /Fund value chart/ });
+    const navCanvas = dialog.locator('.nav-activity-card canvas[role="img"]');
+    await expect(journeyCanvas).toHaveAttribute("data-carried-points", "585");
+    await expect(navCanvas).toHaveAttribute("data-daily-points", "6");
+    await expect(navCanvas).toHaveAttribute("data-total-points", "591");
+    await expect(navCanvas).toHaveAttribute("data-carried-points", "585");
+    await expect(dialog.locator(".nav-activity-note")).toContainText("carries the last observed NAV forward for display without creating an official observation");
+  });
+
   test("floating history bar expands while the pointer crosses it and collapses after leaving", async ({ page }) => {
     await mockLatestNav(page);
     await mockDailyHistory(page, { delayMs: 3_000 });
@@ -130,7 +153,8 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     await expect(fullHistoryToggle).toHaveAttribute("aria-pressed", "false");
     await expect(canvas).toHaveAttribute("data-history-scope", "journey");
     await expect(canvas).toHaveAttribute("data-series-start", "2025-01-01");
-    await expect(canvas).toHaveAttribute("data-total-points", "6");
+    await expect(canvas).toHaveAttribute("data-total-points", "591");
+    await expect(canvas).toHaveAttribute("data-carried-points", "585");
     await expect(canvas).toHaveAttribute("data-investment-points", "3");
     await expect(scopeStatus).toHaveCount(0);
     const beforeBounds = await canvas.boundingBox();
@@ -141,7 +165,8 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     await expect(scopeStatus).toContainText("Full history · earliest published NAV 15 May 2004 · 12 observations");
     await expect(canvas).toHaveAttribute("data-history-scope", "full");
     await expect(canvas).toHaveAttribute("data-series-start", "2004-05-15");
-    await expect(canvas).toHaveAttribute("data-total-points", "12");
+    await expect(canvas).toHaveAttribute("data-total-points", "8127");
+    await expect(canvas).toHaveAttribute("data-carried-points", "8115");
     await expect(canvas).toHaveAttribute("data-investment-points", "3");
     await expect(canvas).toHaveAttribute("aria-label", /15 May 2004 to 14 Aug 2026/);
     const afterBounds = await canvas.boundingBox();
@@ -152,15 +177,15 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     expect(afterBounds?.height).toBeCloseTo(beforeBounds?.height ?? 0, 0);
 
     await navCard.getByRole("button", { name: "3Y", exact: true }).click();
-    expect(Number(await canvas.getAttribute("data-visible-points"))).toBeLessThan(12);
+    expect(Number(await canvas.getAttribute("data-visible-points"))).toBeLessThan(8127);
     await navCard.getByRole("button", { name: "All", exact: true }).click();
-    await expect(canvas).toHaveAttribute("data-visible-points", "12");
+    await expect(canvas).toHaveAttribute("data-visible-points", "8127");
     await canvas.hover({ position: { x: Math.max(1, (afterBounds?.width ?? 100) * 0.86), y: 150 } });
     await expect(navCard.locator(".nav-activity-tooltip")).toContainText("NAV");
 
     await navCard.getByRole("button", { name: "Hide full fund history" }).click();
     await expect(canvas).toHaveAttribute("data-history-scope", "journey");
-    await expect(canvas).toHaveAttribute("data-total-points", "6");
+    await expect(canvas).toHaveAttribute("data-total-points", "591");
     await expect(navCard.getByRole("button", { name: "Show full fund history" })).toHaveAttribute("aria-pressed", "false");
     await navCard.getByRole("button", { name: "Show full fund history" }).click();
     await expect(canvas).toHaveAttribute("data-history-scope", "full");
@@ -210,7 +235,7 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     await navCard.getByRole("button", { name: "Show full fund history" }).click();
     await expect(navCard.getByRole("status")).toContainText("Your current view is unchanged");
     await expect(canvas).toHaveAttribute("data-history-scope", "journey");
-    await expect(canvas).toHaveAttribute("data-total-points", "6");
+    await expect(canvas).toHaveAttribute("data-total-points", "591");
     expect(fullHistoryAttempts).toBe(3);
 
     await navCard.getByRole("button", { name: "Retry", exact: true }).click();
