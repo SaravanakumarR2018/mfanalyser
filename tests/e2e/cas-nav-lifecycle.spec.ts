@@ -12,6 +12,26 @@ import {
 } from "./helpers/cas-fixture";
 
 test.describe("real CAS parser and NAV lifecycle", () => {
+  test("renders enriched canvases after a narrow Safari layout settles", async ({ page, browserName }) => {
+    test.skip(browserName !== "webkit", "Safari canvas lifecycle coverage runs in WebKit.");
+    await page.setViewportSize({ width: 390, height: 664 });
+    await mockLatestNav(page);
+    await mockDailyHistory(page);
+    await page.goto("/");
+    await uploadCas(page);
+
+    const portfolioJourney = page.locator('.chart-card canvas[role="img"]').first();
+    await expect(portfolioJourney).toHaveAttribute("data-daily-points", "6");
+    await expectCanvasHasInk(portfolioJourney);
+    const enrichedStack = page.locator(".fund-stack-card canvas.stack-base-canvas").first();
+    await expect(enrichedStack).toHaveAttribute("data-visible-points", "6");
+    await enrichedStack.scrollIntoViewIfNeeded();
+    await expectCanvasHasInk(enrichedStack);
+    const comparison = page.locator('.fund-comparison-card canvas[role="img"]');
+    await comparison.scrollIntoViewIfNeeded();
+    await expectCanvasHasInk(comparison);
+  });
+
   test("keeps the historical NAV adapter distinct from the latest-NAV development proxy", async ({ page }) => {
     await page.goto("/");
     const response = await page.evaluate(async () => {
