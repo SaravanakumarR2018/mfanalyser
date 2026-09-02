@@ -526,6 +526,16 @@ export async function refreshWithLatestNav(portfolio: Portfolio): Promise<Portfo
   }
 }
 
+export async function refreshRestoredPortfolio(portfolio: Portfolio): Promise<Portfolio> {
+  const refreshed = await refreshWithLatestNav(portfolio);
+  if (portfolio.valuationSource !== "amfi" || refreshed.valuationSource === "amfi") return refreshed;
+  return {
+    ...portfolio,
+    navHistoryLoading: false,
+    liveUpdateError: `Saved values dated ${portfolio.valuationDate} are shown because the latest AMFI refresh was unavailable. ${refreshed.liveUpdateError ?? "Live NAVs could not be loaded."}`,
+  };
+}
+
 const applyDailyHistories = (
   portfolio: Portfolio,
   progress: HistoryLoadProgress,

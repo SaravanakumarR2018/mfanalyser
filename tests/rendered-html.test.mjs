@@ -23,7 +23,7 @@ async function render() {
   );
 }
 
-test("server-renders the FolioVista landing page and privacy promise", async () => {
+test("server-renders the FolioVista browser-restore shell without flashing the landing page", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -32,10 +32,9 @@ test("server-renders the FolioVista landing page and privacy promise", async () 
   assert.match(html, /<title>FolioVista — Mutual Fund CAS Dashboard<\/title>/i);
   assert.match(html, /<link[^>]+rel="icon"[^>]+href="\/favicon\.svg"[^>]+type="image\/svg\+xml"/i);
   assert.match(html, /<link[^>]+rel="shortcut icon"[^>]+href="\/favicon\.svg"/i);
-  assert.match(html, /Your mutual funds,/);
-  assert.match(html, /Choose statement/);
-  assert.match(html, /Your PDF never leaves this device/);
-  assert.match(html, /CAMS \+ KFintech/);
+  assert.match(html, /Opening FolioVista/);
+  assert.match(html, /Checking this browser for your saved portfolio/);
+  assert.doesNotMatch(html, /Choose statement/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|Building your site/i);
 });
 

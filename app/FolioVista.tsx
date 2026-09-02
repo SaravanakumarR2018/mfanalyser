@@ -19,7 +19,12 @@ import {
   type Portfolio,
   type TimelinePoint,
 } from "./cas-parser";
-import { refreshWithDailyHistory, refreshWithLatestNav, type NavHistoryProgress } from "./nav-service";
+import {
+  refreshRestoredPortfolio,
+  refreshWithDailyHistory,
+  refreshWithLatestNav,
+  type NavHistoryProgress,
+} from "./nav-service";
 import { buildHoldingTimeline } from "./timeline-service";
 import {
   clearPortfolioFromBrowser,
@@ -696,11 +701,13 @@ function Dashboard({
   portfolio,
   onImport,
   onClear,
+  refreshingLatest,
   historyProgress,
 }: {
   portfolio: Portfolio;
   onImport: () => void;
   onClear: () => void;
+  refreshingLatest: boolean;
   historyProgress: HistoryProgressState | null;
 }) {
   const [query, setQuery] = useState("");
@@ -723,6 +730,9 @@ function Dashboard({
   const absoluteReturnLabel = absoluteReturn === null ? "—" : `${absoluteReturn.toFixed(2)}%`;
   const annualizedReturn = useMemo(() => portfolioAnnualizedReturn(portfolio), [portfolio]);
   const activeFolios = portfolio.funds.reduce((total, fund) => total + fund.folios, 0);
+  const restoredRefreshError = portfolio.liveUpdateError?.startsWith("Saved values dated")
+    ? portfolio.liveUpdateError
+    : null;
   const fundColors = useMemo(
     () => new Map(portfolio.funds.map((fund, index) => [fund.key, palette[index % palette.length]])),
     [portfolio.funds],
@@ -797,13 +807,13 @@ function Dashboard({
       </header>
       <div className="dashboard-shell">
         <div className="reconcile-bar">
-          <div><span className="check-badge">✓</span><strong>{portfolio.valuationSource === "amfi" ? "Latest NAV applied" : "Statement reconciled"}</strong><i />{portfolio.navCoverage.updated}/{portfolio.navCoverage.total} funds updated · {portfolio.navHistoryLoading ? "daily history loading" : portfolio.navHistoryCoverage ? `${portfolio.navHistoryCoverage.updated}/${portfolio.navHistoryCoverage.total} daily histories` : "daily history unavailable"} · {activeFolios} active folios</div>
+          <div><span className="check-badge">✓</span><strong>{refreshingLatest ? "Refreshing latest NAV…" : restoredRefreshError ? "Saved NAV shown" : portfolio.valuationSource === "amfi" ? "Latest NAV applied" : "Statement reconciled"}</strong><i />{portfolio.navCoverage.updated}/{portfolio.navCoverage.total} funds updated · {portfolio.navHistoryLoading ? "daily history loading" : portfolio.navHistoryCoverage ? `${portfolio.navHistoryCoverage.updated}/${portfolio.navHistoryCoverage.total} daily histories` : "daily history unavailable"} · {activeFolios} active folios</div>
           <p><span className="privacy-pulse" /> CAS processed locally · AMFI prices only {portfolio.source === "demo" && <em>Demo data</em>}</p>
         </div>
 
         <div className={`valuation-notice ${portfolio.valuationSource === "amfi" ? "live" : "fallback"}`}>
           <span>{portfolio.valuationSource === "amfi" ? "LIVE" : "CAS"}</span>
-          <p><strong>{portfolio.valuationSource === "amfi" ? `Latest available official NAVs · ${formatDate(portfolio.valuationDate)}` : `Showing statement valuation · ${formatDate(portfolio.statementDate)}`}</strong>{portfolio.valuationSource === "amfi" ? ` Values use the unit balances in your CAS dated ${formatDate(portfolio.statementDate)}. ${portfolio.navHistoryLoading ? "Actual daily NAV history is loading in the background." : portfolio.navHistoryError ?? "Daily history uses only published AMFI observations."}` : ` ${portfolio.liveUpdateError ?? "Live NAVs were unavailable."}`}</p>
+          <p><strong>{portfolio.valuationSource === "amfi" ? `${restoredRefreshError ? "Saved official NAVs" : "Latest available official NAVs"} · ${formatDate(portfolio.valuationDate)}` : `Showing statement valuation · ${formatDate(portfolio.statementDate)}`}</strong>{portfolio.valuationSource === "amfi" ? ` Values use the unit balances in your CAS dated ${formatDate(portfolio.statementDate)}. ${restoredRefreshError ?? (portfolio.navHistoryLoading ? "Actual daily NAV history is loading in the background." : portfolio.navHistoryError ?? "Daily history uses only published AMFI observations.")}` : ` ${portfolio.liveUpdateError ?? "Live NAVs were unavailable."}`}</p>
         </div>
 
         <section className="summary-card">
@@ -1008,6 +1018,8 @@ function Dashboard({
 
 export default function FolioVista() {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
+  const [restoring, setRestoring] = useState(true);
+  const [refreshingLatest, setRefreshingLatest] = useState(false);
   const [historyProgress, setHistoryProgress] = useState<HistoryProgressState | null>(null);
   const importSequence = useRef(0);
   const historyRequest = useRef<AbortController | null>(null);
@@ -1043,8 +1055,22 @@ export default function FolioVista() {
   useEffect(() => {
     let active = true;
     void loadPortfolioFromBrowser()
-      .then((saved) => { if (active && saved) acceptPortfolio(saved); })
+      .then(async (saved) => {
+        if (!active || !saved) return;
+        const sequence = importSequence.current + 1;
+        importSequence.current = sequence;
+        setPortfolio(saved);
+        setRestoring(false);
+        setRefreshingLatest(true);
+        const refreshed = await refreshRestoredPortfolio(saved);
+        if (!active || importSequence.current !== sequence) return;
+        await savePortfolioToBrowser(refreshed).catch(() => undefined);
+        if (!active || importSequence.current !== sequence) return;
+        setRefreshingLatest(false);
+        acceptPortfolio(refreshed);
+      })
       .catch(() => undefined)
+      .finally(() => { if (active) setRestoring(false); });
     return () => {
       active = false;
       historyRequest.current?.abort();
@@ -1058,13 +1084,22 @@ export default function FolioVista() {
     progressDismissTimer.current = null;
     importSequence.current += 1;
     setPortfolio(null);
+    setRefreshingLatest(false);
     setHistoryProgress(null);
   };
   const clearPortfolio = () => {
     importAnotherPortfolio();
     void clearPortfolioFromBrowser().catch(() => undefined);
   };
+  if (restoring) return (
+    <main className="restore-screen" aria-busy="true" aria-live="polite">
+      <Brand />
+      <div className="restore-spinner" aria-hidden="true"><i /><i /></div>
+      <h1>Opening FolioVista</h1>
+      <p>Checking this browser for your saved portfolio…</p>
+    </main>
+  );
   return portfolio
-    ? <Dashboard portfolio={portfolio} onImport={importAnotherPortfolio} onClear={clearPortfolio} historyProgress={historyProgress} />
+    ? <Dashboard portfolio={portfolio} onImport={importAnotherPortfolio} onClear={clearPortfolio} refreshingLatest={refreshingLatest} historyProgress={historyProgress} />
     : <Landing onPortfolio={acceptPortfolio} />;
 }

@@ -372,23 +372,43 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     expect(requests.filter((request) => /regression-cas\.pdf/i.test(request.url))).toEqual([]);
   });
 
-  test("restores a reconciled CAS after reload and clears it on request", async ({ page }) => {
+  test("restores without a landing flash and refreshes latest values", async ({ page }) => {
+    let latestRequest = 0;
+    let releaseRefresh!: () => void;
+    const refreshGate = new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    await page.route("**/api/nav", async (route) => {
+      latestRequest += 1;
+      if (latestRequest > 1) await refreshGate;
+      await route.fulfill({
+        status: 200,
+        contentType: "text/plain; charset=utf-8",
+        body: latestNavText(latestRequest > 1
+          ? { nav: 16, date: "15-Aug-2026" }
+          : { nav: 15, date: "14-Aug-2026" }),
+      });
+    });
+    await mockDailyHistory(page);
+    await page.goto("/");
+    await uploadCas(page);
+    await expect(page.locator(".summary-exact-value")).toHaveText("₹15,000.00");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("heading", { name: /Your mutual funds/i })).toHaveCount(0);
+    await expect(page.locator(".summary-exact-value")).toHaveText("₹15,000.00");
+    await expect(page.locator(".reconcile-bar")).toContainText("Refreshing latest NAV");
+    releaseRefresh();
+    await expect(page.locator(".summary-exact-value")).toHaveText("₹16,000.00");
+    await expect(page.locator(".reconcile-bar")).toContainText("Latest NAV applied");
+  });
+
+  test("clears the saved portfolio on request", async ({ page }) => {
     await mockLatestNav(page);
     await mockDailyHistory(page);
     await page.goto("/");
     await uploadCas(page);
     await expect(page.locator(".summary-exact-value")).toHaveText("₹15,000.00");
-    await page.reload();
-    await expect(page.locator(".summary-exact-value")).toHaveText("₹15,000.00");
-
-    const secondTab = await page.context().newPage();
-    await secondTab.goto("/");
-    await expect(secondTab.locator(".summary-exact-value")).toHaveText("₹15,000.00");
-    await secondTab.close();
-
     await page.getByRole("button", { name: "Clear saved portfolio" }).click();
     await expect(page.getByRole("heading", { name: "Drop your CAS here" })).toBeVisible();
-    await page.reload();
+    await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { name: "Drop your CAS here" })).toBeVisible();
   });
 

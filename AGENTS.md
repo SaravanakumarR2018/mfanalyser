@@ -184,7 +184,9 @@ Preserve and test every applicable transition:
    estimated.
 10. Replacing a CAS resets dashboard-only state and overwrites browser storage
    only after the replacement reconciles. A full reload or another tab restores
-   the last reconciled CAS; clearing the saved portfolio returns to landing.
+   the last reconciled CAS without flashing landing, refreshes latest NAV and
+   daily graph history in the background, and writes the enriched result back;
+   clearing the saved portfolio returns to landing.
 11. Demo data bypasses network refresh and is returned by identity.
 
 ## Financial and data invariants
