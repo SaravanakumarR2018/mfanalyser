@@ -19,8 +19,18 @@ import {
   type Portfolio,
   type TimelinePoint,
 } from "./cas-parser";
-import { refreshWithDailyHistory, refreshWithLatestNav, type NavHistoryProgress } from "./nav-service";
+import {
+  refreshRestoredPortfolio,
+  refreshWithDailyHistory,
+  refreshWithLatestNav,
+  type NavHistoryProgress,
+} from "./nav-service";
 import { buildHoldingTimeline } from "./timeline-service";
+import {
+  clearPortfolioFromBrowser,
+  loadPortfolioFromBrowser,
+  savePortfolioToBrowser,
+} from "./portfolio-storage";
 import {
   annualizedReturnAt,
   portfolioAbsoluteReturn,
@@ -194,7 +204,7 @@ function UploadPanel({ busy, progress, error, passwordMode, password, setPasswor
         )}
       </div>
       {error && !passwordMode && <div className="upload-error" role="alert"><span>!</span><p>{error}</p></div>}
-      <div className="privacy-caption"><span className="tiny-lock">⌁</span> Your PDF never leaves this device. No account. No storage.</div>
+      <div className="privacy-caption"><span className="tiny-lock">⌁</span> Your PDF never leaves this device. The reconciled portfolio is saved only in this browser.</div>
     </div>
   );
 }
@@ -310,7 +320,7 @@ function Landing({ onPortfolio }: { onPortfolio: (portfolio: Portfolio) => void 
       <section className="privacy-section" id="privacy">
         <div className="privacy-orb"><span>⌁</span></div>
         <div><p className="eyebrow">A private tool, not a data collector</p><h2>Your money is personal.<br />Your data stays that way.</h2></div>
-        <div className="privacy-points"><p><i>01</i><span><strong>Browser-only processing</strong>Your PDF is opened in memory and discarded after analysis.</span></p><p><i>02</i><span><strong>No account or analytics profile</strong>There is nothing to sign up for and no portfolio stored on a server.</span></p></div>
+        <div className="privacy-points"><p><i>01</i><span><strong>Browser-only processing</strong>Your PDF and password are discarded after analysis. Only the reconciled portfolio is saved in this browser.</span></p><p><i>02</i><span><strong>No account or server storage</strong>Your saved view is available to tabs in this browser and can be cleared from the dashboard at any time.</span></p></div>
       </section>
       <footer><Brand /><p>Clarity for your consolidated account statement.</p><span>Built for privacy · Not investment advice</span></footer>
     </main>
@@ -689,11 +699,15 @@ function HistoryProgressToast({ progress }: { progress: HistoryProgressState }) 
 
 function Dashboard({
   portfolio,
-  onReset,
+  onImport,
+  onClear,
+  refreshingLatest,
   historyProgress,
 }: {
   portfolio: Portfolio;
-  onReset: () => void;
+  onImport: () => void;
+  onClear: () => void;
+  refreshingLatest: boolean;
   historyProgress: HistoryProgressState | null;
 }) {
   const [query, setQuery] = useState("");
@@ -716,6 +730,9 @@ function Dashboard({
   const absoluteReturnLabel = absoluteReturn === null ? "—" : `${absoluteReturn.toFixed(2)}%`;
   const annualizedReturn = useMemo(() => portfolioAnnualizedReturn(portfolio), [portfolio]);
   const activeFolios = portfolio.funds.reduce((total, fund) => total + fund.folios, 0);
+  const restoredRefreshError = portfolio.liveUpdateError?.startsWith("Saved values dated")
+    ? portfolio.liveUpdateError
+    : null;
   const fundColors = useMemo(
     () => new Map(portfolio.funds.map((fund, index) => [fund.key, palette[index % palette.length]])),
     [portfolio.funds],
@@ -783,17 +800,20 @@ function Dashboard({
       <header className="dashboard-header">
         <Brand />
         <div className="dash-context"><span>Portfolio overview</span><i />Valued as of {formatDate(portfolio.valuationDate)}</div>
-        <button className="import-button" onClick={onReset}><span>＋</span> Import another CAS</button>
+        <div className="portfolio-actions">
+          <button className="clear-portfolio-button" onClick={onClear}>Clear saved portfolio</button>
+          <button className="import-button" onClick={onImport}><span>＋</span> Replace CAS</button>
+        </div>
       </header>
       <div className="dashboard-shell">
         <div className="reconcile-bar">
-          <div><span className="check-badge">✓</span><strong>{portfolio.valuationSource === "amfi" ? "Latest NAV applied" : "Statement reconciled"}</strong><i />{portfolio.navCoverage.updated}/{portfolio.navCoverage.total} funds updated · {portfolio.navHistoryLoading ? "daily history loading" : portfolio.navHistoryCoverage ? `${portfolio.navHistoryCoverage.updated}/${portfolio.navHistoryCoverage.total} daily histories` : "daily history unavailable"} · {activeFolios} active folios</div>
+          <div><span className="check-badge">✓</span><strong>{refreshingLatest ? "Refreshing latest NAV…" : restoredRefreshError ? "Saved NAV shown" : portfolio.valuationSource === "amfi" ? "Latest NAV applied" : "Statement reconciled"}</strong><i />{portfolio.navCoverage.updated}/{portfolio.navCoverage.total} funds updated · {portfolio.navHistoryLoading ? "daily history loading" : portfolio.navHistoryCoverage ? `${portfolio.navHistoryCoverage.updated}/${portfolio.navHistoryCoverage.total} daily histories` : "daily history unavailable"} · {activeFolios} active folios</div>
           <p><span className="privacy-pulse" /> CAS processed locally · AMFI prices only {portfolio.source === "demo" && <em>Demo data</em>}</p>
         </div>
 
         <div className={`valuation-notice ${portfolio.valuationSource === "amfi" ? "live" : "fallback"}`}>
           <span>{portfolio.valuationSource === "amfi" ? "LIVE" : "CAS"}</span>
-          <p><strong>{portfolio.valuationSource === "amfi" ? `Latest available official NAVs · ${formatDate(portfolio.valuationDate)}` : `Showing statement valuation · ${formatDate(portfolio.statementDate)}`}</strong>{portfolio.valuationSource === "amfi" ? ` Values use the unit balances in your CAS dated ${formatDate(portfolio.statementDate)}. ${portfolio.navHistoryLoading ? "Actual daily NAV history is loading in the background." : portfolio.navHistoryError ?? "Daily history uses only published AMFI observations."}` : ` ${portfolio.liveUpdateError ?? "Live NAVs were unavailable."}`}</p>
+          <p><strong>{portfolio.valuationSource === "amfi" ? `${restoredRefreshError ? "Saved official NAVs" : "Latest available official NAVs"} · ${formatDate(portfolio.valuationDate)}` : `Showing statement valuation · ${formatDate(portfolio.statementDate)}`}</strong>{portfolio.valuationSource === "amfi" ? ` Values use the unit balances in your CAS dated ${formatDate(portfolio.statementDate)}. ${restoredRefreshError ?? (portfolio.navHistoryLoading ? "Actual daily NAV history is loading in the background." : portfolio.navHistoryError ?? "Daily history uses only published AMFI observations.")}` : ` ${portfolio.liveUpdateError ?? "Live NAVs were unavailable."}`}</p>
         </div>
 
         <section className="summary-card">
@@ -987,7 +1007,7 @@ function Dashboard({
 
         <IndiaInflationChart />
 
-        <footer className="dashboard-footer"><Brand /><p>Your statement was processed locally and is not stored by FolioVista.</p><span>For tracking only · Not investment advice</span></footer>
+        <footer className="dashboard-footer"><Brand /><p>Your PDF was processed locally; this portfolio view is stored only in this browser.</p><span>For tracking only · Not investment advice</span></footer>
       </div>
       {historyProgress && <HistoryProgressToast progress={historyProgress} />}
       {selected && <FundDrawer fund={selected} onClose={() => setSelectedFundKey(null)} />}
@@ -998,20 +1018,19 @@ function Dashboard({
 
 export default function FolioVista() {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
+  const [restoring, setRestoring] = useState(true);
+  const [refreshingLatest, setRefreshingLatest] = useState(false);
   const [historyProgress, setHistoryProgress] = useState<HistoryProgressState | null>(null);
   const importSequence = useRef(0);
   const historyRequest = useRef<AbortController | null>(null);
   const progressDismissTimer = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
-  useEffect(() => () => {
-    historyRequest.current?.abort();
-    if (progressDismissTimer.current) globalThis.clearTimeout(progressDismissTimer.current);
-  }, []);
   const acceptPortfolio = (next: Portfolio) => {
     historyRequest.current?.abort();
     if (progressDismissTimer.current) globalThis.clearTimeout(progressDismissTimer.current);
     const sequence = importSequence.current + 1;
     importSequence.current = sequence;
     setPortfolio(next);
+    void savePortfolioToBrowser(next).catch(() => undefined);
     const historyTotal = next.navHistoryCoverage?.total ?? 0;
     setHistoryProgress(next.navHistoryLoading && historyTotal > 0
       ? { completed: 0, total: historyTotal }
@@ -1024,6 +1043,7 @@ export default function FolioVista() {
     }).then((enriched) => {
       if (importSequence.current !== sequence) return;
       setPortfolio(enriched);
+      void savePortfolioToBrowser(enriched).catch(() => undefined);
       setHistoryProgress(historyTotal > 0
         ? { completed: historyTotal, total: historyTotal, complete: true }
         : null);
@@ -1032,16 +1052,54 @@ export default function FolioVista() {
       }, 650);
     });
   };
-  const resetPortfolio = () => {
+  useEffect(() => {
+    let active = true;
+    void loadPortfolioFromBrowser()
+      .then(async (saved) => {
+        if (!active || !saved) return;
+        const sequence = importSequence.current + 1;
+        importSequence.current = sequence;
+        setPortfolio(saved);
+        setRestoring(false);
+        setRefreshingLatest(true);
+        const refreshed = await refreshRestoredPortfolio(saved);
+        if (!active || importSequence.current !== sequence) return;
+        await savePortfolioToBrowser(refreshed).catch(() => undefined);
+        if (!active || importSequence.current !== sequence) return;
+        setRefreshingLatest(false);
+        acceptPortfolio(refreshed);
+      })
+      .catch(() => undefined)
+      .finally(() => { if (active) setRestoring(false); });
+    return () => {
+      active = false;
+      historyRequest.current?.abort();
+      if (progressDismissTimer.current) globalThis.clearTimeout(progressDismissTimer.current);
+    };
+  }, []);
+  const importAnotherPortfolio = () => {
     historyRequest.current?.abort();
     historyRequest.current = null;
     if (progressDismissTimer.current) globalThis.clearTimeout(progressDismissTimer.current);
     progressDismissTimer.current = null;
     importSequence.current += 1;
     setPortfolio(null);
+    setRefreshingLatest(false);
     setHistoryProgress(null);
   };
+  const clearPortfolio = () => {
+    importAnotherPortfolio();
+    void clearPortfolioFromBrowser().catch(() => undefined);
+  };
+  if (restoring) return (
+    <main className="restore-screen" aria-busy="true" aria-live="polite">
+      <Brand />
+      <div className="restore-spinner" aria-hidden="true"><i /><i /></div>
+      <h1>Opening FolioVista</h1>
+      <p>Checking this browser for your saved portfolio…</p>
+    </main>
+  );
   return portfolio
-    ? <Dashboard portfolio={portfolio} onReset={resetPortfolio} historyProgress={historyProgress} />
+    ? <Dashboard portfolio={portfolio} onImport={importAnotherPortfolio} onClear={clearPortfolio} refreshingLatest={refreshingLatest} historyProgress={historyProgress} />
     : <Landing onPortfolio={acceptPortfolio} />;
 }

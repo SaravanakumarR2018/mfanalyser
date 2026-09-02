@@ -5,6 +5,7 @@ import { demoPortfolio, type Portfolio } from "../../app/cas-parser.ts";
 import {
   loadFullSchemeNavHistory,
   parseAmfiNavText,
+  refreshRestoredPortfolio,
   refreshWithDailyHistory,
   refreshWithLatestNav,
 } from "../../app/nav-service.ts";
@@ -223,6 +224,26 @@ test("repeating the same latest NAV refresh replaces rather than duplicates the 
     return twiceResult;
   });
   assert.equal(twice.timeline.filter((point) => point.date === "2026-02-02").length, 1);
+});
+
+test("a failed refresh keeps the last exact saved AMFI valuation instead of relabeling it as CAS", async () => {
+  const portfolio = {
+    ...casPortfolio(),
+    valuationDate: "2026-02-02",
+    valuationSource: "amfi" as const,
+    currentValue: 120,
+    funds: [activeFund({ currentValue: 120, nav: 12, navDate: "2026-02-02", liveNav: true })],
+  };
+  const restored = await withFetch(
+    async () => new Response("Unavailable", { status: 503 }),
+    () => refreshRestoredPortfolio(portfolio),
+  );
+
+  assert.equal(restored.valuationSource, "amfi");
+  assert.equal(restored.valuationDate, "2026-02-02");
+  assert.equal(restored.currentValue, 120);
+  assert.equal(restored.navHistoryLoading, false);
+  assert.match(restored.liveUpdateError ?? "", /Saved values dated 2026-02-02/);
 });
 
 test("full scheme history loads once per session, retains the earliest series, and reconciles its live endpoint", async () => {

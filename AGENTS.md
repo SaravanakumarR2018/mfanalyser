@@ -23,8 +23,11 @@ for tracking and visualization, not investment advice.
 Non-negotiable product promises:
 
 - The CAS PDF and its password stay in browser memory and are never uploaded.
-- Portfolio contents are not stored in cookies, Web Storage, IndexedDB, Cache
-  Storage, a service worker, D1, R2, application logs, or analytics.
+- Reconciled CAS portfolio contents may be stored only in this browser's
+  IndexedDB so reloads and new tabs can restore the view. PDF bytes and
+  passwords are never persisted, and no portfolio data may be stored in
+  cookies, Web Storage, Cache Storage, a service worker, D1, R2, application
+  logs, or analytics.
 - Only read-only NAV requests may leave the browser after parsing.
 - Values shown as exact, live, daily, transaction-derived, or unavailable must
   retain those meanings. Do not silently estimate missing financial data.
@@ -42,8 +45,9 @@ Non-negotiable product promises:
   `public/pdf.worker.min.mjs` file.
 - Playwright plus axe-core provides browser, responsive, accessibility, and
   visual regression coverage.
-- Optional Drizzle/D1 and ChatGPT sign-in scaffolding exists but the current
-  FolioVista flow does not persist portfolios or require authentication.
+- Optional Drizzle/D1 and ChatGPT sign-in scaffolding exists, but FolioVista
+  persists only the reconciled CAS view in browser IndexedDB and does not
+  require authentication or server-side portfolio storage.
 
 ## Repository map
 
@@ -178,8 +182,11 @@ Preserve and test every applicable transition:
 9. Complete, incomplete, cancelled, and retry/no-op history outcomes retain the
    correct coverage and error state. Missing observations are skipped, never
    estimated.
-10. Importing another CAS resets dashboard-only state. A full page reload returns
-   to the landing page because no portfolio is persisted.
+10. Replacing a CAS resets dashboard-only state and overwrites browser storage
+   only after the replacement reconciles. A full reload or another tab restores
+   the last reconciled CAS without flashing landing, refreshes latest NAV and
+   daily graph history in the background, and writes the enriched result back;
+   clearing the saved portfolio returns to landing.
 11. Demo data bypasses network refresh and is returned by identity.
 
 ## Financial and data invariants

@@ -6,7 +6,7 @@ import { makeEncryptedCasPdf } from "./helpers/encrypted-cas";
 import { makeTwoFundCasPdf, PARTIAL_FIRST_ISIN } from "./helpers/verifier-fixtures";
 
 test.describe("independent critical-path verification", () => {
-  test("analysis leaves browser persistence stores empty", async ({ page }) => {
+  test("analysis stores only the portfolio in IndexedDB and leaves other persistence unused", async ({ page }) => {
     await mockLatestNav(page);
     await mockDailyHistory(page);
     await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -31,7 +31,12 @@ test.describe("independent critical-path verification", () => {
       cookies: document.cookie,
     }));
     expect(persistence).toEqual({
-      localStorage: [], sessionStorage: [], indexedDatabases: [], cacheStorage: [], serviceWorkers: [], cookies: "",
+      localStorage: [],
+      sessionStorage: [],
+      indexedDatabases: ["foliovista-browser-portfolio"],
+      cacheStorage: [],
+      serviceWorkers: [],
+      cookies: "",
     });
   });
 
