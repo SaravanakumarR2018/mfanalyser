@@ -42,7 +42,7 @@ test.describe("mobile touch parity verifier", () => {
     for (const control of [
       oneYear,
       portfolio.getByRole("button", { name: "Zoom in" }),
-      page.getByRole("button", { name: "Import another CAS" }),
+      page.getByRole("button", { name: "Replace CAS" }),
     ]) {
       const box = await control.boundingBox();
       expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);

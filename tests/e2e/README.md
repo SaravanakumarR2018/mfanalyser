@@ -25,8 +25,8 @@ activation, nested ranking scrolling, and viewport containment.
 | Real CAS integration | A generated standards-compliant PDF is loaded by pdf.js, text-extracted, parsed, reconciled, converted into holdings/transactions/timeline data, and rendered |
 | Protected CAS | A generated encrypted PDF prompts locally, rejects a wrong password without leaving the page, and renders after the correct password |
 | NAV lifecycle | Delayed latest NAV, successful live valuation, scheme mismatch, endpoint failure, daily-history enrichment, history mismatch/retries, exact observation counts, stacked history, stale-request abort, floating progress-bar pointer enter/traverse/leave behavior |
-| Privacy | Browser request audit proves CAS bytes are never posted or requested by URL; only GET/HEAD requests occur during analysis; reload and storage audits prove the portfolio is absent from cookies, Web Storage, IndexedDB, Cache Storage, and service workers |
-| Re-entry | Import another CAS, background-request cancellation, state preservation during enrichment, demo rerun, full reload/no persistence |
+| Privacy | Browser request audit proves CAS bytes are never posted or requested by URL; only GET/HEAD requests occur during analysis; storage audits prove the reconciled portfolio is confined to IndexedDB while the PDF, password, cookies, Web Storage, Cache Storage, and service workers remain unused |
+| Re-entry | Replace a CAS, clear the saved portfolio, background-request cancellation, state preservation during enrichment, demo rerun, and full-reload browser restoration |
 | Summary | Exact and compact values, invested/gain/returns, fund/folio counts, largest allocation, valuation source and dates, plus immediate category-slice tooltips and reversible animated selection |
 | Holdings | Search/no-results, all sortable financial columns and `aria-sort`, mouse/keyboard row activation, folio expansion, fund/folio drawers |
 | Transactions | Long 25-row CAS, initial 20-row batch, explicit load-more, full history and earliest-date completion |

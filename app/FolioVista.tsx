@@ -22,6 +22,11 @@ import {
 import { refreshWithDailyHistory, refreshWithLatestNav, type NavHistoryProgress } from "./nav-service";
 import { buildHoldingTimeline } from "./timeline-service";
 import {
+  clearPortfolioFromBrowser,
+  loadPortfolioFromBrowser,
+  savePortfolioToBrowser,
+} from "./portfolio-storage";
+import {
   annualizedReturnAt,
   portfolioAbsoluteReturn,
   portfolioAnnualizedReturn,
@@ -194,7 +199,7 @@ function UploadPanel({ busy, progress, error, passwordMode, password, setPasswor
         )}
       </div>
       {error && !passwordMode && <div className="upload-error" role="alert"><span>!</span><p>{error}</p></div>}
-      <div className="privacy-caption"><span className="tiny-lock">⌁</span> Your PDF never leaves this device. No account. No storage.</div>
+      <div className="privacy-caption"><span className="tiny-lock">⌁</span> Your PDF never leaves this device. The reconciled portfolio is saved only in this browser.</div>
     </div>
   );
 }
@@ -310,7 +315,7 @@ function Landing({ onPortfolio }: { onPortfolio: (portfolio: Portfolio) => void 
       <section className="privacy-section" id="privacy">
         <div className="privacy-orb"><span>⌁</span></div>
         <div><p className="eyebrow">A private tool, not a data collector</p><h2>Your money is personal.<br />Your data stays that way.</h2></div>
-        <div className="privacy-points"><p><i>01</i><span><strong>Browser-only processing</strong>Your PDF is opened in memory and discarded after analysis.</span></p><p><i>02</i><span><strong>No account or analytics profile</strong>There is nothing to sign up for and no portfolio stored on a server.</span></p></div>
+        <div className="privacy-points"><p><i>01</i><span><strong>Browser-only processing</strong>Your PDF and password are discarded after analysis. Only the reconciled portfolio is saved in this browser.</span></p><p><i>02</i><span><strong>No account or server storage</strong>Your saved view is available to tabs in this browser and can be cleared from the dashboard at any time.</span></p></div>
       </section>
       <footer><Brand /><p>Clarity for your consolidated account statement.</p><span>Built for privacy · Not investment advice</span></footer>
     </main>
@@ -689,11 +694,13 @@ function HistoryProgressToast({ progress }: { progress: HistoryProgressState }) 
 
 function Dashboard({
   portfolio,
-  onReset,
+  onImport,
+  onClear,
   historyProgress,
 }: {
   portfolio: Portfolio;
-  onReset: () => void;
+  onImport: () => void;
+  onClear: () => void;
   historyProgress: HistoryProgressState | null;
 }) {
   const [query, setQuery] = useState("");
@@ -783,7 +790,10 @@ function Dashboard({
       <header className="dashboard-header">
         <Brand />
         <div className="dash-context"><span>Portfolio overview</span><i />Valued as of {formatDate(portfolio.valuationDate)}</div>
-        <button className="import-button" onClick={onReset}><span>＋</span> Import another CAS</button>
+        <div className="portfolio-actions">
+          <button className="clear-portfolio-button" onClick={onClear}>Clear saved portfolio</button>
+          <button className="import-button" onClick={onImport}><span>＋</span> Replace CAS</button>
+        </div>
       </header>
       <div className="dashboard-shell">
         <div className="reconcile-bar">
@@ -987,7 +997,7 @@ function Dashboard({
 
         <IndiaInflationChart />
 
-        <footer className="dashboard-footer"><Brand /><p>Your statement was processed locally and is not stored by FolioVista.</p><span>For tracking only · Not investment advice</span></footer>
+        <footer className="dashboard-footer"><Brand /><p>Your PDF was processed locally; this portfolio view is stored only in this browser.</p><span>For tracking only · Not investment advice</span></footer>
       </div>
       {historyProgress && <HistoryProgressToast progress={historyProgress} />}
       {selected && <FundDrawer fund={selected} onClose={() => setSelectedFundKey(null)} />}
@@ -1002,16 +1012,13 @@ export default function FolioVista() {
   const importSequence = useRef(0);
   const historyRequest = useRef<AbortController | null>(null);
   const progressDismissTimer = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
-  useEffect(() => () => {
-    historyRequest.current?.abort();
-    if (progressDismissTimer.current) globalThis.clearTimeout(progressDismissTimer.current);
-  }, []);
   const acceptPortfolio = (next: Portfolio) => {
     historyRequest.current?.abort();
     if (progressDismissTimer.current) globalThis.clearTimeout(progressDismissTimer.current);
     const sequence = importSequence.current + 1;
     importSequence.current = sequence;
     setPortfolio(next);
+    void savePortfolioToBrowser(next).catch(() => undefined);
     const historyTotal = next.navHistoryCoverage?.total ?? 0;
     setHistoryProgress(next.navHistoryLoading && historyTotal > 0
       ? { completed: 0, total: historyTotal }
@@ -1024,6 +1031,7 @@ export default function FolioVista() {
     }).then((enriched) => {
       if (importSequence.current !== sequence) return;
       setPortfolio(enriched);
+      void savePortfolioToBrowser(enriched).catch(() => undefined);
       setHistoryProgress(historyTotal > 0
         ? { completed: historyTotal, total: historyTotal, complete: true }
         : null);
@@ -1032,7 +1040,18 @@ export default function FolioVista() {
       }, 650);
     });
   };
-  const resetPortfolio = () => {
+  useEffect(() => {
+    let active = true;
+    void loadPortfolioFromBrowser()
+      .then((saved) => { if (active && saved) acceptPortfolio(saved); })
+      .catch(() => undefined)
+    return () => {
+      active = false;
+      historyRequest.current?.abort();
+      if (progressDismissTimer.current) globalThis.clearTimeout(progressDismissTimer.current);
+    };
+  }, []);
+  const importAnotherPortfolio = () => {
     historyRequest.current?.abort();
     historyRequest.current = null;
     if (progressDismissTimer.current) globalThis.clearTimeout(progressDismissTimer.current);
@@ -1041,7 +1060,11 @@ export default function FolioVista() {
     setPortfolio(null);
     setHistoryProgress(null);
   };
+  const clearPortfolio = () => {
+    importAnotherPortfolio();
+    void clearPortfolioFromBrowser().catch(() => undefined);
+  };
   return portfolio
-    ? <Dashboard portfolio={portfolio} onReset={resetPortfolio} historyProgress={historyProgress} />
+    ? <Dashboard portfolio={portfolio} onImport={importAnotherPortfolio} onClear={clearPortfolio} historyProgress={historyProgress} />
     : <Landing onPortfolio={acceptPortfolio} />;
 }

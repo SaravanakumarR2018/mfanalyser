@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { installFailureGuards, openDemo, uploadCas } from "./helpers/app";
+import { installFailureGuards, uploadCas } from "./helpers/app";
 import {
   dailyHistoryPayload,
   fullDailyHistoryPayload,
@@ -308,7 +308,7 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     await uploadCas(page);
     await expect(page.getByRole("heading", { name: "Your funds" })).toBeVisible();
 
-    await page.getByRole("button", { name: "Import another CAS" }).click();
+    await page.getByRole("button", { name: "Replace CAS" }).click();
     await expect(page.getByRole("heading", { name: "Drop your CAS here" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Your funds" })).toHaveCount(0);
 
@@ -325,8 +325,8 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     await uploadCas(page);
     await expect(page.getByRole("status", { name: /Daily NAV history/ })).toBeVisible();
 
-    await page.getByRole("button", { name: "Import another CAS" }).click();
-    await openDemo(page);
+    await page.getByRole("button", { name: "Replace CAS" }).click();
+    await page.getByRole("button", { name: /explore with demo data/i }).click();
     await expect(page.locator(".summary-exact-value")).toHaveText("₹30,70,000.00");
     await expect(page.getByRole("status", { name: /Daily NAV history/ })).toHaveCount(0);
     await page.waitForTimeout(2_100);
@@ -372,11 +372,24 @@ test.describe("real CAS parser and NAV lifecycle", () => {
     expect(requests.filter((request) => /regression-cas\.pdf/i.test(request.url))).toEqual([]);
   });
 
-  test("does not persist a portfolio across a full page reload", async ({ page }) => {
-    await openDemo(page);
+  test("restores a reconciled CAS after reload and clears it on request", async ({ page }) => {
+    await mockLatestNav(page);
+    await mockDailyHistory(page);
+    await page.goto("/");
+    await uploadCas(page);
+    await expect(page.locator(".summary-exact-value")).toHaveText("₹15,000.00");
+    await page.reload();
+    await expect(page.locator(".summary-exact-value")).toHaveText("₹15,000.00");
+
+    const secondTab = await page.context().newPage();
+    await secondTab.goto("/");
+    await expect(secondTab.locator(".summary-exact-value")).toHaveText("₹15,000.00");
+    await secondTab.close();
+
+    await page.getByRole("button", { name: "Clear saved portfolio" }).click();
+    await expect(page.getByRole("heading", { name: "Drop your CAS here" })).toBeVisible();
     await page.reload();
     await expect(page.getByRole("heading", { name: "Drop your CAS here" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Your funds" })).toHaveCount(0);
   });
 
   test("paginates and completes a long statement transaction history", async ({ page }) => {

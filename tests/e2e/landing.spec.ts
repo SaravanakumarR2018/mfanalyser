@@ -18,7 +18,7 @@ test.describe("landing and local upload boundary", () => {
     await expect(page.getByRole("heading", { name: "Drop your CAS here" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Choose statement" })).toBeEnabled();
     await expect(page.getByRole("button", { name: /explore with demo data/i })).toBeEnabled();
-    await expect(page.getByText("Your PDF never leaves this device. No account. No storage.")).toBeVisible();
+    await expect(page.getByText("Your PDF never leaves this device. The reconciled portfolio is saved only in this browser.")).toBeVisible();
     await expect(uploadInput(page)).toHaveAttribute("accept", "application/pdf,.pdf");
     await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Dashboard preview" })).toBeVisible();
