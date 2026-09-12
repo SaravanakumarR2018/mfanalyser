@@ -122,6 +122,7 @@ export default function FundStackPanel({
   const lensMoveFrameRef = useRef<number | null>(null);
   const pendingLensPositionRef = useRef<{ x: number; y: number } | null>(null);
   const suppressClickRef = useRef(false);
+  const hoverPointerTypeRef = useRef("mouse");
   const [hover, setHover] = useState<StackHover | null>(null);
   const [dragging, setDragging] = useState(false);
   const bounds = useMemo(
@@ -161,6 +162,7 @@ export default function FundStackPanel({
   }, [lens]);
 
   const updateHover = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    hoverPointerTypeRef.current = event.pointerType;
     const rect = shellRef.current?.getBoundingClientRect();
     if (!rect || !visible.length) return;
     const resolved = resolvePointer(event.clientX, event.clientY, rect);
@@ -565,8 +567,18 @@ export default function FundStackPanel({
   useEffect(() => {
     draw();
     requestAnimationFrame(() => latestLensDrawRef.current());
+    let lastWidth = shellRef.current?.clientWidth;
+    let lastHeight = shellRef.current?.clientHeight;
     const observer = new ResizeObserver(() => {
-      setHover(null);
+      const width = shellRef.current?.clientWidth;
+      const height = shellRef.current?.clientHeight;
+      // Selecting a date reattaches the observer and fires its initial callback.
+      // Keep a finger's inspection readable unless the chart actually resized.
+      if (hoverPointerTypeRef.current !== "touch" || width !== lastWidth || height !== lastHeight) {
+        setHover(null);
+      }
+      lastWidth = width;
+      lastHeight = height;
       draw();
       requestAnimationFrame(() => latestLensDrawRef.current());
     });
@@ -608,6 +620,7 @@ export default function FundStackPanel({
   }, [onLensMove]);
 
   const beginLensDrag = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === "touch") updateHover(event);
     if (!lens.enabled || event.button !== 0) return;
     const rect = shellRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -638,7 +651,7 @@ export default function FundStackPanel({
     event.currentTarget.style.cursor = "grabbing";
     setDragging(true);
     event.preventDefault();
-  }, [lens, resolvePointer]);
+  }, [lens, resolvePointer, updateHover]);
 
   const movePointer = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current;
@@ -775,6 +788,7 @@ export default function FundStackPanel({
           onPointerCancel={cancelLensDrag}
           onLostPointerCapture={loseLensCapture}
           onPointerLeave={(event) => {
+            if (event.pointerType === "touch") return;
             if (!dragRef.current) setHover(null);
             if (!dragRef.current) event.currentTarget.style.cursor = "crosshair";
           }}
@@ -801,6 +815,7 @@ export default function FundStackPanel({
           onPointerCancel={cancelLensDrag}
           onLostPointerCapture={loseLensCapture}
           onPointerLeave={(event) => {
+            if (event.pointerType === "touch") return;
             if (!dragRef.current) setHover(null);
             if (!dragRef.current) event.currentTarget.style.cursor = "grab";
           }}

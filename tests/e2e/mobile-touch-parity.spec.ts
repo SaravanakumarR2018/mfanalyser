@@ -77,6 +77,13 @@ test.describe("mobile touch parity verifier", () => {
     await expect(tooltip).toBeVisible();
     await expect(tooltip).toContainText("₹");
 
+    const stackChart = page.locator(".fund-stack-panel .stack-base-canvas").first();
+    await tapCenter(stackChart);
+    const stackTooltip = page.locator(".fund-stack-panel .stack-hover-tooltip").first();
+    await expect(stackTooltip).toBeVisible();
+    await expect(stackTooltip).toContainText("₹");
+    await expect(stackChart).toHaveAttribute("data-hovered-date", /\d{4}-\d{2}-\d{2}/);
+
     const ranking = page.getByRole("region", { name: "All fund concentration rankings" });
     await ranking.scrollIntoViewIfNeeded();
     expect(await ranking.evaluate((element) => element.scrollTop)).toBe(0);
