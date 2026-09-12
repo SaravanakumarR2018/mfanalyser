@@ -135,6 +135,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   const liveId = useId();
   const shellRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasPointerTypeRef = useRef("mouse");
   const pickerRef = useRef<HTMLDivElement>(null);
   const pickerTriggerRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -662,7 +663,9 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
       return;
     }
     let nearest: DrawnSeries | undefined;
-    let nearestDistance = 12;
+    // A fingertip needs a larger discovery area than a mouse cursor. Keep
+    // selecting the nearest real line; never synthesize a NAV observation.
+    let nearestDistance = event.pointerType === "touch" ? 24 : 12;
     for (const series of drawnSeriesRef.current) {
       const distance = distanceToSeries(x, y, series.points);
       if (distance <= nearestDistance) {
@@ -682,7 +685,7 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
     const x = event.clientX - bounds.left;
     const y = event.clientY - bounds.top;
     let nearestKey: string | null = null;
-    let nearestDistance = 10;
+    let nearestDistance = canvasPointerTypeRef.current === "touch" ? 24 : 10;
     for (const series of drawnSeriesRef.current) {
       const distance = distanceToSeries(x, y, series.points);
       if (distance <= nearestDistance) {
@@ -690,10 +693,21 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
         nearestKey = series.key;
       }
     }
+    if (!nearestKey && canvasPointerTypeRef.current === "touch" && activeFocusedFundKey) {
+      const plot = plotGeometryRef.current;
+      const focused = drawnSeriesRef.current.find((series) => series.key === activeFocusedFundKey);
+      const firstPoint = focused?.points[0];
+      const lastPoint = focused?.points.at(-1);
+      if (plot && firstPoint && lastPoint
+        && x >= firstPoint.x && x <= lastPoint.x
+        && y >= plot.top && y <= plot.height - plot.bottom) {
+        nearestKey = activeFocusedFundKey;
+      }
+    }
     setFocusedFundKey(nearestKey);
     if (nearestKey) inspectFundAtClientX(nearestKey, event.clientX);
     else clearHover();
-  }, [clearHover, inspectFundAtClientX]);
+  }, [activeFocusedFundKey, clearHover, inspectFundAtClientX]);
 
   const onCanvasKeyDown = useCallback((event: ReactKeyboardEvent<HTMLCanvasElement>) => {
     if (event.key === "Escape") {
@@ -927,7 +941,11 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
             <div
               className="fund-comparison-shell"
               ref={shellRef}
-              onPointerLeave={clearHover}
+              onPointerLeave={(event) => {
+                // Touch pointers leave as soon as the finger lifts. Leave the
+                // inspected value visible so it can be read after a tap.
+                if (event.pointerType !== "touch") clearHover();
+              }}
             >
               <canvas
                 ref={canvasRef}
@@ -967,6 +985,10 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
                   : "none"}
                 data-tooltip-fund-count={tooltipRow ? 1 : 0}
                 onPointerMove={onCanvasPointerMove}
+                onPointerDown={(event) => {
+                  canvasPointerTypeRef.current = event.pointerType;
+                  if (event.pointerType === "touch") onCanvasPointerMove(event);
+                }}
                 onClick={onCanvasClick}
                 onKeyDown={onCanvasKeyDown}
               />

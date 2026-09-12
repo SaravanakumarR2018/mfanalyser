@@ -16,6 +16,17 @@ The suite also includes a mobile-Chromium-only touch parity verifier. It uses
 finger taps and native touch-event swipes (rather than mouse or hover emulation)
 to protect comfortable phone targets, chart inspection, donut and drawer
 activation, nested ranking scrolling, and viewport containment.
+Comparison and stacked-chart touch checks also require exact-value tooltips to
+remain readable after a finger lifts. `mobile-layout.spec.ts` checks all four
+stack views and every chart control at 320, 390, 480, 600, and 768 px, plus
+desktop-to-phone holding-value parity and search. These layout tests run in all
+four browser projects. Comparison rail assertions remeasure the canvas after
+keyboard focus, since focus can scroll the viewport.
+
+The phone comparison picker uses a viewport-contained sheet with a scrollable
+fund list; its search field, full names, selection controls, and close action
+remain accessible on short screens. Reviewed Darwin screenshot baselines are
+unchanged. Windows-generated missing-baseline images are not approved goldens.
 
 ## Coverage map
 

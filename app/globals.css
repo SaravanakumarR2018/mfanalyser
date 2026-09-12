@@ -504,6 +504,110 @@ a { color: inherit; text-decoration: none; }
   .top-list { -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
 }
 
+/* Phone and small-tablet layout. Keep the desktop cascade above unchanged. */
+@media (max-width: 800px) {
+  .dashboard-shell { padding-bottom: max(32px, env(safe-area-inset-bottom)); }
+  .dashboard-header { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+  .import-button { width: auto; min-height: 44px; padding: 8px 12px; font-size: 12px; }
+  .reconcile-bar { flex-direction: column; font-size: 12px; line-height: 1.5; }
+  .reconcile-bar > div { flex-wrap: wrap; }
+  .reconcile-bar p { display: flex; flex-wrap: wrap; font-size: 11px; }
+  .check-badge { flex-shrink: 0; }
+  .valuation-notice { font-size: 12px; line-height: 1.6; }
+  .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metric-grid article, .metric-grid article:nth-child(4) { grid-column: auto; min-width: 0; padding: 18px 14px; }
+  .metric-grid article:nth-child(5) { grid-column: 1 / -1; }
+  .metric-grid article p, .metric-grid article small { font-size: 12px; line-height: 1.5; }
+  .metric-exact { white-space: normal; overflow-wrap: anywhere; font-size: 11px; line-height: 1.5; }
+  .metric-grid article > strong { font-size: 27px; }
+  .summary-exact-value { overflow-wrap: anywhere; }
+  .search-field input, .password-panel input, .fund-comparison-popover input[type="search"], .fund-comparison-popover input[type="text"] { font-size: 16px; }
+  .search-field { min-height: 48px; }
+
+  /* All chart modes, periods and lens settings stay in view, including landscape phones. */
+  .stack-chart-controls { flex-wrap: wrap; overflow: visible; min-width: 0; }
+  .stack-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .stack-lens-tools { width: 100%; flex-wrap: wrap; gap: 8px; }
+  .stack-lens-tools label { flex: 1; min-width: 100px; grid-template-columns: auto minmax(48px, 1fr); font-size: 11px; }
+  .stack-lens-tools label b { font-size: 11px; }
+  .stack-lens-tools input[type="range"] { width: 100%; height: 44px; }
+  .stack-chart-controls > .periods { width: 100%; }
+  .stack-chart-stage .fund-stack-panels:is(.panels-1, .panels-2, .panels-3, .panels-4) { grid-template-columns: minmax(0, 1fr); overflow: visible; }
+  .fund-stack-panel .fund-stack-shell { min-width: 0; }
+  .chart-actions { flex-wrap: wrap; gap: 8px; }
+  .periods, .nav-periods, .fund-comparison-periods { width: 100%; flex-wrap: wrap; }
+  .periods button, .nav-periods button, .fund-comparison-periods button { flex: 1; }
+  .zoom-controls { width: 100%; }
+  .zoom-controls button { flex: 1; }
+  .periods button, .zoom-controls button, .nav-periods button, .stack-modes button,
+  .stack-lens-toggle, .fund-comparison-periods button, .fund-comparison-picker-trigger,
+  .fund-comparison-popover > header button, .row-expand, .drawer-close,
+  .chart-series-toggle, .nav-history-toggle, .transaction-load-more button, .table-header .table-sort {
+    min-width: 44px; min-height: 44px; font-size: 12px;
+  }
+  .chart-legend, .nav-activity-legend, .stack-chart-meta { gap: 8px 12px; font-size: 11px; line-height: 1.5; }
+  .chart-note, .stack-chart-note, .fund-comparison-note, .inflation-note { font-size: 12px; line-height: 1.6; }
+  .range-track { height: 44px; margin-top: -4px; margin-bottom: 6px; background: transparent; }
+  .range-track:before { content: ""; position: absolute; inset: 15px 0; border-radius: 99px; background: #e2e7df; }
+  .range-fill { top: 8px; bottom: 8px; border-block: 9px solid transparent; background-clip: padding-box; }
+  .range-track input::-webkit-slider-thumb { width: 28px; height: 28px; }
+  .range-track input::-moz-range-thumb { width: 24px; height: 24px; border: 3px solid var(--green); border-radius: 50%; background: var(--paper-2); pointer-events: auto; }
+  .range-track input { touch-action: none; }
+  .stack-ranking-row { grid-template-columns: 22px minmax(0, 1fr) minmax(78px, .6fr); gap: 8px; }
+  .stack-fund strong, .stack-hover-tooltip > strong { white-space: normal; overflow-wrap: anywhere; }
+  .stack-fund strong, .stack-ranking-row > span:last-child strong { font-size: 12px; }
+  .stack-fund small, .stack-ranking-row > span:last-child small { font-size: 10px; }
+  .stack-ranking-panel > header { grid-template-columns: minmax(0, 1fr) 44px; }
+  .stack-ranking-panel > header button { width: 44px; height: 44px; }
+
+  /* Labeled fund cards retain every table value with enough room for exact rupee amounts. */
+  .fund-row.table-header { flex-wrap: wrap; overflow: visible; gap: 6px; }
+  .fund-row.table-header:before { position: static; width: 100%; padding: 4px 0; font-size: 10px; }
+  .table-header .table-sort-copy strong { font-size: 11px; }
+  .fund-name strong, .folio-name strong { font-size: 15px; line-height: 1.45; }
+  .fund-name, .folio-name { grid-row: 1; min-height: 58px; }
+  .fund-name small, .folio-name small { font-size: 11px; }
+  .fund-row > span:not(.fund-name):not(.row-arrow):not(.sort-column), .folio-row > span:not(.folio-name):not(.row-arrow) {
+    grid-column: span 3; padding: 12px 6px; font-size: 13px; overflow-wrap: anywhere; border-bottom: 1px solid #e8ebe5;
+  }
+  .fund-row > span:not(.fund-name):not(.row-arrow):not(.sort-column):before, .folio-row > span:not(.folio-name):not(.row-arrow):before { font-size: 10px; line-height: 1.4; }
+  .fund-row > span:nth-of-type(8), .fund-row > span:nth-of-type(9), .folio-row > span:nth-of-type(8), .folio-row > span:nth-of-type(9) { grid-column: 1 / -1; border-top: 0; }
+  .return-pill { font-size: 12px; white-space: normal; }
+  .momentum-badge small, .downside-badge small { font-size: 11px; }
+  .signal-empty, .momentum-badge strong, .downside-badge strong { font-size: 12px; }
+  .folio-panel-head { flex-wrap: wrap; gap: 8px; }
+  .folio-panel-head p { display: block; font-size: 12px; line-height: 1.5; }
+  .signal-guide p { font-size: 11px; line-height: 1.6; }
+  .closed-head { flex-wrap: wrap; gap: 12px; }
+  .closed-explainer { font-size: 12px; line-height: 1.6; }
+  .closed-row { font-size: 13px; }
+  .closed-row > span:first-child strong { white-space: normal; font-size: 14px; }
+  .closed-row > span:not(:first-child) { flex-wrap: wrap; }
+  .closed-row > span:not(:first-child):before { font-size: 11px; }
+
+  .fund-comparison-option { grid-template-columns: 20px 10px minmax(0, 1fr); gap: 8px; padding: 12px; }
+  .fund-comparison-card:has(.fund-comparison-popover) { z-index: 30; }
+  .fund-comparison-popover { position: fixed; top: max(84px, env(safe-area-inset-top)); bottom: auto; left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); width: auto; max-width: none; max-height: calc(100dvh - 100px - env(safe-area-inset-bottom)); display: flex; flex-direction: column; box-shadow: 0 16px 60px rgba(11,29,42,.3); }
+  .fund-comparison-popover > header, .fund-comparison-popover > label { flex-shrink: 0; }
+  .fund-comparison-option strong { white-space: normal; font-size: 13px; line-height: 1.45; }
+  .fund-comparison-option small { font-size: 11px; }
+  .fund-comparison-option > em { grid-column: 3; justify-self: start; max-width: 100%; font-size: 10px; }
+  .fund-comparison-options { min-height: 0; max-height: min(380px, 45dvh); }
+  .fund-comparison-summary { flex-wrap: wrap; font-size: 11px; line-height: 1.5; }
+  .fund-drawer { width: 100%; max-width: 100vw; height: 100dvh; min-height: 0; padding: max(24px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); overscroll-behavior-y: contain; }
+  .drawer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .drawer-grid p { min-width: 0; padding: 14px 10px; overflow-wrap: anywhere; }
+  .drawer-grid span, .drawer-isin, .drawer-value span, .drawer-signals article > span, .drawer-signals article > small { font-size: 12px; line-height: 1.5; }
+  .drawer-value { padding: 18px; }
+  .drawer-value strong { font-size: clamp(25px, 7vw, 34px); overflow-wrap: anywhere; }
+  .drawer-value em { font-size: 12px; line-height: 1.5; }
+  .transaction-list > div { grid-template-columns: 30px minmax(0, 1fr); padding: 12px 0; }
+  .transaction-list > div > b { grid-column: 2; font-size: 14px; }
+  .transaction-list p strong { font-size: 13px; overflow-wrap: anywhere; }
+  .transaction-list p small, .transaction-head span, .transaction-history-complete { font-size: 11px; }
+  .transaction-load-more { flex-wrap: wrap; padding: 8px; font-size: 12px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *:before, *:after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }

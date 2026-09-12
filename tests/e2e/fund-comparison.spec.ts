@@ -247,6 +247,41 @@ test.describe("full-history normalized fund comparison", () => {
     await expect(card.getByRole("button", { name: "1 of 4 funds" })).toBeFocused();
   });
 
+  test("a finger can discover a nearby comparison line and read its value after release", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "Requires the mobile touch-screen project.");
+    await page.setViewportSize({ width: 390, height: 844 });
+    const card = await openComparisonDashboard(page);
+    const canvas = await waitForPreloadedComparison(card);
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    const plotLeft = Number(await canvas.getAttribute("data-plot-left"));
+    const plotTop = Number(await canvas.getAttribute("data-plot-top"));
+    const plotBottom = Number(await canvas.getAttribute("data-plot-bottom"));
+    const low = Number(await canvas.getAttribute("data-axis-min"));
+    const high = Number(await canvas.getAttribute("data-axis-max"));
+    // Delta alone exists at the start of this fixture and starts at exactly
+    // ₹100. Tap 18px below it, beyond the desktop line's 10px hit target.
+    const y = plotTop + (high - 100) / (high - low)
+      * (box!.height - plotTop - plotBottom) + 18;
+    await canvas.tap({ position: { x: plotLeft + 3, y } });
+    await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100004");
+    await expect(canvas).toHaveAttribute("data-guide-visible", "true");
+    const tooltip = card.locator(".fund-comparison-tooltip");
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toContainText("Delta Value");
+    await expect(tooltip).toContainText("₹100.00");
+    await expectTooltipTracksPointWithoutCoveringIt(canvas, tooltip);
+    // Once focused, tapping open plot space inspects that fund's timeline
+    // without requiring the finger to land on the thin line again.
+    const initialDate = await canvas.getAttribute("data-hover-date");
+    const plotRight = Number(await canvas.getAttribute("data-plot-right"));
+    await canvas.tap({ position: { x: plotRight - 8, y: plotTop + 8 } });
+    await expect(canvas).toHaveAttribute("data-focused-fund", "scheme:100004");
+    await expect(canvas).not.toHaveAttribute("data-hover-date", initialDate ?? "");
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toContainText("Delta Value");
+  });
+
   test("pointer hover uses nearby lines while a selected fund tracks freely across its timeline", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "no-preference" });
     const card = await openComparisonDashboard(page);

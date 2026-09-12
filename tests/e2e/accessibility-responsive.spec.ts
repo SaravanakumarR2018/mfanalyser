@@ -235,8 +235,11 @@ test.describe("accessibility and responsive behavior", () => {
       expect((tooltipBox?.x ?? Infinity) + (tooltipBox?.width ?? Infinity)).toBeLessThanOrEqual(viewport.width + 1);
       expect(tooltipBox?.y ?? -1).toBeGreaterThanOrEqual(0);
       expect((tooltipBox?.y ?? Infinity) + (tooltipBox?.height ?? Infinity)).toBeLessThanOrEqual(viewport.height + 1);
-      const localLeft = (tooltipBox?.x ?? 0) - (canvasBox?.x ?? 0);
-      const localTop = (tooltipBox?.y ?? 0) - (canvasBox?.y ?? 0);
+      // Keyboard focus may scroll a partially visible canvas. Measure both
+      // elements after focus so rail checks use the same viewport coordinates.
+      const inspectedCanvasBox = await canvas.boundingBox();
+      const localLeft = (tooltipBox?.x ?? 0) - (inspectedCanvasBox?.x ?? 0);
+      const localTop = (tooltipBox?.y ?? 0) - (inspectedCanvasBox?.y ?? 0);
       const localRight = localLeft + (tooltipBox?.width ?? 0);
       const localBottom = localTop + (tooltipBox?.height ?? 0);
       expect(anchorX >= localLeft - 5 && anchorX <= localRight + 5
