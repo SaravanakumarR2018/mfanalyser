@@ -34,11 +34,16 @@ test("phone holdings retain every desktop fund value and working search", async 
   expect(desktopValues.length).toBeGreaterThan(30);
   await page.setViewportSize({ width: 320, height: 844 });
   await expect(values).toHaveText(desktopValues);
+  const scroller = page.getByRole("region", { name: "Scrollable fund comparison" });
   const clipped = await values.evaluateAll((elements) => elements.filter((element) => {
     const box = element.getBoundingClientRect();
-    return box.width <= 0 || box.left < -1 || box.right > innerWidth + 1 || element.scrollWidth > element.clientWidth + 1;
+    return box.width <= 0 || box.height <= 0 || element.scrollWidth > element.clientWidth + 1;
   }).map((element) => element.getAttribute("data-label")));
-  expect(clipped, "Every desktop holding metric remains readable on a narrow phone").toEqual([]);
+  expect(clipped, "Every desktop metric has an unclipped table cell accessible by horizontal scrolling").toEqual([]);
+  await expectNoHorizontalOverflow(page);
+  await scroller.scrollIntoViewIfNeeded();
+  await scroller.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+  await expect(page.locator(".fund-row.table-header").getByRole("columnheader", { name: "Below cost" })).toBeInViewport();
   const search = page.getByRole("textbox", { name: /search funds/i });
   await search.fill("Aurora");
   await expect(page.locator(".fund-group")).toHaveCount(1);

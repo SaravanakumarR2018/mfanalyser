@@ -28,6 +28,15 @@ fund list; its search field, full names, selection controls, and close action
 remain accessible on short screens. Reviewed Darwin screenshot baselines are
 unchanged. Windows-generated missing-baseline images are not approved goldens.
 
+`holdings-table.spec.ts` checks the shared desktop/phone comparison table at
+320, 390, 768, and 1440 px. Both axes scroll inside a bounded region: column
+headings pin to its top, fund names pin to its left, and headings remain aligned
+with every financial cell. Column navigation, sorting, filtering, folio
+expansion, and opening folio details are exercised through the actual UI.
+Mobile holding-value parity now verifies that every exact value remains in an
+unclipped cell and later columns can be reached by scrolling, rather than
+requiring all columns to fit simultaneously into the phone viewport.
+
 ## Coverage map
 
 | Area | Regression contract |
