@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import PortfolioChart from "./PortfolioChart";
+import HoldingsScrollRegion from "./HoldingsScrollRegion";
 import NavActivityChart from "./NavActivityChart";
 import FundStackChart from "./FundStackChart";
 import FundComparisonChart from "./FundComparisonChart";
@@ -845,6 +846,7 @@ function Dashboard({
             <p><i className="guide-momentum">↗</i><span><strong>YoY / MoM momentum</strong>Uses the nearest official daily AMFI NAV when available. “Strong” means at least +12% YoY or +2% MoM.</span></p>
             <p><i className="guide-dip">↓</i><span><strong>Below-cost periods</strong>Counts distinct observed periods where estimated value fell below net invested by more than 0.25%.</span></p>
           </div>
+          <HoldingsScrollRegion count={filteredFunds.length} total={portfolio.funds.length}>
           <div className="fund-table" role="table" aria-label="Mutual fund holdings">
             <div className="fund-row table-header" role="row">
               <span role="columnheader">Fund</span>
@@ -853,7 +855,7 @@ function Dashboard({
               <SortableFundHeader label="Gain / loss" sortKey="gain" sort={sort} onSort={selectSort} />
               <SortableFundHeader label="Return" sortKey="return" sort={sort} onSort={selectSort} />
               <SortableFundHeader label="Return p.a." sortKey="annualizedReturn" sort={sort} onSort={selectSort} />
-              <span role="columnheader">Momentum</span><span role="columnheader">Below cost</span><span role="columnheader" />
+              <span role="columnheader">Momentum</span><span role="columnheader">Below cost</span><span role="columnheader">Folios</span>
             </div>
             {filteredFunds.map((fund) => {
               const fundGain = fund.currentValue - fund.invested;
@@ -932,6 +934,7 @@ function Dashboard({
             })}
             {!filteredFunds.length && <div className="no-results">No funds match “{query}”.</div>}
           </div>
+          </HoldingsScrollRegion>
         </section>
 
         <ClosedFunds funds={portfolio.closedFunds} />

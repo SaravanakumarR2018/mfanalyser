@@ -55,7 +55,7 @@ test.describe("mobile touch parity verifier", () => {
     await expect(page.getByRole("tooltip")).toBeVisible();
 
     const firstFund = page.locator(".fund-group .fund-row").first();
-    await tapCenter(firstFund);
+    await tapCenter(firstFund.locator(".fund-name"));
     const drawer = page.getByRole("dialog", { name: "Aurora Small Cap Direct Growth" });
     await expect(drawer).toBeVisible();
     const close = drawer.getByRole("button", { name: "Close fund details" });
