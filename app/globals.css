@@ -608,8 +608,8 @@ a { color: inherit; text-decoration: none; }
   .transaction-load-more { flex-wrap: wrap; padding: 8px; font-size: 12px; }
 }
 
-/* One aligned comparison table on every screen. The scrollport owns both axes,
-   so the column header and fund identity remain attached to the visible rows. */
+/* One full-height comparison table on every screen. The page owns vertical scrolling,
+   while the horizontal scrollport keeps fund identity attached to the visible columns. */
 .holdings-scroll-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 20px; border-top: 1px solid var(--line); }
 .holdings-scroll-tools > div:first-child { display: flex; flex-direction: column; gap: 4px; }
 .holdings-scroll-tools strong { font-size: 13px; }
@@ -618,7 +618,7 @@ a { color: inherit; text-decoration: none; }
 .holdings-column-controls button { width: 44px; height: 44px; border: 1px solid #c6d0c8; border-radius: 9px; background: white; font-size: 20px; cursor: pointer; }
 .holdings-column-controls button:disabled { opacity: .35; cursor: default; }
 .holdings-column-controls button:focus-visible, .holdings-scroll:focus-visible { outline: 2px solid var(--green-dark); outline-offset: -3px; }
-.holdings-scroll { --fund-column-width: 240px; --fund-columns: var(--fund-column-width) repeat(7, minmax(116px, 1fr)) 64px; max-height: min(62dvh, 560px); overflow: auto; position: relative; isolation: isolate; scrollbar-width: thin; scrollbar-color: #839d8c #edf1eb; -webkit-overflow-scrolling: touch; scroll-padding: 78px 8px 8px calc(var(--fund-column-width) + 8px); border-top: 1px solid var(--line); }
+.holdings-scroll { --fund-column-width: 240px; --fund-columns: var(--fund-column-width) repeat(7, minmax(116px, 1fr)) 64px; max-height: none; overflow-x: auto; position: relative; isolation: isolate; scrollbar-width: thin; scrollbar-color: #839d8c #edf1eb; -webkit-overflow-scrolling: touch; scroll-padding: 78px 8px 8px calc(var(--fund-column-width) + 8px); border-top: 1px solid var(--line); }
 .holdings-card .holdings-scroll .fund-table { display: block; width: 100%; min-width: 1116px; padding: 0; background: var(--paper-2); }
 .holdings-scroll .fund-group { margin: 0; border: 0; border-radius: 0; box-shadow: none; overflow: visible; background: transparent; }
 .holdings-card .holdings-scroll .fund-table :is(.fund-row, .folio-row) { display: grid; grid-template-columns: var(--fund-columns); align-items: stretch; gap: 0; min-height: 84px; margin: 0; padding: 0; border: 0; border-radius: 0; text-align: right; font-size: 12px; --row-paper: #faf8f2; background: var(--row-paper); }
@@ -629,7 +629,7 @@ a { color: inherit; text-decoration: none; }
 .holdings-card .holdings-scroll .fund-table :is(.fund-row, .folio-row) > :is(.fund-name, .folio-name) { grid-column: 1; position: sticky; left: 0; z-index: 2; flex-direction: row; align-items: center; justify-content: flex-start; padding: 12px; background: var(--row-paper); box-shadow: 3px 0 0 #dce2d9; text-align: left; }
 .holdings-scroll :is(.fund-name, .folio-name) strong { white-space: normal; overflow: visible; overflow-wrap: anywhere; font-size: 13px; line-height: 1.4; }
 .holdings-scroll :is(.fund-name, .folio-name) small { font-size: 11px; line-height: 1.4; }
-.holdings-card .holdings-scroll .fund-table .fund-row.table-header { position: sticky; top: 0; z-index: 4; min-height: 74px; overflow: visible; margin: 0; box-shadow: 0 2px 0 #cbd5cb; --row-paper: #eaf0e8; letter-spacing: .2px; }
+.holdings-card .holdings-scroll .fund-table .fund-row.table-header { position: relative; transform: translateY(var(--holdings-header-offset, 0px)); z-index: 4; min-height: 74px; overflow: visible; margin: 0; box-shadow: 0 2px 0 #cbd5cb; --row-paper: #eaf0e8; letter-spacing: .2px; }
 .holdings-card .holdings-scroll .fund-table .fund-row.table-header::before { content: none; }
 .holdings-card .holdings-scroll .fund-table .fund-row.table-header > span { display: flex !important; padding: 6px 8px; font-size: 11px; }
 .holdings-scroll .fund-row.table-header > span:first-child { position: sticky; left: 0; z-index: 5; background: var(--row-paper); align-items: flex-start; padding-left: 14px; box-shadow: 3px 0 0 #cbd5cb; }
@@ -651,7 +651,7 @@ a { color: inherit; text-decoration: none; }
 .holdings-scroll .no-results { position: sticky; left: 0; width: min(500px, calc(100vw - 28px)); overflow-wrap: anywhere; }
 
 @media (max-width: 800px) {
-  .holdings-scroll { --fund-column-width: 144px; max-height: 62dvh; }
+  .holdings-scroll { --fund-column-width: 144px; }
   .holdings-card .holdings-scroll .fund-table { min-width: 1020px; }
   .holdings-card .holdings-scroll .fund-table :is(.fund-row, .folio-row) { min-height: 96px; }
   .holdings-card .holdings-scroll .fund-table .fund-row.table-header { min-height: 74px; }
