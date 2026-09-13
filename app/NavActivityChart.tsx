@@ -1,5 +1,7 @@
 "use client";
 
+import { useChartPinch } from "./useChartPinch";
+
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { FundTransaction, HistoricalNavPoint } from "./cas-parser";
@@ -75,6 +77,9 @@ export default function NavActivityChart({
   const [tooltipStyle, setTooltipStyle] = useState<CSSProperties>();
   const previousPoints = useRef(allPoints);
   const clearSelectedPeriod = useCallback(() => setPeriod(null), []);
+
+  const pinchCoordinates = useMemo(() => allPoints.map((point) => Date.parse(point.date)), [allPoints]);
+  useChartPinch({ target: shellRef, coordinates: pinchCoordinates, range, totalPoints: allPoints.length, onChange: setRange, onStart: () => { setPeriod(null); setHovered(null); } });
   const rangeWindowDrag = useRangeWindowDrag({
     range,
     setRange,
@@ -184,6 +189,8 @@ export default function NavActivityChart({
     context.scale(dpr, dpr);
 
     const padding = { left: width < 510 ? 12 : 55, right: 17, top: 94, bottom: 32 };
+    canvas.dataset.plotLeft = String(padding.left);
+    canvas.dataset.plotRight = String(width - padding.right);
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
     const minNav = Math.min(...points.map((point) => point.nav));

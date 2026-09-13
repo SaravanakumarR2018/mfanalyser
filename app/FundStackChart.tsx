@@ -192,6 +192,8 @@ export default function FundStackChart({ portfolio }: { portfolio: Portfolio }) 
               <FundStackPanel
                 key={mode}
                 mode={mode}
+                range={range}
+                onRangeChange={setRange}
                 model={model}
                 visible={visible}
                 visibleTimes={visibleTimes}

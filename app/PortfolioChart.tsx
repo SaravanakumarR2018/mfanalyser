@@ -1,5 +1,7 @@
 "use client";
 
+import { useChartPinch } from "./useChartPinch";
+
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { TimelinePoint } from "./cas-parser";
@@ -56,6 +58,9 @@ export default function PortfolioChart({
   const [animate, setAnimate] = useState(0);
   const [showInvested, setShowInvested] = useState(true);
   const previousPoints = useRef(points);
+
+  const pinchCoordinates = useMemo(() => points.map((point) => Date.parse(point.date)), [points]);
+  useChartPinch({ target: shellRef, coordinates: pinchCoordinates, range, totalPoints: points.length, onChange: setRange, onStart: () => setHovered(null) });
   const rangeWindowDrag = useRangeWindowDrag({ range, setRange, totalPoints: points.length });
 
   useEffect(() => {
@@ -135,6 +140,8 @@ export default function PortfolioChart({
     context.scale(dpr, dpr);
 
     const padding = { left: width < 560 ? 10 : 64, right: 18, top: 92, bottom: 38 };
+    canvas.dataset.plotLeft = String(padding.left);
+    canvas.dataset.plotRight = String(width - padding.right);
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
     const scale = buildChartScale(visible, showInvested);
