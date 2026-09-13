@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useDetailNavigation } from "./useDetailNavigation";
 import PortfolioChart from "./PortfolioChart";
 import HoldingsScrollRegion from "./HoldingsScrollRegion";
 import NavActivityChart from "./NavActivityChart";
@@ -421,10 +422,13 @@ const TRANSACTION_BATCH_SIZE = 20;
 function CompleteTransactionHistory({
   title,
   transactions,
+  folios,
 }: {
   title: string;
   transactions: FundTransaction[];
+  folios: FolioHolding[];
 }) {
+  const folioLabels = useMemo(() => new Map(folios.flatMap((folio) => folio.transactions.map((transaction) => [transaction, folio.label] as const))), [folios]);
   const orderedTransactions = useMemo(
     () => [...transactions].sort((left, right) => right.date.localeCompare(left.date)),
     [transactions],
@@ -484,7 +488,8 @@ function CompleteTransactionHistory({
                   {transaction.amount < 0 ? "↓" : "↑"}
                 </span>
                 <p>
-                  <strong>{transaction.label}</strong>
+                  <strong><span className={`transaction-kind ${transaction.amount < 0 ? "out" : ""}`}>{transaction.amount < 0 ? "Redemption / sale" : transaction.amount > 0 ? "Purchase / inflow" : "Adjustment"}</span> · {transaction.label}</strong>
+                  <small className="transaction-folio">{folioLabels.get(transaction) ?? "Folio unavailable in statement"}</small>
                   <small>
                     {formatDate(transaction.date)} ·{" "}
                     {transaction.units.toLocaleString("en-IN", { maximumFractionDigits: 3 })} units
@@ -525,6 +530,7 @@ function HoldingDrawer({
   transactionTitle,
   valueLabel,
   schemeCode,
+  folios,
 }: {
   title: string;
   eyebrow: string;
@@ -534,8 +540,10 @@ function HoldingDrawer({
   transactionTitle: string;
   valueLabel: string;
   schemeCode?: string;
+  folios: FolioHolding[];
 }) {
   const titleId = useId();
+  const swipeStart = useRef<{ x: number; y: number; time: number } | null>(null);
   const gain = holding.currentValue - holding.invested;
   const returnValue = holding.invested ? (gain / holding.invested) * 100 : 0;
   const timeline = useMemo(() => buildHoldingTimeline(holding), [holding]);
@@ -544,8 +552,27 @@ function HoldingDrawer({
   return (
     <div className="drawer-backdrop">
       <button className="drawer-scrim" type="button" onClick={onClose} aria-label="Close holding details" />
-      <aside className="fund-drawer" aria-modal="true" role="dialog" aria-labelledby={titleId}>
-        <button className="drawer-close" onClick={onClose} aria-label="Close fund details">×</button>
+      <aside className="fund-drawer" aria-modal="true" role="dialog" aria-labelledby={titleId}
+        onTouchStart={(event) => {
+          swipeStart.current = null;
+          if (window.innerWidth > 800 || event.touches.length !== 1) return;
+          const target = event.target as Element;
+          if (target.closest("button, input, select, a, canvas, svg, .chart-shell, .nav-activity-shell, .fund-stack-shell")) return;
+          const touch = event.touches[0];
+          // Leave edge gestures to Safari's same-document history navigation.
+          if (touch.clientX < 32 || touch.clientX > window.innerWidth - 32) return;
+          swipeStart.current = { x: touch.clientX, y: touch.clientY, time: performance.now() };
+        }}
+        onTouchCancel={() => { swipeStart.current = null; }}
+        onTouchEnd={(event) => {
+          const start = swipeStart.current;
+          swipeStart.current = null;
+          if (!start || event.touches.length || !event.changedTouches.length) return;
+          const touch = event.changedTouches[0];
+          if (Math.abs(touch.clientX - start.x) > 90 && Math.abs(touch.clientY - start.y) < 35 && performance.now() - start.time < 700) onClose();
+        }}
+      >
+        <div className="drawer-navigation"><button className="drawer-back" type="button" onClick={onClose}><span aria-hidden="true">←</span> Back to funds</button><button className="drawer-close" onClick={onClose} aria-label="Close fund details">×</button></div>
         <p className="eyebrow">{eyebrow}</p>
         <h2 id={titleId}>{title}</h2>
         <p className="drawer-isin">{subtitle}</p>
@@ -593,6 +620,7 @@ function HoldingDrawer({
           key={`${title}-${subtitle}-${holding.transactions.length}`}
           title={transactionTitle}
           transactions={holding.transactions}
+          folios={folios}
         />
       </aside>
     </div>
@@ -606,6 +634,7 @@ function FundDrawer({ fund, onClose }: { fund: FundHolding; onClose: () => void 
       eyebrow={`${fund.category} · ${fund.folios} ${fund.folios === 1 ? "folio" : "folios"}`}
       subtitle={fund.isin}
       holding={fund}
+      folios={fund.folioHoldings}
       onClose={onClose}
       transactionTitle="Statement transactions"
       valueLabel="Fund value"
@@ -621,6 +650,7 @@ function FolioDrawer({ fund, folio, onClose }: { fund: FundHolding; folio: Folio
       eyebrow={`${fund.category} · ${fund.name}`}
       subtitle="Masked folio number · visible only in this browser tab"
       holding={folio}
+      folios={[folio]}
       onClose={onClose}
       transactionTitle="Folio transactions"
       valueLabel="Folio value"
@@ -702,6 +732,9 @@ function Dashboard({
   const [selectedFundKey, setSelectedFundKey] = useState<string | null>(null);
   const [selectedFolioKey, setSelectedFolioKey] = useState<{ fundKey: string; folioKey: string } | null>(null);
   const [expandedFund, setExpandedFund] = useState<string | null>(null);
+  const detailNavigation = useDetailNavigation(() => { setSelectedFundKey(null); setSelectedFolioKey(null); });
+  const openFund = (key: string) => { detailNavigation.open(); setSelectedFundKey(key); };
+  const openFolio = (selection: { fundKey: string; folioKey: string }) => { detailNavigation.open(); setSelectedFolioKey(selection); };
   const selected = selectedFundKey
     ? portfolio.funds.find((fund) => fund.key === selectedFundKey) ?? null
     : null;
@@ -867,8 +900,8 @@ function Dashboard({
                     className="fund-row"
                     role="button"
                     tabIndex={0}
-                    onClick={() => setSelectedFundKey(fund.key)}
-                    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedFundKey(fund.key); }}
+                    onClick={() => openFund(fund.key)}
+                    onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") openFund(fund.key); }}
                   >
                     <span className="fund-name"><i style={{ background: fundColors.get(fund.key) ?? palette[0] }}>{fund.fundHouse.slice(0, 2).toUpperCase()}</i><span><strong>{fund.name}</strong><small>{fund.category} · {fund.folios} {fund.folios === 1 ? "folio" : "folios"}</small></span></span>
                     <span data-label="Invested amount">{formatMoney(fund.invested)}</span>
@@ -907,7 +940,7 @@ function Dashboard({
                           folio.currentValue,
                         );
                         return (
-                          <button className="folio-row" key={folio.key} onClick={() => setSelectedFolioKey({ fundKey: fund.key, folioKey: folio.key })}>
+                          <button className="folio-row" key={folio.key} onClick={() => openFolio({ fundKey: fund.key, folioKey: folio.key })}>
                             <span className="folio-name"><i>F</i><span><strong>{folio.label}</strong><small>{folio.currentValue > 0 ? `${folio.transactions.length} transactions` : "Closed / zero balance"}</small></span></span>
                             <span data-label="Invested amount">{formatMoney(folio.invested)}</span>
                             <span data-label="Current value"><strong>{formatMoney(folio.currentValue)}</strong></span>
@@ -993,8 +1026,8 @@ function Dashboard({
         <footer className="dashboard-footer"><Brand /><p>Your statement was processed locally and is not stored by FolioVista.</p><span>For tracking only · Not investment advice</span></footer>
       </div>
       {historyProgress && <HistoryProgressToast progress={historyProgress} />}
-      {selected && <FundDrawer fund={selected} onClose={() => setSelectedFundKey(null)} />}
-      {selectedFolioFund && selectedFolio && <FolioDrawer fund={selectedFolioFund} folio={selectedFolio} onClose={() => setSelectedFolioKey(null)} />}
+      {selected && <FundDrawer fund={selected} onClose={detailNavigation.close} />}
+      {selectedFolioFund && selectedFolio && <FolioDrawer fund={selectedFolioFund} folio={selectedFolio} onClose={detailNavigation.close} />}
     </main>
   );
 }

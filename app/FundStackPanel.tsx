@@ -1,5 +1,7 @@
 "use client";
 
+import { useChartPinch } from "./useChartPinch";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
@@ -82,6 +84,8 @@ type StackHover = {
 };
 
 type FundStackPanelProps = {
+  range: [number, number];
+  onRangeChange: (range: [number, number]) => void;
   mode: FundStackMode;
   model: FundStackModel;
   visible: FundStackPoint[];
@@ -95,6 +99,8 @@ type FundStackPanelProps = {
 };
 
 export default function FundStackPanel({
+  range,
+  onRangeChange,
   mode,
   model,
   visible,
@@ -107,8 +113,11 @@ export default function FundStackPanel({
   onSelectPoint,
 }: FundStackPanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
   const lensCanvasRef = useRef<HTMLCanvasElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
+  const pinchCoordinates = useMemo(() => model.points.map((point) => Date.parse(point.date)), [model.points]);
+  useChartPinch({ target: shellRef, coordinates: pinchCoordinates, range, totalPoints: model.points.length, onChange: onRangeChange });
   const dragRef = useRef<{
     pointerId: number;
     captureTarget: HTMLCanvasElement;
@@ -405,6 +414,8 @@ export default function FundStackPanel({
     canvas.height = height * dpr;
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
+    canvas.dataset.plotLeft = String(chartPadding(width).left);
+    canvas.dataset.plotRight = String(width - chartPadding(width).right);
     const context = canvas.getContext("2d");
     if (!context) return;
     context.setTransform(dpr, 0, 0, dpr, 0, 0);

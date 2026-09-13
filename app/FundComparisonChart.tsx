@@ -1,5 +1,7 @@
 "use client";
 
+import { useChartPinch } from "./useChartPinch";
+
 import {
   useCallback,
   useEffect,
@@ -195,6 +197,9 @@ export default function FundComparisonChart({ portfolio }: { portfolio: Portfoli
   );
   const priorModelDatesRef = useRef<readonly string[]>(model.dates);
 
+
+  const pinchCoordinates = useMemo(() => model.dates.map((date) => Date.parse(date)), [model.dates]);
+  useChartPinch({ target: shellRef, coordinates: pinchCoordinates, range, totalPoints: model.dates.length, onChange: setRange, onStart: () => { setPeriod(null); setHoverDate(null); setHoveredFundKey(null); } });
   const rangeWindowDrag = useRangeWindowDrag({
     range,
     setRange,

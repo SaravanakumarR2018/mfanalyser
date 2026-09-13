@@ -1,5 +1,7 @@
 "use client";
 
+import { useChartPinch } from "./useChartPinch";
+
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
@@ -40,6 +42,10 @@ export default function InteractiveDonut({
 }: InteractiveDonutProps) {
   const tooltipId = useId();
   const donutRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [zoomX, setZoomX] = useState<[number, number]>([0, 180]);
+  const [zoomY, setZoomY] = useState<[number, number]>([0, 180]);
+  useChartPinch({ target: svgRef, range: zoomX, verticalRange: zoomY, totalPoints: 181, minSpan: 45, onChange: (x, y) => { setZoomX(x); if (y) setZoomY(y); }, onStart: () => { setHoveredKey(null); setSelectedKey(null); } });
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -127,7 +133,8 @@ export default function InteractiveDonut({
       data-slice-count={slices.length}
       data-tooltip-placement={tooltipPositionIsCurrent ? tooltipPosition?.direction : ""}
     >
-      <svg viewBox="0 0 180 180" role="group" aria-label={ariaLabel}>
+      {zoomX[1] - zoomX[0] < 180 && <button className="donut-reset-zoom" type="button" onClick={() => { setZoomX([0, 180]); setZoomY([0, 180]); }}>Reset zoom</button>}
+      <svg ref={svgRef} style={{ touchAction: "pan-y", overflow: "hidden" }} viewBox={`${zoomX[0]} ${zoomY[0]} ${zoomX[1] - zoomX[0]} ${zoomY[1] - zoomY[0]}`} role="group" aria-label={ariaLabel}>
         <circle className="donut-track" cx="90" cy="90" r="62" />
         {slices.map((slice) => {
           const offset = allocationSliceOffset(slice.midAngle);

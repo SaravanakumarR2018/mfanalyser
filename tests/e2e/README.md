@@ -120,3 +120,20 @@ assertion.
 - External AMFI availability is intentionally excluded from E2E. Server/data tests should own upstream schema checks, while this suite owns every browser state produced by those schemas.
 - Screenshot goldens should only be updated after a human reviews the diffs; do not use update mode automatically in CI.
 - Visual goldens are Chromium-only by design, the performance assertion is an interactive-readiness smoke rather than a Web Vitals/load test, and no automated browser suite replaces a real assistive-technology audit.
+
+## Mobile detail navigation and chart gestures
+
+`mobile-detail-gestures.spec.ts` checks repeated browser Back/close cycles with
+a parsed synthetic CAS, retained fund filters and expanded folios, a sticky
+mobile back control, and transaction direction plus masked folio attribution
+(including two folios grouped into the same fund). No financial values or
+identifiers are written into history state; reloading still clears the CAS.
+
+The same suite exercises pinch zoom on portfolio, fund NAV, stacked, normalized
+comparison, inflation, and allocation charts. Timeline charts change their
+existing data window and retain exact observations; two-finger movement pans
+the zoomed window. Allocation diagrams zoom their SVG view with a reset button.
+Native Chromium touch dispatch checks gesture arbitration and vertical scrolling.
+Other engines exercise the touch-event integration and browser-history behavior;
+this is not a claim of testing Safari's physical iPhone edge gesture. The existing
+mobile touch parity suite continues to check taps, tooltips, and one-finger scroll.

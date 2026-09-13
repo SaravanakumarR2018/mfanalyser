@@ -1,5 +1,7 @@
 "use client";
 
+import { useChartPinch } from "./useChartPinch";
+
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
@@ -22,6 +24,10 @@ export default function IndiaInflationChart() {
   const hasStartedRef = useRef(false);
   const [state, setState] = useState<LoadState>("waiting");
   const [points, setPoints] = useState<IndiaInflationPoint[]>([]);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [range, setRange] = useState<[number, number]>([0, 29]);
+  const visiblePoints = useMemo(() => points.slice(range[0], range[1] + 1), [points, range]);
+  useChartPinch({ target: svgRef, range, totalPoints: points.length, onChange: setRange, onStart: () => setActiveIndex(null) });
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [compact, setCompact] = useState(false);
 
@@ -47,6 +53,7 @@ export default function IndiaInflationChart() {
       const next = await loadIndiaInflation({ signal: controller.signal });
       if (controller.signal.aborted || sequence !== requestSequenceRef.current) return;
       setPoints(next);
+      setRange([0, next.length - 1]);
       setActiveIndex(next.length - 1);
       setState("ready");
     } catch {
@@ -86,9 +93,9 @@ export default function IndiaInflationChart() {
     const values = points.map((point) => point.value);
     const low = Math.min(0, Math.floor(Math.min(...values) - 1));
     const high = Math.max(1, Math.ceil(Math.max(...values) + 1));
-    const x = (index: number) => plot.left + (index / (points.length - 1)) * (plot.right - plot.left);
+    const x = (index: number) => plot.left + (index / (visiblePoints.length - 1)) * (plot.right - plot.left);
     const y = (value: number) => plot.bottom - ((value - low) / (high - low)) * (plot.bottom - plot.top);
-    const drawn = points.map((point, index) => ({ ...point, x: x(index), y: y(point.value) }));
+    const drawn = visiblePoints.map((point, index) => ({ ...point, x: x(index), y: y(point.value) }));
     const line = drawn.map((point) => `${point.x},${point.y}`).join(" ");
     const area = `${plot.left},${plot.bottom} ${line} ${plot.right},${plot.bottom}`;
     const average = values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -98,7 +105,7 @@ export default function IndiaInflationChart() {
       return { value, y: y(value) };
     }).reverse();
     return { drawn, line, area, average, peak, yTicks, zeroY: y(0) };
-  }, [geometry, points]);
+  }, [geometry, points, visiblePoints]);
 
   const active = model && activeIndex !== null ? model.drawn[activeIndex] : null;
   const inspectAt = (clientX: number, bounds: DOMRect) => {
@@ -160,8 +167,10 @@ export default function IndiaInflationChart() {
             <div><span>30-year average</span><strong>{formatPercent(model.average, 2)}</strong></div>
             <div><span>Highest · {model.peak.year}</span><strong>{formatPercent(model.peak.value, 2)}</strong></div>
           </div>
+          {(range[0] > 0 || range[1] < points.length - 1) && <button className="chart-reset-touch" type="button" onClick={() => { setRange([0, points.length - 1]); setActiveIndex(points.length - 1); }}>Show all years</button>}
           <div className="inflation-chart-shell">
             <svg
+              ref={svgRef}
               viewBox={`0 0 ${geometry.width} ${geometry.height}`}
               role="img"
               tabIndex={0}
@@ -170,12 +179,12 @@ export default function IndiaInflationChart() {
               onPointerMove={handlePointer}
               onPointerDown={handlePointer}
               onKeyDown={handleKey}
-              data-start-year={points[0].year}
-              data-end-year={points.at(-1)?.year}
+              data-start-year={visiblePoints[0]?.year}
+              data-end-year={visiblePoints.at(-1)?.year}
               data-indicator={INDIA_INFLATION_INDICATOR}
             >
               <title>India annual consumer-price inflation</title>
-              <desc id={descriptionId}>A line chart of {points.length} annual observations from {points[0].year} to {points.at(-1)?.year}. Use left and right arrow keys to inspect years.</desc>
+              <desc id={descriptionId}>A line chart of {visiblePoints.length} annual observations from {visiblePoints[0]?.year} to {visiblePoints.at(-1)?.year}. Use left and right arrow keys to inspect years.</desc>
               <defs>
                 <linearGradient id={`${headingId}-area`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0" stopColor="#ff7a66" stopOpacity="0.32" />
