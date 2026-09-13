@@ -673,7 +673,7 @@ a { color: inherit; text-decoration: none; }
 .transaction-list p .transaction-folio { font-weight: 700; color: var(--ink); }
 @media (max-width: 800px) {
   .drawer-backdrop { z-index: 80; }
-  .fund-drawer .drawer-navigation { position: sticky; top: 0; z-index: 12; display: flex; justify-content: space-between; align-items: center; gap: 12px; background: var(--paper-2); padding: max(12px, env(safe-area-inset-top)) 0 12px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+  .fund-drawer .drawer-navigation { position: sticky; top: calc(-1 * max(24px, env(safe-area-inset-top))); z-index: 12; display: flex; justify-content: space-between; align-items: center; gap: 12px; background: var(--paper-2); padding: max(12px, env(safe-area-inset-top)) 0 12px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
   .drawer-back { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 12px; color: var(--green-dark); background: white; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
   .fund-drawer .drawer-navigation .drawer-close { position: static; flex: 0 0 44px; width: 44px; height: 44px; }
   .transaction-list p { min-width: 0; overflow-wrap: anywhere; }
