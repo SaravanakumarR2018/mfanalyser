@@ -36,7 +36,7 @@ async function expectEveryTooltipOutsideDonut(
   viewport: { width: number; height: number },
 ) {
   await donut.scrollIntoViewIfNeeded();
-  const slices = await donut.getByRole("button").all();
+  const slices = await donut.locator(".donut-slice").all();
   for (const slice of slices) {
     // Focus keeps every slice stable while the sweep scrolls and resizes; representative
     // pointer-hover behavior for all three donuts is covered by dashboard.spec.ts.
