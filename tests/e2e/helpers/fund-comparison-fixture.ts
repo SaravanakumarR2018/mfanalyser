@@ -176,3 +176,16 @@ export async function installFundComparisonMocks(page: Page, onHistory?: (
     await fulfillComparisonHistory(route, key);
   });
 }
+
+/** A real-parser fixture with a nonzero allocation below 0.01%. */
+export const makeTinyAllocationCasPdf = () => buildPdf([
+  "Consolidated Account Statement", "PORTFOLIO SUMMARY", "Total 900,001.00 1,000,000.01",
+  "Large Equity Direct Growth - ISIN : INF111A01010 Registrar : CAMS", "Folio No : 11111111/11",
+  "NAV on 31-Jul-2026: INR 10.0000 Market Value on 31-Jul-2026: INR 1,000,000.00",
+  "Closing Unit Balance: 100,000.000 Total Cost Value: 900,000.00",
+  "02-Jan-2020 Purchase 900,000.00 100,000.000 9.0000 100,000.000",
+  "Tiny Gold Holding With A Long Name Direct Growth - ISIN : INF222B02020 Registrar : CAMS", "Folio No : 22222222/22",
+  "NAV on 31-Jul-2026: INR 0.0100 Market Value on 31-Jul-2026: INR 0.01",
+  "Closing Unit Balance: 1.000 Total Cost Value: 1.00",
+  "02-Jan-2020 Purchase 1.00 1.000 1.0000 1.000",
+]);

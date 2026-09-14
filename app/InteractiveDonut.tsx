@@ -1,5 +1,7 @@
 "use client";
 
+import AllocationExplorer from "./AllocationExplorer";
+import { useDetailNavigation } from "./useDetailNavigation";
 import { useChartPinch } from "./useChartPinch";
 
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -41,6 +43,8 @@ export default function InteractiveDonut({
   dark = false,
 }: InteractiveDonutProps) {
   const tooltipId = useId();
+  const [exploring, setExploring] = useState(false);
+  const navigation = useDetailNavigation(() => setExploring(false));
   const donutRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [zoomX, setZoomX] = useState<[number, number]>([0, 180]);
@@ -133,6 +137,8 @@ export default function InteractiveDonut({
       data-slice-count={slices.length}
       data-tooltip-placement={tooltipPositionIsCurrent ? tooltipPosition?.direction : ""}
     >
+      <button className="donut-explore" type="button" aria-label={`Explore ${ariaLabel}`} onClick={() => { setHoveredKey(null); setSelectedKey(null); navigation.open(); setExploring(true); }}>Explore slices ↗</button>
+      {exploring && createPortal(<AllocationExplorer items={items} title={ariaLabel} onClose={navigation.close} />, document.body)}
       {zoomX[1] - zoomX[0] < 180 && <button className="donut-reset-zoom" type="button" onClick={() => { setZoomX([0, 180]); setZoomY([0, 180]); }}>Reset zoom</button>}
       <svg ref={svgRef} style={{ touchAction: "pan-y", overflow: "hidden" }} viewBox={`${zoomX[0]} ${zoomY[0]} ${zoomX[1] - zoomX[0]} ${zoomY[1] - zoomY[0]}`} role="group" aria-label={ariaLabel}>
         <circle className="donut-track" cx="90" cy="90" r="62" />

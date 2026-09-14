@@ -137,3 +137,18 @@ Native Chromium touch dispatch checks gesture arbitration and vertical scrolling
 Other engines exercise the touch-event integration and browser-history behavior;
 this is not a claim of testing Safari's physical iPhone edge gesture. The existing
 mobile touch parity suite continues to check taps, tooltips, and one-finger scroll.
+
+## Desktop zoom and mobile allocation explorer
+
+`desktop-zoom-allocations.spec.ts` checks native Ctrl/Alt+wheel zoom across every
+chart family, inverse zoom, reset followed by zoom, unmodified wheel and outside-plot
+browser zoom preservation, and Safari GestureEvent integration. The adapter follows
+[Apple's GestureEvent model](https://developer.apple.com/documentation/webkitjs/gestureevent);
+physical Mac trackpad verification remains a separate device check.
+
+Mobile allocation explorers are tested at 390x844, 320x568, and 667x375 through the
+real parser, including a synthetic one-paise holding below 0.01% of the portfolio.
+Every category/holding remains selectable from a large named row, with exact money,
+small-percentage precision, search, selected-slice zoom, reset, and Back to portfolio.
+Existing donut tooltip tests continue to enumerate actual slice controls explicitly;
+the new Explore button is validated separately. No reviewed golden images are updated.
