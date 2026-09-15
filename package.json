@@ -14,14 +14,15 @@
     "test:data": "node --experimental-strip-types --import=./tests/data/register-ts-loader.mjs --test tests/daily-nav.test.ts tests/data/*.test.ts",
     "test:data:coverage": "node --experimental-strip-types --import=./tests/data/register-ts-loader.mjs --experimental-test-coverage '--test-coverage-include=app/**/*.ts' --test-coverage-lines=97 --test-coverage-branches=80 --test-coverage-functions=90 --test tests/daily-nav.test.ts tests/data/*.test.ts",
     "test:render": "npm run build && node --test tests/rendered-html.test.mjs",
-    "test:ui": "playwright test",
-    "test:ui:desktop": "playwright test --project=desktop-chromium",
+    "test:ui": "node scripts/migrate-local.mjs && playwright test",
+    "test:ui:desktop": "node scripts/migrate-local.mjs && playwright test --project=desktop-chromium",
     "test:ui:install": "playwright install chromium firefox webkit",
     "test:ui:update": "playwright test --update-snapshots",
     "test:daily-nav": "node --experimental-strip-types --test tests/daily-nav.test.ts",
     "test:weekly-nav": "npm run test:daily-nav",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:local": "node scripts/migrate-local.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
@@ -32,6 +33,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
     "@cloudflare/vite-plugin": "1.37.1",
+    "@cloudflare/workers-types": "^4.20260702.1",
     "@eslint/js": "9.39.4",
     "@next/eslint-plugin-next": "16.2.6",
     "@playwright/test": "^1.62.1",

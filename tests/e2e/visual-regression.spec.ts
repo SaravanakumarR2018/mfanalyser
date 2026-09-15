@@ -69,6 +69,9 @@ test.describe("stable visual regions", () => {
       animations: "disabled",
     });
 
+    // Capturing a card taller than the mobile viewport can leave the intended
+    // hover point offscreen. Bring the canvas into view before measuring it.
+    await comparisonCanvas.scrollIntoViewIfNeeded();
     const comparisonBox = await comparisonCanvas.boundingBox();
     expect(comparisonBox).not.toBeNull();
     const first = new Date("1990-01-01T00:00:00Z").getTime();

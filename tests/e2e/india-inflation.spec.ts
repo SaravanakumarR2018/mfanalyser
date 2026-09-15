@@ -1,16 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { expectNoHorizontalOverflow, openDemo } from "./helpers/app";
 
-const inflationRows = Array.from({ length: 30 }, (_, index) => {
-  const year = 1996 + index;
-  const value = year === 2010 ? 11.99 : year === 2025 ? 4.95 : 3.2 + (index % 7) * 0.61;
-  return {
-    countryiso3code: "IND",
-    date: String(year),
-    value,
-    indicator: { id: "FP.CPI.TOTL.ZG", value: "Inflation, consumer prices (annual %)" },
-  };
-}).reverse();
+import { inflationRows } from "./helpers/inflation-fixture";
 
 test.describe("India inflation context", () => {
   test("loads 30 years directly in the browser and supports keyboard inspection", async ({ page }) => {

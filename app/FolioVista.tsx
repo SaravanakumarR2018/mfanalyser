@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import PortfolioChart from "./PortfolioChart";
+import AccountWorkspace, { type WorkspaceProps } from "./AccountWorkspace";
 import NavActivityChart from "./NavActivityChart";
 import FundStackChart from "./FundStackChart";
 import FundComparisonChart from "./FundComparisonChart";
@@ -113,6 +114,7 @@ function Brand() {
 }
 
 type UploadPanelProps = {
+  savedMode?: boolean;
   busy: boolean;
   progress: number;
   error: string;
@@ -124,7 +126,7 @@ type UploadPanelProps = {
   onDemo: () => void;
 };
 
-function UploadPanel({ busy, progress, error, passwordMode, password, setPassword, onFile, onRetry, onDemo }: UploadPanelProps) {
+function UploadPanel({ busy, progress, error, passwordMode, password, setPassword, onFile, onRetry, onDemo, savedMode }: UploadPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -194,12 +196,15 @@ function UploadPanel({ busy, progress, error, passwordMode, password, setPasswor
         )}
       </div>
       {error && !passwordMode && <div className="upload-error" role="alert"><span>!</span><p>{error}</p></div>}
-      <div className="privacy-caption"><span className="tiny-lock">⌁</span> Your PDF never leaves this device. No account. No storage.</div>
+      <div className="privacy-caption"><span className="tiny-lock">⌁</span> {savedMode ? "Your PDF and analysis will be saved privately to your account." : "Your PDF never leaves this device. No account. No storage."}</div>
     </div>
   );
 }
 
-function Landing({ onPortfolio }: { onPortfolio: (portfolio: Portfolio) => void }) {
+function Landing({ onPortfolio, savedMode, onStatement }: { onPortfolio: (portfolio: Portfolio) => void } & Pick<WorkspaceProps, "savedMode" | "onStatement">) {
+  const mounted = useRef(true);
+  const savedImportBusy = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
@@ -208,6 +213,8 @@ function Landing({ onPortfolio }: { onPortfolio: (portfolio: Portfolio) => void 
   const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   const processFile = async (file: File, suppliedPassword = "") => {
+    if (savedMode && savedImportBusy.current) return;
+    if (savedMode) savedImportBusy.current = true;
     setBusy(true);
     setError("");
     setProgress(3);
@@ -217,8 +224,11 @@ function Landing({ onPortfolio }: { onPortfolio: (portfolio: Portfolio) => void 
         suppliedPassword,
         (nextProgress) => setProgress(Math.min(88, nextProgress)),
       );
+      if (!mounted.current) return;
+      if (onStatement) await onStatement(file, statementPortfolio);
       setProgress(92);
       const portfolio = await refreshWithLatestNav(statementPortfolio);
+      if (!mounted.current) return;
       setProgress(100);
       setPendingFile(null);
       setPassword("");
@@ -234,6 +244,7 @@ function Landing({ onPortfolio }: { onPortfolio: (portfolio: Portfolio) => void 
         setError(caught instanceof Error ? caught.message : "This statement could not be read. Please try a fresh detailed CAS PDF.");
       }
     } finally {
+      savedImportBusy.current = false;
       setBusy(false);
     }
   };
@@ -259,10 +270,11 @@ function Landing({ onPortfolio }: { onPortfolio: (portfolio: Portfolio) => void 
           <div className="trust-row">
             <span><i>✓</i> Statement totals reconciled</span>
             <span><i>✓</i> CAMS + KFintech</span>
-            <span><i>✓</i> Nothing uploaded</span>
+            <span><i>✓</i> {savedMode ? "Saved to your account" : "Nothing uploaded"}</span>
           </div>
         </div>
         <UploadPanel
+          savedMode={savedMode}
           busy={busy}
           progress={progress}
           error={error}
@@ -298,19 +310,19 @@ function Landing({ onPortfolio }: { onPortfolio: (portfolio: Portfolio) => void 
       <section className="how-section" id="how-it-works">
         <div>
           <p className="eyebrow">From PDF to perspective</p>
-          <h2>Three steps. Zero data trails.</h2>
+          <h2>{savedMode ? "Three steps. Ready when you return." : "Three steps. Zero data trails."}</h2>
         </div>
         <ol>
           <li><span>01</span><h3>Choose your CAS</h3><p>Use the detailed statement from CAMS or KFintech. Password-protected PDFs are supported.</p></li>
           <li><span>02</span><h3>We reconcile it</h3><p>Folio valuations are totalled and checked against the portfolio summary before anything is shown.</p></li>
-          <li><span>03</span><h3>Explore the journey</h3><p>Zoom, pan, compare allocations and inspect each fund without your data leaving the tab.</p></li>
+          <li><span>03</span><h3>Explore the journey</h3><p>{savedMode ? "Explore every fund and return to the same saved statement whenever you sign in." : "Zoom, pan, compare allocations and inspect each fund without your data leaving the tab."}</p></li>
         </ol>
       </section>
 
       <section className="privacy-section" id="privacy">
         <div className="privacy-orb"><span>⌁</span></div>
         <div><p className="eyebrow">A private tool, not a data collector</p><h2>Your money is personal.<br />Your data stays that way.</h2></div>
-        <div className="privacy-points"><p><i>01</i><span><strong>Browser-only processing</strong>Your PDF is opened in memory and discarded after analysis.</span></p><p><i>02</i><span><strong>No account or analytics profile</strong>There is nothing to sign up for and no portfolio stored on a server.</span></p></div>
+        <div className="privacy-points"><p><i>01</i><span><strong>Browser-only processing</strong>{savedMode ? "Parsing and reconciliation happen here. Your PDF password stays in this tab." : "Your PDF is opened in memory and discarded after analysis."}</span></p><p><i>02</i><span><strong>{savedMode ? "Private saved statements" : "Optional account"}</strong>{savedMode ? "Your PDFs and analysis are stored on the server under your login until you delete them." : "Guest portfolios are never stored on a server. Choose analysis with login to save statements."}</span></p></div>
       </section>
       <footer><Brand /><p>Clarity for your consolidated account statement.</p><span>Built for privacy · Not investment advice</span></footer>
     </main>
@@ -613,12 +625,12 @@ function FundDrawer({ fund, onClose }: { fund: FundHolding; onClose: () => void 
   );
 }
 
-function FolioDrawer({ fund, folio, onClose }: { fund: FundHolding; folio: FolioHolding; onClose: () => void }) {
+function FolioDrawer({ fund, folio, onClose, savedMode }: { fund: FundHolding; folio: FolioHolding; onClose: () => void; savedMode: boolean }) {
   return (
     <HoldingDrawer
       title={folio.label}
       eyebrow={`${fund.category} · ${fund.name}`}
-      subtitle="Masked folio number · visible only in this browser tab"
+      subtitle={savedMode ? "Masked folio number · saved privately in your account" : "Masked folio number · visible only in this browser tab"}
       holding={folio}
       onClose={onClose}
       transactionTitle="Folio transactions"
@@ -691,10 +703,12 @@ function Dashboard({
   portfolio,
   onReset,
   historyProgress,
+  savedMode,
 }: {
   portfolio: Portfolio;
   onReset: () => void;
   historyProgress: HistoryProgressState | null;
+  savedMode: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<FundSort>(() => ({ ...DEFAULT_FUND_SORT }));
@@ -991,18 +1005,20 @@ function Dashboard({
       </div>
       {historyProgress && <HistoryProgressToast progress={historyProgress} />}
       {selected && <FundDrawer fund={selected} onClose={() => setSelectedFundKey(null)} />}
-      {selectedFolioFund && selectedFolio && <FolioDrawer fund={selectedFolioFund} folio={selectedFolio} onClose={() => setSelectedFolioKey(null)} />}
+      {selectedFolioFund && selectedFolio && <FolioDrawer fund={selectedFolioFund} folio={selectedFolio} savedMode={savedMode} onClose={() => setSelectedFolioKey(null)} />}
     </main>
   );
 }
 
-export default function FolioVista() {
-  const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
-  const [historyProgress, setHistoryProgress] = useState<HistoryProgressState | null>(null);
+function Analysis({ initialPortfolio, savedMode, onStatement }: WorkspaceProps) {
+  const [portfolio, setPortfolio] = useState<Portfolio | null>(initialPortfolio);
+  const [historyProgress, setHistoryProgress] = useState<HistoryProgressState | null>(() => initialPortfolio?.navHistoryLoading && initialPortfolio.navHistoryCoverage?.total
+    ? { completed: 0, total: initialPortfolio.navHistoryCoverage.total } : null);
   const importSequence = useRef(0);
   const historyRequest = useRef<AbortController | null>(null);
   const progressDismissTimer = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   useEffect(() => () => {
+    importSequence.current += 1;
     historyRequest.current?.abort();
     if (progressDismissTimer.current) globalThis.clearTimeout(progressDismissTimer.current);
   }, []);
@@ -1016,6 +1032,10 @@ export default function FolioVista() {
     setHistoryProgress(next.navHistoryLoading && historyTotal > 0
       ? { completed: 0, total: historyTotal }
       : null);
+    loadHistory(next, sequence);
+  };
+  const loadHistory = (next: Portfolio, sequence: number) => {
+    const historyTotal = next.navHistoryCoverage?.total ?? 0;
     if (!next.navHistoryLoading) return;
     const controller = new AbortController();
     historyRequest.current = controller;
@@ -1041,7 +1061,16 @@ export default function FolioVista() {
     setPortfolio(null);
     setHistoryProgress(null);
   };
+  useEffect(() => {
+    if (initialPortfolio) loadHistory(initialPortfolio, importSequence.current);
+    // AccountWorkspace remounts Analysis for each explicit restore or mode change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return portfolio
-    ? <Dashboard portfolio={portfolio} onReset={resetPortfolio} historyProgress={historyProgress} />
-    : <Landing onPortfolio={acceptPortfolio} />;
+    ? <Dashboard portfolio={portfolio} onReset={resetPortfolio} historyProgress={historyProgress} savedMode={savedMode} />
+    : <Landing onPortfolio={acceptPortfolio} savedMode={savedMode} onStatement={onStatement} />;
+}
+
+export default function FolioVista() {
+  return <AccountWorkspace render={props => <Analysis {...props} />} />;
 }

@@ -81,7 +81,8 @@ test.describe("independent critical-path verification", () => {
   });
 
   test("a second upload winning the race cannot be overwritten by stale history", async ({ page }) => {
-    test.fail(true, "working-version-11 does not sequence or cancel concurrent Landing.processFile calls");
+    // The saved-account lifecycle guard also prevents a departed Landing from
+    // overwriting the newer dashboard. This is now a required passing contract.
     let latestRequest = 0;
     await page.route("**/api/nav", async (route) => {
       latestRequest += 1;

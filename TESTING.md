@@ -17,6 +17,29 @@ That command runs, in order:
 3. Playwright semantic and visual tests across desktop Chromium, mobile
    Chromium, Firefox, and WebKit.
 
+Optional saved-account coverage adds five backend tests (generated migrations
+executed against SQLite) and two real-browser account flows per project.
+`test:ui` and `test:ui:desktop` first apply pending **local-only** D1 migrations;
+an explicit `PLAYWRIGHT_BASE_URL` leaves external database setup to its owner.
+Account browser fixtures use unique synthetic usernames and synthetic PDFs, and
+delete their uploaded statements after verification. Production is never used.
+The guest request/storage audits remain unchanged. Account keyboard controls
+precede the original landing navigation in Tab order.
+
+Donut keyboard focus and pointer hover have separate state, with a regression
+check for a delayed pointer exit after focus moves. Animated-slice hover checks
+target the middle of the ring. Responsive tooltip sweeps run as separate tests
+per viewport, retaining every slice and geometry assertion without extending
+timeouts. The comparison lifecycle test observes the brief completion notice in
+the browser before releasing its network gate. Its adjacent World Bank request
+uses synthetic inflation data, matching the existing public-data test boundary.
+Vite ignores generated traces, reports, coverage, scratch files and local
+Wrangler state so test output cannot trigger application reloads or race report
+cleanup during a long browser run.
+Chromium visual baselines include both macOS and Windows captures. New platform
+references do not replace another platform's reviewed images or relax the
+existing screenshot comparison tolerance.
+
 Install the browser runtimes once on a new development machine:
 
 ```sh

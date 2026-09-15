@@ -144,7 +144,19 @@ test.describe("dashboard information architecture", () => {
     const flexiCap = summaryDonut.getByRole("button", { name: /Flexi cap allocation: 21\.3% of portfolio/ });
     const revealSlice = async (slice: typeof smallCap) => {
       if (testInfo.project.name === "mobile-chromium") await slice.focus();
-      else await slice.hover();
+      else {
+        await slice.scrollIntoViewIfNeeded();
+        // Hover the middle of the ring, not Playwright's first hit-test point
+        // near an animated arc edge that can move away from a stationary mouse.
+        const point = await slice.evaluate((element: SVGPathElement) => {
+          const angle = (Number(element.dataset.midAngle) - 90) * Math.PI / 180;
+          const matrix = element.ownerSVGElement?.getScreenCTM();
+          if (!matrix) throw new Error("Donut must have screen geometry");
+          const position = new DOMPoint(90 + 62 * Math.cos(angle), 90 + 62 * Math.sin(angle)).matrixTransform(matrix);
+          return { x: position.x, y: position.y };
+        });
+        await page.mouse.move(point.x, point.y);
+      }
     };
 
     await revealSlice(smallCap);
@@ -223,5 +235,26 @@ test.describe("dashboard information architecture", () => {
     const percentages = await list.locator("em").allTextContents();
     const total = percentages.reduce((sum, value) => sum + Number.parseFloat(value), 0);
     expect(total).toBeCloseTo(100, 0);
+  });
+
+  test("a departing pointer cannot clear another slice's keyboard tooltip", async ({ page }) => {
+    const donut = page.locator(".hero-donut");
+    const small = donut.getByRole("button", { name: /Small cap allocation/ });
+    const flexi = donut.getByRole("button", { name: /Flexi cap allocation/ });
+    await small.click();
+    const stationaryPointer = { pointerType: "mouse", clientX: 10, clientY: 10, bubbles: true };
+    await small.dispatchEvent("pointermove", stationaryPointer);
+    await flexi.focus();
+    // A selected slice can animate out from under a stationary pointer after
+    // keyboard focus has already moved. Keep the two input states independent.
+    await small.dispatchEvent("pointerout", stationaryPointer);
+    await small.dispatchEvent("pointerover", stationaryPointer);
+    await small.dispatchEvent("pointermove", { ...stationaryPointer, movementX: 0, movementY: 0 });
+    await expect(donut).toHaveAttribute("data-active-slice", "category:Flexi cap");
+    await expect(page.getByRole("tooltip")).toContainText("Flexi cap allocation");
+    await small.dispatchEvent("pointerout", stationaryPointer);
+    await flexi.blur();
+    await expect(donut).toHaveAttribute("data-active-slice", "category:Small cap");
+    await expect(page.getByRole("tooltip")).toContainText("Selected");
   });
 });
