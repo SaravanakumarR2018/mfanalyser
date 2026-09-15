@@ -112,10 +112,17 @@ test.describe("accessibility and responsive behavior", () => {
       return input && Object.keys(input).some((key) => key.startsWith("__reactProps$"));
     });
     const howItWorks = page.getByRole("link", { name: "How it works" });
+    const guestMode = page.getByRole("button", { name: "Analyse without login" });
+    const savedMode = page.getByRole("button", { name: "Analyse with login" });
+    await expect(guestMode).toBeEnabled();
     const privacy = page.getByRole("link", { name: "Privacy" });
     const analyse = page.getByRole("button", { name: "Analyse statement" });
     if (testInfo.project.name === "desktop-webkit") {
       // Headless WebKit follows macOS's setting that omits links from initial Tab traversal.
+      await guestMode.focus();
+      await expect(guestMode).toBeFocused();
+      await savedMode.focus();
+      await expect(savedMode).toBeFocused();
       await howItWorks.focus();
       await expect(howItWorks).toBeFocused();
       await privacy.focus();
@@ -123,6 +130,10 @@ test.describe("accessibility and responsive behavior", () => {
       await analyse.focus();
       await expect(analyse).toBeFocused();
     } else {
+      await page.keyboard.press("Tab");
+      await expect(guestMode).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(savedMode).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(howItWorks).toBeFocused();
       await page.keyboard.press("Tab");
@@ -266,10 +277,9 @@ test.describe("accessibility and responsive behavior", () => {
     }
   });
 
-  test("allocation donuts, tooltips, and the concentration scroller stay contained at every target width", async ({ page }) => {
+  test("allocation donuts and their open tooltips meet accessibility requirements", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await openDemo(page);
-    const insightGrid = page.locator(".insight-grid");
     await page.locator(".hero-donut").getByRole("button", { name: /Small cap allocation/ }).hover();
     await expect(page.getByRole("tooltip")).toBeVisible();
     const summaryTooltipAccessibility = await new AxeBuilder({ page })
@@ -289,15 +299,22 @@ test.describe("accessibility and responsive behavior", () => {
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
       .analyze();
     expect(violationSummary(openTooltipAccessibility.violations)).toEqual([]);
+  });
 
-    for (const viewport of [
-      { width: 320, height: 720 },
-      { width: 390, height: 844 },
-      { width: 768, height: 1024 },
-      { width: 1440, height: 1000 },
-    ]) {
+  // Each viewport gets a fresh browser state and its own ordinary test budget.
+  // Retain the complete slice sweep rather than fitting 72 tooltips plus axe
+  // scans into one 30-second test on slower browser engines.
+  for (const viewport of [
+    { width: 320, height: 720 },
+    { width: 390, height: 844 },
+    { width: 768, height: 1024 },
+    { width: 1440, height: 1000 },
+  ]) {
+    test(`allocation donuts, tooltips, and scroller stay contained at ${viewport.width}px`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await openDemo(page);
       await page.setViewportSize(viewport);
-      await insightGrid.scrollIntoViewIfNeeded();
+      await page.locator(".insight-grid").scrollIntoViewIfNeeded();
       await expectNoHorizontalOverflow(page);
       for (const selector of [".hero-donut", ".allocation-donut", ".concentration-donut", ".top-list"]) {
         const element = page.locator(selector);
@@ -310,8 +327,8 @@ test.describe("accessibility and responsive behavior", () => {
       for (const selector of [".hero-donut", ".allocation-donut", ".concentration-donut"]) {
         await expectEveryTooltipOutsideDonut(page, page.locator(selector), viewport);
       }
-    }
-  });
+    });
+  }
 
   for (const viewport of [
     { name: "small phone", width: 320, height: 720 },

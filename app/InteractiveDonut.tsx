@@ -2,7 +2,7 @@
 
 import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, PointerEvent, ReactNode } from "react";
 import {
   allocationSliceOffset,
   allocationSlicePath,
@@ -41,7 +41,9 @@ export default function InteractiveDonut({
   const tooltipId = useId();
   const donutRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  const pointerPosition = useRef<{ x: number; y: number } | null>(null);
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<PositionedTooltip | null>(null);
   const slices = useMemo(() => {
@@ -57,7 +59,10 @@ export default function InteractiveDonut({
   const hoveredExists = hoveredKey && slices.some((slice) => slice.key === hoveredKey)
     ? hoveredKey
     : null;
-  const activeKey = hoveredExists ?? selectedExists;
+  const focusedExists = focusedKey && slices.some((slice) => slice.key === focusedKey)
+    ? focusedKey
+    : null;
+  const activeKey = focusedExists ?? hoveredExists ?? selectedExists;
   const activeSlice = slices.find((slice) => slice.key === activeKey);
   const tooltipPositionIsCurrent = Boolean(activeSlice && tooltipPosition?.key === activeSlice.key);
 
@@ -103,7 +108,18 @@ export default function InteractiveDonut({
 
   const clearSelection = () => {
     setHoveredKey(null);
+    setFocusedKey(null);
     setSelectedKey(null);
+  };
+
+  const hoverSlice = (event: PointerEvent<SVGPathElement>, key: string) => {
+    const previous = pointerPosition.current;
+    const next = { x: event.clientX, y: event.clientY };
+    pointerPosition.current = next;
+    setHoveredKey(key);
+    // Geometry can move beneath a stationary pointer during slice animation.
+    // Compare coordinates because movementX/Y vary between browser engines.
+    if (!previous || previous.x !== next.x || previous.y !== next.y) setFocusedKey(null);
   };
 
   const onSliceKeyDown = (event: KeyboardEvent<SVGPathElement>, key: string) => {
@@ -152,10 +168,12 @@ export default function InteractiveDonut({
               aria-describedby={active ? tooltipId : undefined}
               data-slice-key={slice.key}
               data-percentage={slice.percentage.toFixed(1)}
-              onFocus={() => setHoveredKey(slice.key)}
-              onBlur={() => setHoveredKey(null)}
-              onPointerEnter={() => setHoveredKey(slice.key)}
-              onPointerLeave={() => setHoveredKey(null)}
+              data-mid-angle={slice.midAngle}
+              onFocus={() => { setFocusedKey(slice.key); setHoveredKey(null); }}
+              onBlur={() => setFocusedKey((current) => current === slice.key ? null : current)}
+              onPointerEnter={(event) => hoverSlice(event, slice.key)}
+              onPointerMove={(event) => hoverSlice(event, slice.key)}
+              onPointerLeave={() => setHoveredKey((current) => current === slice.key ? null : current)}
               onClick={() => setSelectedKey((current) => current === slice.key ? null : slice.key)}
               onKeyDown={(event) => onSliceKeyDown(event, slice.key)}
             />

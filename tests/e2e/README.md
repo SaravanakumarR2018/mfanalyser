@@ -4,6 +4,12 @@ This suite treats commit `865aa11` / tag `working-version-11` as the minimum pro
 
 ## Run modes
 
+The optional saved-account feature adds `accounts.spec.ts`, which exercises real
+D1/R2-backed registration, upload, download, reload, login, library selection,
+deletion, guest-only processing while an account session exists, and failed-save
+retry. Local migrations are applied by the UI test scripts before the server is
+used. No real investor PDFs or account passwords are used in these tests.
+
 - `npm run test:ui:install` — one-time browser runtime installation on a new machine.
 - `npm run test:ui` — all semantic and visual UI checks on desktop Chromium, mobile Chromium, Firefox, and WebKit.
 - `npm run test:ui:desktop` — fast desktop-Chromium feedback.
@@ -57,7 +63,7 @@ unchanged. Windows-generated missing-baseline images are not approved goldens.
 
 `helpers/cas-fixture.ts` and `helpers/fund-comparison-fixture.ts` construct CAS PDFs in memory. Their summaries, units, transaction cash flows, balances, NAVs, and market values reconcile. The comparison fixture deliberately includes three current matched schemes, one matched closed scheme with an exact 1990 inception observation, one unmatched scheme, four different inception dates, sparse published observations, and same-day purchase/redemption activity that the comparison intentionally does not render. Its pointer checks require the nearest hovered line to become the sole emphasized line until the pointer moves away or reaches another fund. Latest and historical AMFI responses are intercepted at the browser network boundary. This keeps the parser and application state transitions real while removing external availability and date drift from CI.
 
-The visual checks freeze wall-clock time, request reduced motion, disable CSS animations during capture, and compare only stable component regions. Goldens are intentionally Chromium/Darwin-specific; Firefox and WebKit receive the full semantic suite.
+The visual checks freeze wall-clock time, request reduced motion, disable CSS animations during capture, and compare stable component regions. Chromium has separate desktop/mobile goldens for macOS and Windows; Firefox and WebKit receive the full semantic suite. Existing macOS references are retained when adding Windows captures.
 
 ## Actual tested state machine
 
@@ -96,11 +102,15 @@ These are recorded rather than fixed because this activity is test-only:
 7. `prefers-reduced-motion` disables CSS motion, but the portfolio canvas still runs its JavaScript 720 ms interpolation.
 8. The upload drop target remains active while an analysis is busy, so a second drop can start a competing import before the first finishes.
 
-Defects 3, 5, and 8 also have explicit `test.fail` contracts in
+Defects 3 and 5 have explicit `test.fail` contracts in
 `verifier-critical.spec.ts`. They run on all four browser projects: the gate
 fails if they regress differently, and will report an unexpected pass when the
 production defect is fixed so the expectation can be promoted to a normal
 assertion.
+
+The stale concurrent-upload overwrite from defect 8 is now fixed by the landing
+lifecycle guard and its verifier is a normal passing assertion. Saved-mode
+imports also reject a second concurrent upload while the first is processing.
 
 ## Testability limits / next hardening targets
 

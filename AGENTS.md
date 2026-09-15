@@ -20,12 +20,17 @@ the statement locally in the browser, reconciles it, optionally applies
 official AMFI NAV data, and presents an interactive portfolio dashboard. It is
 for tracking and visualization, not investment advice.
 
-Non-negotiable product promises:
+Product promises (the optional saved-account feature supersedes the original
+browser-only restrictions for explicitly selected signed-in analysis):
 
-- The CAS PDF and its password stay in browser memory and are never uploaded.
-- Portfolio contents are not stored in cookies, Web Storage, IndexedDB, Cache
-  Storage, a service worker, D1, R2, application logs, or analytics.
-- Only read-only NAV requests may leave the browser after parsing.
+- Guest CAS PDFs and portfolios stay in browser memory and are never uploaded.
+- Signed-in saved analysis stores PDFs and versioned reconciled snapshots in
+  private R2, with account ownership, scrypt password hashes, sessions and file
+  metadata in D1. PDF passwords always stay in browser memory.
+- Never put portfolio contents in browser storage, cookies, logs or analytics.
+  Session cookies contain opaque random tokens only.
+- Account storage calls may leave the browser only in the account workflow;
+  public pricing/history requests must never include investor data.
 - Values shown as exact, live, daily, transaction-derived, or unavailable must
   retain those meanings. Do not silently estimate missing financial data.
 - Statement totals must reconcile before a real portfolio is rendered.
@@ -42,8 +47,9 @@ Non-negotiable product promises:
   `public/pdf.worker.min.mjs` file.
 - Playwright plus axe-core provides browser, responsive, accessibility, and
   visual regression coverage.
-- Optional Drizzle/D1 and ChatGPT sign-in scaffolding exists but the current
-  FolioVista flow does not persist portfolios or require authentication.
+- Drizzle/D1 and R2 support optional app-owned username/password accounts.
+  Guest analysis remains available without authentication. ChatGPT sign-in
+  scaffolding is unrelated to the saved-account workflow.
 
 ## Repository map
 
@@ -122,9 +128,10 @@ Non-negotiable product promises:
 - `worker/index.ts` is the Cloudflare entry point and image-optimization path.
 - `build/sites-vite-plugin.ts` packages `.openai/hosting.json` and migrations in
   the build output.
-- `.openai/hosting.json` currently sets both D1 and R2 to `null`.
-- `db/schema.ts` is intentionally empty. `examples/d1/` is opt-in example code,
-  not an active FolioVista data store.
+- `.openai/hosting.json` declares D1 `DB` and private R2 `BUCKET`.
+- `db/schema.ts` and append-only Drizzle migrations own the account schema.
+- `server/vault.ts` enforces account authentication and ownership for every saved
+  statement endpoint. `app/AccountWorkspace.tsx` owns account/library state.
 - `app/chatgpt-auth.ts` is optional Sites authentication scaffolding. Do not
   create application routes for reserved sign-in, sign-out, or callback paths.
 
@@ -144,8 +151,8 @@ Non-negotiable product promises:
 - `playwright.config.ts` runs desktop Chromium, mobile Chromium, desktop
   Firefox, and desktop WebKit. It starts or reuses a server on port 3001 unless
   `PLAYWRIGHT_BASE_URL` is provided.
-- The 22 screenshot goldens are Chromium/Darwin-specific and must be treated as
-  reviewed artifacts, not regenerated casually.
+- Screenshot goldens cover desktop/mobile Chromium on macOS and Windows. Treat
+  them as reviewed artifacts, not files to regenerate casually.
 - All CAS fixtures must remain synthetic. Never check in a real or merely
   redacted investor statement.
 
@@ -178,8 +185,9 @@ Preserve and test every applicable transition:
 9. Complete, incomplete, cancelled, and retry/no-op history outcomes retain the
    correct coverage and error state. Missing observations are skipped, never
    estimated.
-10. Importing another CAS resets dashboard-only state. A full page reload returns
-   to the landing page because no portfolio is persisted.
+10. Importing another CAS resets dashboard-only state. Guest reload returns to
+   landing. Saved-mode reload restores the last active statement using its
+   reconciled snapshot and refreshes NAVs. New uploads retain previous files.
 11. Demo data bypasses network refresh and is returned by identity.
 
 ## Financial and data invariants
@@ -311,7 +319,12 @@ The current full gate contains:
 - 2 passing rendered-HTML tests after a successful production build;
 - 288 Playwright executions: 265 ordinary passes, 12 expected-failure
   executions, and 11 intentional project skips, reported by Playwright as
-  `277 passed, 11 skipped` with zero unexpected failures.
+  `277 passed, 11 skipped` with zero unexpected failures at that historical baseline.
+
+The saved-account feature promotes the stale concurrent-upload overwrite test
+to an ordinary passing assertion; the remaining two expected defects account
+for eight expected-failure executions across four browsers. New account tests
+are additional coverage; the historical counts above are not current totals.
 
 Test counts may grow as behavior grows. A smaller count is suspicious and must
 be explained. The 12 expected-failure executions are three documented product

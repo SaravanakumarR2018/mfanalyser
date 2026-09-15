@@ -1,4 +1,5 @@
 import type { Page, Route } from "@playwright/test";
+import { installInflationMock } from "./inflation-fixture";
 
 export const COMPARISON_SCHEMES = {
   alpha: { code: "100001", isin: "INF111A01010", name: "Alpha Flexi Cap Direct Growth", latestNav: 16 },
@@ -157,6 +158,9 @@ export async function installFundComparisonMocks(page: Page, onHistory?: (
   key: ComparisonSchemeKey,
   isFullHistory: boolean,
 ) => Promise<void>) {
+  // Comparison scrolling can reveal the adjacent public inflation chart.
+  // Intercept that request too; external TLS availability is not under test.
+  await installInflationMock(page);
   await page.route("**/api/nav", (route) => route.fulfill({
     status: 200,
     contentType: "text/plain; charset=utf-8",

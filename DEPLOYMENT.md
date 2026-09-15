@@ -2,8 +2,9 @@
 
 FolioVista is packaged for OpenAI Sites by the production build. The build
 emits the Cloudflare Worker bundle, static assets, and `.openai/hosting.json`
-under `dist/`. The current application does not request D1 or R2 bindings, so a
-deployment does not introduce portfolio persistence.
+under `dist/`. Optional username/password accounts now require D1 `DB` and R2
+`BUCKET`. Guest analysis remains entirely local. The account storage contract
+and direct Cloudflare setup are documented in `PERSISTENCE.md`.
 
 ## Approval-gated releases
 
@@ -30,8 +31,9 @@ Suggested approval wording:
 
 - Run `npm test` after the final code change and before requesting approval.
 - Do not deploy a dirty worktree or a revision other than the approved SHA.
-- Do not add D1, R2, analytics, logging, or other portfolio persistence as part
-  of a release.
+- Reuse the production D1 database and private R2 bucket across releases. Never
+  create fresh production resources per build, reset tables, or bind previews to
+  production resources. Do not add investor-data logging or analytics.
 - Do not send CAS PDFs, passwords, extracted statement text, folio information,
   or portfolio values through deployment or verification requests.
 - Rollbacks are releases too: identify the rollback commit, test it, and obtain

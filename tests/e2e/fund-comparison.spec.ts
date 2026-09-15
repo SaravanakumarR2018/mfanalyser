@@ -135,14 +135,26 @@ test.describe("full-history normalized fund comparison", () => {
     expect(await card.evaluate((element) => element.getBoundingClientRect().top > window.innerHeight)).toBe(true);
     expect(fullHistoryUrls).toEqual([]);
 
+    // Observe the short-lived completion notification in the browser before
+    // releasing the network gate, so driver latency cannot miss its 650 ms life.
+    const notification = await page.locator(".history-progress-toast").evaluateHandle((toast) => {
+      const observed = { label: "", text: "" };
+      const observer = new MutationObserver(() => {
+        if (toast.getAttribute("aria-label") === "Daily NAV history 100% loaded") {
+          observed.label = toast.getAttribute("aria-label") ?? "";
+          observed.text = toast.textContent ?? "";
+          observer.disconnect();
+        }
+      });
+      observer.observe(toast, { attributes: true, childList: true, subtree: true, characterData: true });
+      return observed;
+    });
     releaseDaily();
     await expect(card).toHaveAttribute("data-history-state", "loading");
     await expect(card.locator(".fund-comparison-summary")).toContainText("Loading full NAV histories");
-    await expect(page.locator(".history-progress-toast")).toHaveAttribute(
-      "aria-label",
-      "Daily NAV history 100% loaded",
-    );
-    await expect(page.locator(".history-progress-toast")).not.toContainText("full NAV histories");
+    await expect.poll(() => notification.evaluate((observed) => observed.label)).toBe("Daily NAV history 100% loaded");
+    expect(await notification.evaluate((observed) => observed.text)).not.toContain("full NAV histories");
+    await notification.dispose();
     expect(await card.evaluate((element) => element.getBoundingClientRect().top > window.innerHeight)).toBe(true);
     const firstComparison = lifecycle.findIndex((event) => event.startsWith("comparison:"));
     const lastDailyCompletion = lifecycle.reduce((last, event, index) => (

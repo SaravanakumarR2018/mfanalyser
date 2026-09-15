@@ -35,6 +35,7 @@ does not.
 | Chart/model calculations | Empty/constant scale, non-finite inputs, fund stacks, closed funds, contribution reconciliation, deterministic sorting and immutability |
 | Allocation visualization | Exact portfolio shares, invalid/non-positive filtering, immutable inputs, finite SVG donut paths, deterministic radial selection offsets, and viewport-safe tooltip placement with zero donut overlap |
 | Server proxy | Latest NAV pass-through, cache contract, and safe 502 errors |
+| Saved accounts | Salted password hashing, login/logout/session expiry, CSRF, persistent rate limiting, username normalization, account ownership for list/read/download/select/delete, multiple files, idempotent upload retries, failed upload preservation, upload size rejection, changed-account detection, guest availability without bindings |
 
 ## Baseline issues found (production code intentionally unchanged)
 

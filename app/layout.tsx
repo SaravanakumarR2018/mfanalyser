@@ -8,7 +8,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
   const title = "FolioVista — Mutual Fund CAS Dashboard";
-  const description = "Turn a CAMS or KFintech CAS PDF into a private, interactive mutual fund portfolio dashboard. Your statement never leaves your browser.";
+  const description = "Turn a CAMS or KFintech CAS PDF into a private, interactive mutual fund portfolio dashboard. Your statement never leaves your browser in guest mode. Sign in to save PDFs and analysis privately.";
   return {
     metadataBase: new URL(origin),
     title,

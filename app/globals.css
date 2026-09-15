@@ -1,5 +1,29 @@
 @import "tailwindcss";
 
+.account-bar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px max(20px, calc((100vw - 1320px) / 2)); background: #102938; color: #effaf5; border-bottom: 1px solid #36505e; }
+.account-bar strong, .account-bar span { display: block; }
+.account-bar span { font-size: .875rem; color: #c3d4d8; margin-top: 4px; }
+.account-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.account-bar button, .account-panel button, .account-notice button { min-height: 40px; padding: 8px 12px; border: 1px solid #647c89; border-radius: 8px; cursor: pointer; font-size: .875rem; }
+.account-bar button[aria-pressed="true"] { background: #b9f8d3; color: #0b1d2a; border-color: #b9f8d3; }
+.account-panel { max-width: 1000px; margin: 24px auto; padding: 24px; background: #102938; color: #effaf5; border: 1px solid #647c89; border-radius: 16px; }
+.account-panel h2 { font-size: 1.5rem; margin-bottom: 12px; }
+.account-panel p { margin: 12px 0; color: #c3d4d8; }
+.account-panel form { display: grid; gap: 16px; max-width: 480px; }
+.account-panel label { display: grid; gap: 6px; }
+.account-panel input { background: #0b1d2a; color: white; border: 1px solid #647c89; border-radius: 8px; padding: 12px; font-size: 1rem; }
+.account-panel small { font-size: .875rem; color: #c3d4d8; }
+.statement-list { list-style: none; padding: 0; }
+.statement-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px 0; border-bottom: 1px solid #36505e; }
+.statement-list li > div:first-child { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+.statement-list small { display: block; margin-top: 4px; }
+.statement-list a { text-decoration: underline; font-size: .875rem; }
+.delete-confirm { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; width: 100%; }
+.account-notice { position: fixed; bottom: 20px; right: 12px; z-index: 150; width: max-content; max-width: min(480px, calc(100vw - 24px)); display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #b9f8d3; color: #0b1d2a; border: 1px solid #36505e; border-radius: 12px; box-shadow: 0 8px 32px #0004; font-size: .875rem; }
+.account-notice.has-error { background: #ffe0d7; }
+.account-bar button:disabled, .account-panel button:disabled { opacity: .6; cursor: wait; }
+@media (max-width: 700px) { .account-bar { align-items: stretch; flex-direction: column; padding: 14px 20px; } .account-panel { margin: 16px; padding: 20px; } .account-notice { flex-wrap: wrap; } }
+
 :root {
   --ink: #0b1d2a;
   --ink-2: #173143;
